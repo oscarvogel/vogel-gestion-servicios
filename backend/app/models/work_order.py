@@ -3,6 +3,18 @@ from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstr
 from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base
 
+class WorkOrderStatus(Base):
+    __tablename__ = "work_order_statuses"
+    __table_args__ = (UniqueConstraint("company_id","name",name="uq_work_order_status_company_name"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id",ondelete="CASCADE"),index=True)
+    name: Mapped[str] = mapped_column(String(60),nullable=False)
+    color: Mapped[str] = mapped_column(String(7),nullable=False,default="#3B82F6")
+    sort_order: Mapped[int] = mapped_column(Integer,nullable=False,default=0)
+    active: Mapped[bool] = mapped_column(nullable=False,default=True)
+    is_initial: Mapped[bool] = mapped_column(nullable=False,default=False)
+    is_final: Mapped[bool] = mapped_column(nullable=False,default=False)
+
 class WorkOrderCounter(Base):
     __tablename__ = "work_order_counters"
     company_id: Mapped[int] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"), primary_key=True)
@@ -23,6 +35,7 @@ class WorkOrder(Base):
     notes: Mapped[str | None] = mapped_column(Text)
     received_by_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"),nullable=False)
     status: Mapped[str] = mapped_column(String(30),nullable=False,default="RECEIVED",index=True)
+    status_id: Mapped[int | None] = mapped_column(ForeignKey("work_order_statuses.id"),nullable=True,index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime,server_default=func.now(),nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime,server_default=func.now(),onupdate=func.now(),nullable=False)
 

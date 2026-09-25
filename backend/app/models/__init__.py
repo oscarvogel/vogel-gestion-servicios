@@ -7,7 +7,7 @@ from app.models.role import (
     role_permissions,
 )
 from app.models.user import CompanyUser, User
-from app.models.work_order import WorkOrder, WorkOrderCounter, WorkOrderEvent, WorkOrderEvidence
+from app.models.work_order import WorkOrder, WorkOrderCounter, WorkOrderEvent, WorkOrderEvidence, WorkOrderStatus
 
 __all__ = [
     "Company",
@@ -24,4 +24,5 @@ __all__ = [
     "WorkOrderCounter",
     "WorkOrderEvent",
     "WorkOrderEvidence",
+    "WorkOrderStatus",
 ]

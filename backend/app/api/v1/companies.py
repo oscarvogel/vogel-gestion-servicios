@@ -59,7 +59,7 @@ def current_company(
 ):
     company = db.get(Company, company_id)
     if not company:
-        raise HTTPException(status_code=404, detail="Company not found")
+        raise HTTPException(status_code=404, detail="Empresa no encontrada.")
     return _serialize(company, user_count=_count_users(db, company.id))
 
 
@@ -71,9 +71,9 @@ def enter_company(
 ):
     company = db.get(Company, company_id)
     if not company:
-        raise HTTPException(status_code=404, detail="Company not found")
+        raise HTTPException(status_code=404, detail="Empresa no encontrada.")
     if not company.active:
-        raise HTTPException(status_code=403, detail="Company inactive")
+        raise HTTPException(status_code=403, detail="La empresa está inactiva.")
     return TokenBundle(
         access_token=create_access_token(
             user.id, company.id, superadmin=user.is_superadmin
@@ -134,10 +134,10 @@ def create_company(
 ):
     """Crea una empresa. Sólo SuperAdmin (companies.create)."""
     if db.query(Company).filter(Company.name == payload.name).first():
-        raise HTTPException(status_code=409, detail="Company name already exists")
+        raise HTTPException(status_code=409, detail="Ya existe una empresa con ese nombre.")
     slug = payload.slug or _slugify(payload.name)
     if db.query(Company).filter(Company.slug == slug).first():
-        raise HTTPException(status_code=409, detail="Company slug already exists")
+        raise HTTPException(status_code=409, detail="Ya existe una empresa con ese identificador.")
     company = Company(
         name=payload.name,
         legal_name=payload.legal_name,
@@ -160,7 +160,7 @@ def create_company(
             if not payload.admin_password or not payload.admin_full_name:
                 raise HTTPException(
                     status_code=400,
-                    detail="admin_full_name and admin_password are required to create a new admin user",
+                    detail="Debe indicar nombre completo y contraseña para crear el administrador inicial.",
                 )
             admin_user = User(
                 email=str(payload.admin_email),
@@ -215,7 +215,7 @@ def get_company(
 ):
     company = db.get(Company, company_id)
     if not company:
-        raise HTTPException(status_code=404, detail="Company not found")
+        raise HTTPException(status_code=404, detail="Empresa no encontrada.")
     if not user.is_superadmin:
         membership = (
             db.query(CompanyUser)
@@ -223,7 +223,7 @@ def get_company(
             .first()
         )
         if not membership:
-            raise HTTPException(status_code=403, detail="Company access denied")
+            raise HTTPException(status_code=403, detail="No tiene acceso a esta empresa.")
     users_total = _count_users(db, company.id)
     admin_total = (
         db.query(func.count(CompanyUser.id))
@@ -262,14 +262,14 @@ def update_company(
 ):
     company = db.get(Company, company_id)
     if not company:
-        raise HTTPException(status_code=404, detail="Company not found")
+        raise HTTPException(status_code=404, detail="Empresa no encontrada.")
     data = payload.model_dump(exclude_unset=True)
     if "name" in data and data["name"] != company.name:
         if db.query(Company).filter(Company.name == data["name"]).first():
-            raise HTTPException(status_code=409, detail="Company name already exists")
+            raise HTTPException(status_code=409, detail="Ya existe una empresa con ese nombre.")
     if "slug" in data and data["slug"] and data["slug"] != company.slug:
         if db.query(Company).filter(Company.slug == data["slug"]).first():
-            raise HTTPException(status_code=409, detail="Company slug already exists")
+            raise HTTPException(status_code=409, detail="Ya existe una empresa con ese identificador.")
     for key, value in data.items():
         setattr(company, key, value)
     db.commit()
@@ -285,7 +285,7 @@ def enable_company(
 ):
     company = db.get(Company, company_id)
     if not company:
-        raise HTTPException(status_code=404, detail="Company not found")
+        raise HTTPException(status_code=404, detail="Empresa no encontrada.")
     company.active = True
     db.commit()
     db.refresh(company)
@@ -300,7 +300,7 @@ def disable_company(
 ):
     company = db.get(Company, company_id)
     if not company:
-        raise HTTPException(status_code=404, detail="Company not found")
+        raise HTTPException(status_code=404, detail="Empresa no encontrada.")
     company.active = False
     db.commit()
     db.refresh(company)

@@ -25,3 +25,19 @@ Plataforma web multiempresa para gestión de servicios técnicos, órdenes de tr
 5. Frontend: `http://localhost:5173`.
 
 La regla central es que el tenant efectivo se obtiene de una empresa activa autorizada para el usuario; no se confía en un `company_id` arbitrario enviado por el frontend.
+
+## API de foundation
+
+- `GET /health` devuelve `{"status":"ok"}`.
+- `POST /api/v1/auth/login` emite access y refresh tokens sin empresa activa.
+- `POST /api/v1/auth/refresh` emite un nuevo access token desde un refresh token.
+- `POST /api/v1/auth/select-company` valida empresa activa y membresía antes de fijar el tenant.
+- `GET /api/v1/companies/current` requiere un tenant válido en el access token.
+
+Después de ejecutar `alembic upgrade head`, el seed de staging se ejecuta únicamente de forma explícita:
+
+```powershell
+python backend/scripts/seed_staging.py
+```
+
+Las contraseñas del seed se leen desde `STAGING_*_PASSWORD` o se generan de forma segura; no se almacenan en el repositorio.

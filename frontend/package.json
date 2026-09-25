@@ -1,0 +1,1 @@
+{"name":"vogel-gestion-servicios-frontend","private":true,"version":"0.1.0","type":"module","scripts":{"dev":"vite --host 0.0.0.0","build":"vite build"},"dependencies":{"axios":"^1.12.2","pinia":"^3.0.3","vue":"^3.5.21","vue-router":"^4.5.1"},"devDependencies":{"@vitejs/plugin-vue":"^6.0.1","vite":"^7.1.7","typescript":"^5.9.2"}}

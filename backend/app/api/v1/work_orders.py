@@ -6,9 +6,35 @@ from sqlalchemy.orm import Session
 from app.api.dependencies import get_current_company_id,get_db,require_permission
 from app.models.customer import Customer,Equipment,EquipmentCategory
 from app.models.user import User
-from app.models.work_order import WorkOrder,WorkOrderCounter,WorkOrderEvent
+from app.models.work_order import WorkOrder,WorkOrderCounter,WorkOrderEvent,WorkOrderStatus
 
 router=APIRouter()
+
+class StatusInput(BaseModel):
+    name:str=Field(min_length=1,max_length=60);color:str=Field(pattern=r"^#[0-9A-Fa-f]{6}$");sort_order:int=0;active:bool=True;is_initial:bool=False;is_final:bool=False
+class StatusRead(StatusInput):
+    id:int
+    model_config={"from_attributes":True}
+class StatusChange(BaseModel):
+    status_id:int
+
+@router.get("/statuses",response_model=list[StatusRead])
+def list_statuses(company_id:int=Depends(get_current_company_id),_actor:User=Depends(require_permission("work_orders.view")),db:Session=Depends(get_db)):
+    return db.query(WorkOrderStatus).filter_by(company_id=company_id).order_by(WorkOrderStatus.sort_order,WorkOrderStatus.name).all()
+
+@router.post("/statuses",response_model=StatusRead,status_code=201)
+def create_status(payload:StatusInput,company_id:int=Depends(get_current_company_id),_actor:User=Depends(require_permission("work_orders.manage")),db:Session=Depends(get_db)):
+    if db.query(WorkOrderStatus).filter(WorkOrderStatus.company_id==company_id,WorkOrderStatus.name.ilike(payload.name.strip())).first(): raise HTTPException(409,"Ya existe un estado con ese nombre.")
+    if payload.is_initial: db.query(WorkOrderStatus).filter_by(company_id=company_id).update({"is_initial":False})
+    row=WorkOrderStatus(company_id=company_id,**payload.model_dump());row.name=row.name.strip();db.add(row);db.commit();db.refresh(row);return row
+
+@router.patch("/statuses/{status_id}",response_model=StatusRead)
+def update_status(status_id:int,payload:StatusInput,company_id:int=Depends(get_current_company_id),_actor:User=Depends(require_permission("work_orders.manage")),db:Session=Depends(get_db)):
+    row=db.query(WorkOrderStatus).filter_by(id=status_id,company_id=company_id).first()
+    if not row: raise HTTPException(404,"Estado no encontrado.")
+    if payload.is_initial: db.query(WorkOrderStatus).filter(WorkOrderStatus.company_id==company_id,WorkOrderStatus.id!=row.id).update({"is_initial":False})
+    for k,v in payload.model_dump().items(): setattr(row,k,v.strip() if k=="name" else v)
+    db.commit();db.refresh(row);return row
 
 class WorkOrderInput(BaseModel):
     customer_id:int;equipment_id:int
@@ -18,7 +44,7 @@ class WorkOrderInput(BaseModel):
 class WorkOrderRead(BaseModel):
     id:int;company_id:int;number:int;customer_id:int;customer_name:str;customer_phone:str|None
     equipment_id:int;equipment_label:str;serial_number:str|None;received_at:datetime;reported_fault:str
-    physical_condition:str|None;accessories:str|None;notes:str|None;received_by_user_id:int;received_by_name:str;status:str
+    physical_condition:str|None;accessories:str|None;notes:str|None;received_by_user_id:int;received_by_name:str;status:str;status_id:int|None;status_name:str;status_color:str
     model_config={"from_attributes":True}
 
 class WorkOrderList(BaseModel):
@@ -41,7 +67,9 @@ def _read(db:Session,row:WorkOrder):
     return {"id":row.id,"company_id":row.company_id,"number":row.number,"customer_id":row.customer_id,"customer_name":customer.name,"customer_phone":customer.phone or customer.whatsapp,
         "equipment_id":row.equipment_id,"equipment_label":label,"serial_number":equipment.serial_number,"received_at":row.received_at,"reported_fault":row.reported_fault,
         "physical_condition":row.physical_condition,"accessories":row.accessories,"notes":row.notes,"received_by_user_id":row.received_by_user_id,
-        "received_by_name":receiver.full_name if receiver else "Usuario","status":row.status}
+        "received_by_name":receiver.full_name if receiver else "Usuario","status":row.status,
+        "status_id":row.status_id,"status_name":(db.get(WorkOrderStatus,row.status_id).name if row.status_id and db.get(WorkOrderStatus,row.status_id) else row.status.title()),
+        "status_color":(db.get(WorkOrderStatus,row.status_id).color if row.status_id and db.get(WorkOrderStatus,row.status_id) else "#10B981")}
 
 def _next_number(db:Session,company_id:int)->int:
     dialect=db.get_bind().dialect.name
@@ -72,7 +100,8 @@ def create_order(payload:WorkOrderInput,company_id:int=Depends(get_current_compa
     if not equipment: raise HTTPException(422,"El equipo no pertenece al cliente y empresa activos.")
     try:
         number=_next_number(db,company_id)
-        row=WorkOrder(company_id=company_id,number=number,received_by_user_id=actor.id,status="RECEIVED",**payload.model_dump())
+        initial=db.query(WorkOrderStatus).filter_by(company_id=company_id,is_initial=True,active=True).order_by(WorkOrderStatus.sort_order).first()
+        row=WorkOrder(company_id=company_id,number=number,received_by_user_id=actor.id,status="RECEIVED",status_id=initial.id if initial else None,**payload.model_dump())
         db.add(row);db.flush()
         db.add(WorkOrderEvent(company_id=company_id,work_order_id=row.id,event_type="RECEPTION",status="RECEIVED",detail="Equipo recibido y orden de trabajo generada.",user_id=actor.id))
         db.commit();db.refresh(row);return _read(db,row)
@@ -91,3 +120,16 @@ def events(work_order_id:int,company_id:int=Depends(get_current_company_id),_act
     for e in rows:
         u=db.get(User,e.user_id);result.append({"id":e.id,"event_type":e.event_type,"status":e.status,"detail":e.detail,"user_id":e.user_id,"user_name":u.full_name if u else "Usuario","created_at":e.created_at})
     return result
+
+
+@router.post("/{work_order_id}/status",response_model=WorkOrderRead)
+def change_status(work_order_id:int,payload:StatusChange,company_id:int=Depends(get_current_company_id),actor:User=Depends(require_permission("work_orders.manage")),db:Session=Depends(get_db)):
+    row=_row(db,company_id,work_order_id)
+    target=db.query(WorkOrderStatus).filter_by(id=payload.status_id,company_id=company_id,active=True).first()
+    if not target: raise HTTPException(422,"El estado no pertenece a esta empresa o está inactivo.")
+    previous=db.get(WorkOrderStatus,row.status_id) if row.status_id else None
+    if row.status_id==target.id:return _read(db,row)
+    row.status_id=target.id
+    row.status=target.name.upper().replace(" ","_")[:30]
+    db.add(WorkOrderEvent(company_id=company_id,work_order_id=row.id,event_type="STATUS_CHANGE",status=row.status,detail=f"Estado cambiado de {previous.name if previous else 'sin estado'} a {target.name}.",user_id=actor.id))
+    db.commit();db.refresh(row);return _read(db,row)

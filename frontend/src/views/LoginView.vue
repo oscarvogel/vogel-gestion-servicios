@@ -40,11 +40,7 @@ async function onSubmit() {
 <template>
   <div class="auth-shell">
     <aside
-      class="auth-shell__hero"
-      :style="{
-          backgroundImage:
-            'linear-gradient(135deg, rgba(11,23,48,0.7), rgba(11,23,48,0.45)), url(\'https://images.unsplash.com/photo-1581090700227-1e37b190418e?auto=format&fit=crop&w=1200&q=80\')',
-        }"
+      class="auth-shell__hero auth-shell__hero--branding"
     >
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:48px">
         <VogelLogo :size="78" />

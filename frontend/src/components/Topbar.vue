@@ -91,7 +91,7 @@ async function goToCompanySelector() {
           </div>
           <div class="topbar__menu-separator" />
           <button class="topbar__menu-action" type="button" role="menuitem" @click="logout">
-            <IconLogout /><span>Cerrar sesión</span>
+            <IconLogout class="topbar__menu-icon" /><span>Cerrar sesión</span>
           </button>
         </div>
       </div>
@@ -121,7 +121,7 @@ async function goToCompanySelector() {
 .topbar__menu-profile small{font-size:11px;color:var(--color-text-muted)}
 .topbar__menu-separator{height:1px;background:var(--color-border);margin:3px 0}
 .topbar__menu-action{display:flex;align-items:center;gap:9px;width:100%;padding:10px 11px;border:0;border-radius:9px;background:transparent;color:var(--color-text);cursor:pointer;text-align:left}
-.topbar__menu-action:hover{background:var(--color-surface-hover)}
+.topbar__menu-action:hover{background:var(--color-surface-hover)}\n.topbar__menu-icon{width:18px;height:18px;min-width:18px;flex:0 0 18px}
 @media(max-width:900px){.topbar__mobile-menu{display:inline-flex}.topbar__identity-copy,.topbar__theme span{display:none}.topbar__company span{display:none}}
 @media(max-width:600px){.topbar__company{max-width:120px}.topbar__company strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.topbar__right{gap:4px}}
 </style>

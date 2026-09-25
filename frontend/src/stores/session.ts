@@ -178,6 +178,22 @@ export const useSessionStore = defineStore("session", () => {
 
       try {
         await loadMe();
+        // activeCompany is persisted independently from the JWT. After a browser
+        // reload an older/platform access token may still be valid but have no
+        // company_id. Re-select the persisted company before any tenant view mounts.
+        if (activeCompany.value) {
+          try {
+            const response = await apiPost<{ access_token: string; token_type: string }>(
+              "/auth/select-company",
+              { company_id: activeCompany.value.id }
+            );
+            setToken(response.access_token);
+            token.value = response.access_token;
+            await loadMe();
+          } catch (_) {
+            persistActiveCompany(null);
+          }
+        }
         authStatus.value = "authenticated";
         return;
       } catch (_) {
@@ -187,6 +203,17 @@ export const useSessionStore = defineStore("session", () => {
       if (await refresh()) {
         try {
           await loadMe();
+          // refreshAccessToken restores the persisted tenant when possible. If
+          // another refresh implementation returned platform mode, normalize it.
+          if (activeCompany.value) {
+            const response = await apiPost<{ access_token: string; token_type: string }>(
+              "/auth/select-company",
+              { company_id: activeCompany.value.id }
+            );
+            setToken(response.access_token);
+            token.value = response.access_token;
+            await loadMe();
+          }
           authStatus.value = "authenticated";
           return;
         } catch (_) {

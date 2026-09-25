@@ -1,12 +1,11 @@
 <script setup lang="ts">
-import { onMounted, ref, computed } from "vue";
-import { useRoute, useRouter } from "vue-router";
+import { ref, computed } from "vue";
+import { useRoute } from "vue-router";
 import { useSessionStore } from "../stores/session";
 import Sidebar from "./Sidebar.vue";
 import Topbar from "./Topbar.vue";
 
 const session = useSessionStore();
-const router = useRouter();
 const route = useRoute();
 const menuOpen = ref(false);
 
@@ -24,15 +23,6 @@ const title = computed(() => {
   return "Vogel";
 });
 
-onMounted(async () => {
-  if (!session.me) {
-    try {
-      await session.loadMe();
-    } catch (error) {
-      router.replace({ name: "login" });
-    }
-  }
-});
 </script>
 
 <template>

@@ -365,7 +365,7 @@ def list_memberships(
         )
         if not shared:
             raise HTTPException(status_code=403, detail="No tiene acceso a este usuario.")
-    return [_membership_read(db, m) for m in user.company_memberships]
+    memberships = (\n        db.query(CompanyUser)\n        .filter(CompanyUser.user_id == user.id)\n        .order_by(CompanyUser.id)\n        .all()\n    )\n    if not actor.is_superadmin:\n        memberships = [m for m in memberships if m.company_id == current_company_id]\n    return [_membership_read(db, m) for m in memberships]
 
 
 @router.post(

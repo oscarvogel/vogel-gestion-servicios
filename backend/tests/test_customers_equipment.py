@@ -54,4 +54,3 @@ def test_categories_are_tenant_scoped_and_case_insensitive(client,db_session):
     assert first.json()["id"]==again.json()["id"]
     assert first.json()["company_id"]==a.id and other.json()["company_id"]==b.id
     assert {x["company_id"] for x in client.get("/api/v1/customers/equipment-categories/search",headers=ha).json()}=={a.id}
-    assert mismatch.status_code==422

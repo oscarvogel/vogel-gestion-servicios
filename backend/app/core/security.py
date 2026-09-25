@@ -22,6 +22,7 @@ def create_token(
     token_type: str,
     delta: timedelta,
     company_id: int | None = None,
+    superadmin: bool = False,
 ) -> str:
     now = datetime.now(timezone.utc)
     payload = {
@@ -32,15 +33,18 @@ def create_token(
     }
     if company_id is not None:
         payload["company_id"] = company_id
+    if superadmin:
+        payload["su"] = 1
     return jwt.encode(payload, settings.jwt_secret, algorithm=ALGORITHM)
 
 
-def create_access_token(user_id: int, company_id: int | None = None) -> str:
+def create_access_token(user_id: int, company_id: int | None = None, *, superadmin: bool = False) -> str:
     return create_token(
         user_id,
         "access",
         timedelta(minutes=settings.access_token_minutes),
         company_id,
+        superadmin=superadmin,
     )
 
 

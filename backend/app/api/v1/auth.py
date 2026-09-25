@@ -3,7 +3,22 @@ from jose import JWTError, jwt
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import get_current_user, get_db
+from app.api.dependencies import (
+    _user_permissions_for_company,
+    decode_token,
+    get_bearer_token,
+    get_current_user,
+    get_db,
+)
+from app.api.v1.schemas import (
+    CompanyOption,
+    LoginRequest,
+    MeResponse,
+    MembershipSummary,
+    RefreshRequest,
+    SelectCompanyRequest,
+    TokenBundle,
+)
 from app.core.config import settings
 from app.core.security import (
     ALGORITHM,
@@ -17,36 +32,18 @@ from app.models.user import CompanyUser, User
 router = APIRouter()
 
 
-class LoginRequest(BaseModel):
-    email: EmailStr
-    password: str
-
-
-class RefreshRequest(BaseModel):
-    refresh_token: str
-
-
-class SelectCompanyRequest(BaseModel):
-    company_id: int
-
-
-def token_response(user_id: int) -> dict[str, str]:
-    return {
-        "access_token": create_access_token(user_id),
-        "refresh_token": create_refresh_token(user_id),
-        "token_type": "bearer",
-    }
-
-
-@router.post("/login")
+@router.post("/login", response_model=TokenBundle)
 def login(payload: LoginRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == str(payload.email)).first()
     if not user or not user.active or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
-    return token_response(user.id)
+    return TokenBundle(
+        access_token=create_access_token(user.id, superadmin=user.is_superadmin),
+        refresh_token=create_refresh_token(user.id),
+    )
 
 
-@router.post("/refresh")
+@router.post("/refresh", response_model=TokenBundle)
 def refresh(payload: RefreshRequest, db: Session = Depends(get_db)):
     try:
         token_payload = jwt.decode(
@@ -60,10 +57,12 @@ def refresh(payload: RefreshRequest, db: Session = Depends(get_db)):
     user = db.get(User, user_id)
     if not user or not user.active:
         raise HTTPException(status_code=401, detail="Inactive user")
-    return {"access_token": create_access_token(user.id), "token_type": "bearer"}
+    return TokenBundle(
+        access_token=create_access_token(user.id, superadmin=user.is_superadmin)
+    )
 
 
-@router.post("/select-company")
+@router.post("/select-company", response_model=TokenBundle)
 def select_company(
     payload: SelectCompanyRequest,
     user: User = Depends(get_current_user),
@@ -82,4 +81,104 @@ def select_company(
         )
         if not membership:
             raise HTTPException(status_code=403, detail="Company access denied")
-    return {"access_token": create_access_token(user.id, company.id), "token_type": "bearer"}
+    return TokenBundle(
+        access_token=create_access_token(
+            user.id, company.id, superadmin=user.is_superadmin
+        )
+    )
+
+
+@router.post("/leave-company", response_model=TokenBundle)
+def leave_company(user: User = Depends(get_current_user)):
+    """Devuelve al usuario al modo plataforma (sin empresa activa)."""
+    return TokenBundle(
+        access_token=create_access_token(user.id, superadmin=user.is_superadmin)
+    )
+
+
+@router.get("/me", response_model=MeResponse)
+def me(
+    user: User = Depends(get_current_user), db: Session = Depends(get_db)
+):
+    memberships_q = (
+        db.query(CompanyUser, Company)
+        .join(Company, Company.id == CompanyUser.company_id)
+        .filter(CompanyUser.user_id == user.id)
+        .all()
+    )
+    memberships = [
+        MembershipSummary(
+            company_id=company.id,
+            company_name=company.name,
+            company_slug=company.slug,
+            company_active=company.active,
+            is_admin=membership.is_admin,
+            role=membership.role,
+            active=membership.active,
+        )
+        for membership, company in memberships_q
+    ]
+    permissions: set[str] = set()
+    if user.is_superadmin:
+        permissions.update(_platform_permissions())
+    else:
+        for membership, _ in memberships_q:
+            if membership.active:
+                permissions.update(_user_permissions_for_company(db, user.id, membership.company_id))
+
+    return MeResponse(
+        id=user.id,
+        email=user.email,
+        full_name=user.full_name,
+        is_superadmin=user.is_superadmin,
+        active=user.active,
+        memberships=memberships,
+        permissions=sorted(permissions),
+    )
+
+
+@router.get("/companies", response_model=list[CompanyOption])
+def my_companies(
+    user: User = Depends(get_current_user), db: Session = Depends(get_db)
+):
+    """Empresas disponibles para el usuario (selector de empresa)."""
+    if user.is_superadmin:
+        rows = (
+            db.query(Company)
+            .order_by(Company.active.desc(), Company.name)
+            .all()
+        )
+        return [
+            CompanyOption(
+                id=row.id,
+                name=row.name,
+                slug=row.slug,
+                active=row.active,
+                is_admin=False,
+            )
+            for row in rows
+        ]
+    rows = (
+        db.query(Company, CompanyUser)
+        .join(CompanyUser, CompanyUser.company_id == Company.id)
+        .filter(CompanyUser.user_id == user.id, CompanyUser.active.is_(True))
+        .order_by(Company.active.desc(), Company.name)
+        .all()
+    )
+    return [
+        CompanyOption(
+            id=company.id,
+            name=company.name,
+            slug=company.slug,
+            active=company.active,
+            is_admin=membership.is_admin,
+        )
+        for company, membership in rows
+    ]
+
+
+def _platform_permissions() -> set[str]:
+    """Permisos concedidos al SuperAdmin independientemente de membresía."""
+    from app.core.permissions import SUPERADMIN_PERMISSIONS
+
+    return set(SUPERADMIN_PERMISSIONS)

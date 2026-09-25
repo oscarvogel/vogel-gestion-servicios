@@ -1,0 +1,87 @@
+/* ============================================================
+   Vogel Gestión de Servicios - Design tokens
+   Dark default, light alterno. Tokens reutilizables en toda la UI.
+   ============================================================ */
+:root,
+:root[data-theme="dark"] {
+  /* Brand */
+  --vogel-navy: #0b1730;
+  --vogel-navy-900: #060c1c;
+  --vogel-navy-800: #0a1530;
+  --vogel-navy-700: #0f1f3f;
+  --vogel-primary: #2d7cff;
+  --vogel-primary-600: #1f63d6;
+  --vogel-primary-400: #69a0ff;
+  --vogel-accent: #38e1c4;
+  --vogel-warn: #ffb547;
+  --vogel-danger: #ff5b6b;
+  --vogel-success: #3ad29f;
+
+  /* Surfaces */
+  --color-bg: radial-gradient(
+      120% 80% at 0% 0%,
+      rgba(45, 124, 255, 0.16) 0%,
+      rgba(11, 23, 48, 0) 60%
+    ),
+    radial-gradient(
+      90% 60% at 100% 0%,
+      rgba(56, 225, 196, 0.12) 0%,
+      rgba(11, 23, 48, 0) 65%
+    ),
+    var(--vogel-navy);
+  --color-surface: rgba(255, 255, 255, 0.04);
+  --color-surface-elevated: rgba(255, 255, 255, 0.07);
+  --color-surface-strong: rgba(255, 255, 255, 0.09);
+  --color-border: rgba(255, 255, 255, 0.08);
+  --color-border-strong: rgba(255, 255, 255, 0.16);
+
+  /* Text */
+  --color-text-primary: #f5f7fb;
+  --color-text-secondary: rgba(245, 247, 251, 0.74);
+  --color-text-muted: rgba(245, 247, 251, 0.5);
+
+  /* Status */
+  --color-primary: var(--vogel-primary);
+  --color-primary-hover: var(--vogel-primary-400);
+  --color-success: var(--vogel-success);
+  --color-warning: var(--vogel-warn);
+  --color-danger: var(--vogel-danger);
+
+  /* Effects */
+  --shadow-glass: 0 16px 48px rgba(0, 0, 0, 0.32);
+  --shadow-card: 0 6px 22px rgba(0, 0, 0, 0.28);
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+  --radius-xl: 24px;
+
+  /* Layout */
+  --sidebar-width: 248px;
+  --topbar-height: 64px;
+}
+
+:root[data-theme="light"] {
+  --color-bg: radial-gradient(
+      120% 80% at 0% 0%,
+      rgba(45, 124, 255, 0.18) 0%,
+      rgba(244, 246, 252, 0) 60%
+    ),
+    radial-gradient(
+      90% 60% at 100% 0%,
+      rgba(56, 225, 196, 0.16) 0%,
+      rgba(244, 246, 252, 0) 65%
+    ),
+    #f4f6fc;
+  --color-surface: rgba(255, 255, 255, 0.85);
+  --color-surface-elevated: rgba(255, 255, 255, 0.95);
+  --color-surface-strong: #ffffff;
+  --color-border: rgba(15, 31, 63, 0.08);
+  --color-border-strong: rgba(15, 31, 63, 0.18);
+  --color-text-primary: #0f1f3f;
+  --color-text-secondary: rgba(15, 31, 63, 0.7);
+  --color-text-muted: rgba(15, 31, 63, 0.5);
+  --color-primary: var(--vogel-primary);
+  --color-primary-hover: var(--vogel-primary-600);
+  --shadow-glass: 0 16px 48px rgba(15, 31, 63, 0.14);
+  --shadow-card: 0 6px 22px rgba(15, 31, 63, 0.08);
+}

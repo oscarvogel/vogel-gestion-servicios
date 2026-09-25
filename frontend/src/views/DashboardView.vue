@@ -45,7 +45,7 @@ const contextSubtitle = computed(() => {
 });
 
 async function load() {
-  if (!session.isSuperAdmin) return;
+  if (!session.isSuperAdmin || session.activeCompany) return;
   loading.value = true;
   try {
     data.value = await apiGet<SuperAdminDashboard>("/dashboard/superadmin");
@@ -69,12 +69,12 @@ const greeting = computed(() => {
 <template>
   
     <section class="hero hero--branding">
-      <div class="hero__eyebrow">Plataforma Vogel</div>
+      <div class="hero__eyebrow">{{ session.activeCompany ? "Empresa activa" : "Plataforma Vogel" }}</div>
       <h1 class="hero__title">{{ greeting }}, {{ firstName }}.</h1>
       <p class="hero__subtitle">{{ contextSubtitle }}</p>
     </section>
 
-    <template v-if="session.isSuperAdmin">
+    <template v-if="session.isSuperAdmin && !session.activeCompany">
       <div v-if="loading" class="card empty-state">
         <span class="spinner" /> Cargando métricas…
       </div>

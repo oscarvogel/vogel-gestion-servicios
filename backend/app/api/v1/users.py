@@ -43,13 +43,15 @@ def _membership_summary(db: Session, membership: CompanyUser, company: Company) 
     )
 
 
-def _user_detail(db: Session, user: User) -> UserDetail:
+def _user_detail(db: Session, user: User, company_id: int | None = None) -> UserDetail:
     rows = (
         db.query(CompanyUser, Company)
         .join(Company, Company.id == CompanyUser.company_id)
         .filter(CompanyUser.user_id == user.id)
-        .all()
     )
+    if company_id is not None:
+        rows = rows.filter(CompanyUser.company_id == company_id)
+    rows = rows.all()
     memberships = [_membership_summary(db, m, c) for m, c in rows]
     return UserDetail(
         id=user.id,
@@ -186,7 +188,8 @@ def list_users(
         for user in db.query(User).filter(User.id.in_(user_ids)).all()
     } if user_ids else {}
     rows = [users_by_id[user_id] for user_id in user_ids if user_id in users_by_id]
-    items = [_user_detail(db, u) for u in rows]
+    detail_company_id = None if actor.is_superadmin else _actor_current_company_id(authorization, actor, db)
+    items = [_user_detail(db, u, detail_company_id) for u in rows]
     return UserListResponse(
         items=items, total=total, page=page, page_size=page_size
     )
@@ -280,7 +283,8 @@ def get_user(
         )
         if not shared:
             raise HTTPException(status_code=403, detail="No tiene acceso a este usuario.")
-    return _user_detail(db, user)
+    detail_company_id = None if actor.is_superadmin else current_company_id
+    return _user_detail(db, user, detail_company_id)
 
 
 @router.patch("/{user_id}", response_model=UserDetail)
@@ -329,12 +333,18 @@ def update_user(
 @router.post("/{user_id}/enable", response_model=UserDetail)
 def enable_user(
     user_id: int,
-    _admin: User = Depends(require_permission("users.disable")),
+    actor: User = Depends(require_permission("users.disable")),
+    authorization: str = Header(default=""),
     db: Session = Depends(get_db),
 ):
     user = db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado.")
+    if not actor.is_superadmin:
+        current_company_id = _actor_current_company_id(authorization, actor, db)
+        shared = db.query(CompanyUser).filter_by(user_id=user.id, company_id=current_company_id, active=True).first()
+        if not shared:
+            raise HTTPException(status_code=403, detail="No tiene acceso a este usuario.")
     user.active = True
     db.commit()
     db.refresh(user)
@@ -344,7 +354,8 @@ def enable_user(
 @router.post("/{user_id}/disable", response_model=UserDetail)
 def disable_user(
     user_id: int,
-    _admin: User = Depends(require_permission("users.disable")),
+    actor: User = Depends(require_permission("users.disable")),
+    authorization: str = Header(default=""),
     db: Session = Depends(get_db),
 ):
     user = db.get(User, user_id)
@@ -352,6 +363,11 @@ def disable_user(
         raise HTTPException(status_code=404, detail="Usuario no encontrado.")
     if user.is_superadmin:
         raise HTTPException(status_code=400, detail="No se puede desactivar un SuperAdmin.")
+    if not actor.is_superadmin:
+        current_company_id = _actor_current_company_id(authorization, actor, db)
+        shared = db.query(CompanyUser).filter_by(user_id=user.id, company_id=current_company_id, active=True).first()
+        if not shared:
+            raise HTTPException(status_code=403, detail="No tiene acceso a este usuario.")
     user.active = False
     db.commit()
     db.refresh(user)
@@ -377,12 +393,10 @@ def list_memberships(
         )
         if not shared:
             raise HTTPException(status_code=403, detail="No tiene acceso a este usuario.")
-    memberships = (
-        db.query(CompanyUser)
-        .filter(CompanyUser.user_id == user.id)
-        .order_by(CompanyUser.id)
-        .all()
-    )
+    memberships_query = db.query(CompanyUser).filter(CompanyUser.user_id == user.id)
+    if not actor.is_superadmin:
+        memberships_query = memberships_query.filter(CompanyUser.company_id == current_company_id)
+    memberships = memberships_query.order_by(CompanyUser.id).all()
     return [_membership_read(db, m) for m in memberships]
 
 
@@ -405,8 +419,11 @@ def add_membership(
         current_company_id = _actor_current_company_id(authorization, actor, db)
         if payload.company_id != current_company_id:
             raise HTTPException(status_code=403, detail="No puede asignar una membresía a otra empresa.")
-    if not db.get(Company, payload.company_id):
+    company = db.get(Company, payload.company_id)
+    if not company:
         raise HTTPException(status_code=404, detail="Empresa no encontrada.")
+    if not company.active:
+        raise HTTPException(status_code=422, detail="La empresa seleccionada está inactiva.")
     existing = (
         db.query(CompanyUser)
         .filter_by(user_id=user.id, company_id=payload.company_id)

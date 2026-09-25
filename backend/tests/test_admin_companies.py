@@ -374,3 +374,68 @@ def test_superadmin_user_list_tolerates_legacy_invalid_email(client, db_session)
     assert response.status_code == 200, response.text
     item = next(row for row in response.json()["items"] if row["id"] == data["admin_a"].id)
     assert item["email"] == "legacy@localhost"
+
+
+def test_admin_a_cannot_disable_user_from_company_b(client, db_session):
+    data = _seed_full(db_session)
+    token = _login(client, "admin.a@example.com", "admin-a")
+    ctx = _select_company(client, token, data["company_a"].id)
+    response = client.post(
+        f"/api/v1/users/{data['admin_b'].id}/disable",
+        headers={"Authorization": f"Bearer {ctx}"},
+    )
+    assert response.status_code == 403
+    db_session.refresh(data["admin_b"])
+    assert data["admin_b"].active is True
+
+
+def test_admin_a_memberships_do_not_leak_other_companies(client, db_session):
+    data = _seed_full(db_session)
+    shared = CompanyUser(
+        company_id=data["company_b"].id,
+        user_id=data["member_a"].id,
+        role="MEMBER",
+        active=True,
+    )
+    db_session.add(shared)
+    db_session.commit()
+    token = _login(client, "admin.a@example.com", "admin-a")
+    ctx = _select_company(client, token, data["company_a"].id)
+    response = client.get(
+        f"/api/v1/users/{data['member_a'].id}/memberships",
+        headers={"Authorization": f"Bearer {ctx}"},
+    )
+    assert response.status_code == 200, response.text
+    assert {row["company_id"] for row in response.json()} == {data["company_a"].id}
+
+
+def test_admin_a_user_detail_does_not_leak_other_company_membership(client, db_session):
+    data = _seed_full(db_session)
+    db_session.add(CompanyUser(
+        company_id=data["company_b"].id,
+        user_id=data["member_a"].id,
+        role="MEMBER",
+        active=True,
+    ))
+    db_session.commit()
+    token = _login(client, "admin.a@example.com", "admin-a")
+    ctx = _select_company(client, token, data["company_a"].id)
+    response = client.get(
+        f"/api/v1/users/{data['member_a'].id}",
+        headers={"Authorization": f"Bearer {ctx}"},
+    )
+    assert response.status_code == 200, response.text
+    assert {row["company_id"] for row in response.json()["memberships"]} == {data["company_a"].id}
+
+
+def test_cannot_add_membership_to_inactive_company(client, db_session):
+    data = _seed_full(db_session)
+    data["company_b"].active = False
+    db_session.commit()
+    token = _login(client, "root@example.com", "root-pwd")
+    response = client.post(
+        f"/api/v1/users/{data['member_a'].id}/memberships",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"company_id": data["company_b"].id, "role": "MEMBER"},
+    )
+    assert response.status_code == 422

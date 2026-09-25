@@ -45,3 +45,18 @@ def test_search_by_order_customer_phone_equipment_and_serial(client,db_session):
     assert created.status_code==201
     for term in ("1","Cliente search","3743123456","Samsung","SER-search"):
         r=client.get("/api/v1/work-orders",headers=h,params={"search":term});assert r.status_code==200 and r.json()["total"]==1
+
+
+def test_status_change_requires_explicit_post_and_audits_optional_note(client,db_session):
+    company,_,customer,equipment=setup(db_session,"status")
+    h=login(client,"ot.status@example.com",company.id)
+    created=client.post("/api/v1/work-orders",headers=h,json={"customer_id":customer.id,"equipment_id":equipment.id,"reported_fault":"Intermitente"})
+    assert created.status_code==201
+    statuses=client.get("/api/v1/work-orders/statuses",headers=h).json()
+    target=next(s for s in statuses if s["name"]=="En diagnóstico")
+    changed=client.post(f"/api/v1/work-orders/{created.json()['id']}/status",headers=h,json={"status_id":target["id"],"note":"Se inicia revisión en banco"})
+    assert changed.status_code==200,changed.text
+    assert changed.json()["status_name"]=="En diagnóstico"
+    events=client.get(f"/api/v1/work-orders/{created.json()['id']}/events",headers=h).json()
+    assert events[-1]["event_type"]=="STATUS_CHANGE"
+    assert "Se inicia revisión en banco" in events[-1]["detail"]

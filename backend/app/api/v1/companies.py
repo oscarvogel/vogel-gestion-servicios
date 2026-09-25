@@ -153,6 +153,13 @@ def create_company(
     )
     db.add(company)
     db.flush()
+    from app.models.work_order import WorkOrderStatus
+    for name,color,order,initial,final in [
+        ("Recibido","#10B981",10,True,False),("En diagnóstico","#3B82F6",20,False,False),
+        ("Presupuestado","#8B5CF6",30,False,False),("Esperando aprobación","#F59E0B",40,False,False),
+        ("En reparación","#06B6D4",50,False,False),("Esperando repuesto","#F97316",60,False,False),
+        ("Listo","#22C55E",70,False,False),("Entregado","#64748B",80,False,True)]:
+        db.add(WorkOrderStatus(company_id=company.id,name=name,color=color,sort_order=order,active=True,is_initial=initial,is_final=final))
 
     if payload.admin_email:
         admin_user = db.query(User).filter(User.email == str(payload.admin_email)).first()

@@ -121,7 +121,9 @@ async function goToCompanySelector() {
 .topbar__menu-profile small{font-size:11px;color:var(--color-text-muted)}
 .topbar__menu-separator{height:1px;background:var(--color-border);margin:3px 0}
 .topbar__menu-action{display:flex;align-items:center;gap:9px;width:100%;padding:10px 11px;border:0;border-radius:9px;background:transparent;color:var(--color-text);cursor:pointer;text-align:left}
-.topbar__menu-action:hover{background:var(--color-surface-hover)}\n.topbar__menu-icon{display:block;width:18px!important;height:18px!important;min-width:18px;max-width:18px;flex:0 0 18px}
+.topbar__menu-action:hover{background:var(--color-surface-hover)}
+.topbar__menu-action :deep(svg){display:block;width:18px!important;height:18px!important;min-width:18px!important;max-width:18px!important;flex:0 0 18px!important}
+.topbar__menu-icon{display:block;width:18px!important;height:18px!important;min-width:18px!important;max-width:18px!important;flex:0 0 18px!important}
 @media(max-width:900px){.topbar__mobile-menu{display:inline-flex}.topbar__identity-copy,.topbar__theme span{display:none}.topbar__company span{display:none}}
 @media(max-width:600px){.topbar__company{max-width:120px}.topbar__company strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.topbar__right{gap:4px}}
 </style>

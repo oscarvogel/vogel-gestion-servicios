@@ -16,9 +16,10 @@ def upgrade():
         sa.Column("is_initial",sa.Boolean(),nullable=False,server_default=sa.false()),sa.Column("is_final",sa.Boolean(),nullable=False,server_default=sa.false()),
         sa.ForeignKeyConstraint(["company_id"],["companies.id"],ondelete="CASCADE"),sa.UniqueConstraint("company_id","name",name="uq_work_order_status_company_name"))
     op.create_index("ix_work_order_statuses_company_id","work_order_statuses",["company_id"])
-    op.add_column("work_orders",sa.Column("status_id",sa.Integer(),nullable=True))
-    op.create_foreign_key("fk_work_orders_status_id","work_orders","work_order_statuses",["status_id"],["id"])
-    op.create_index("ix_work_orders_status_id","work_orders",["status_id"])
+    with op.batch_alter_table("work_orders") as batch:
+        batch.add_column(sa.Column("status_id",sa.Integer(),nullable=True))
+        batch.create_foreign_key("fk_work_orders_status_id","work_order_statuses",["status_id"],["id"])
+        batch.create_index("ix_work_orders_status_id",["status_id"])
     bind=op.get_bind()
     for (cid,) in bind.execute(sa.text("SELECT id FROM companies")).fetchall():
         for name,color,order,initial,final in DEFAULTS:
@@ -28,8 +29,9 @@ def upgrade():
         bind.execute(sa.text("UPDATE work_orders SET status_id=:s WHERE company_id=:c AND status_id IS NULL"),{"s":sid,"c":cid})
 
 def downgrade():
-    op.drop_index("ix_work_orders_status_id",table_name="work_orders")
-    op.drop_constraint("fk_work_orders_status_id","work_orders",type_="foreignkey")
-    op.drop_column("work_orders","status_id")
+    with op.batch_alter_table("work_orders") as batch:
+        batch.drop_constraint("fk_work_orders_status_id",type_="foreignkey")
+        batch.drop_index("ix_work_orders_status_id")
+        batch.drop_column("status_id")
     op.drop_index("ix_work_order_statuses_company_id",table_name="work_order_statuses")
     op.drop_table("work_order_statuses")

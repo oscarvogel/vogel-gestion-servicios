@@ -10,7 +10,11 @@ branch_labels=None
 depends_on=None
 
 def upgrade():
-    op.create_table("equipment_categories",
+    bind=op.get_bind()
+    inspector=sa.inspect(bind)
+    tables=set(inspector.get_table_names())
+    if "equipment_categories" not in tables:
+        op.create_table("equipment_categories",
         sa.Column("id",sa.Integer(),primary_key=True),
         sa.Column("company_id",sa.Integer(),nullable=False),
         sa.Column("name",sa.String(80),nullable=False),
@@ -18,20 +22,23 @@ def upgrade():
         sa.Column("created_at",sa.DateTime(),nullable=False,server_default=sa.text("CURRENT_TIMESTAMP")),
         sa.Column("updated_at",sa.DateTime(),nullable=False,server_default=sa.text("CURRENT_TIMESTAMP")),
         sa.ForeignKeyConstraint(["company_id"],["companies.id"],ondelete="CASCADE"),
-        sa.UniqueConstraint("company_id","name",name="uq_equipment_categories_company_name"))
-    op.create_index("ix_equipment_categories_company_id","equipment_categories",["company_id"])
-    bind=op.get_bind()
+            sa.UniqueConstraint("company_id","name",name="uq_equipment_categories_company_name"))
+        op.create_index("ix_equipment_categories_company_id","equipment_categories",["company_id"])
+    equipment_columns={column["name"] for column in sa.inspect(bind).get_columns("equipment")}
     rows=bind.execute(sa.text("SELECT DISTINCT company_id, category FROM equipment WHERE category IS NOT NULL AND category <> ''")).fetchall()
     for company_id,name in rows:
         bind.execute(sa.text("INSERT INTO equipment_categories (company_id,name,active) VALUES (:company_id,:name,1)"),{"company_id":company_id,"name":name})
-    with op.batch_alter_table("equipment") as batch:
-        batch.add_column(sa.Column("category_id",sa.Integer(),nullable=True))
-        batch.create_index("ix_equipment_category_id",["category_id"])
-        batch.create_foreign_key("fk_equipment_category","equipment_categories",["category_id"],["id"])
-    bind.execute(sa.text("UPDATE equipment SET category_id=(SELECT ec.id FROM equipment_categories ec WHERE ec.company_id=equipment.company_id AND ec.name=equipment.category LIMIT 1)"))
-    with op.batch_alter_table("equipment") as batch:
-        batch.alter_column("category_id",nullable=False)
-        batch.drop_column("category")
+    if "category_id" not in equipment_columns:
+        with op.batch_alter_table("equipment") as batch:
+            batch.add_column(sa.Column("category_id",sa.Integer(),nullable=True))
+            batch.create_index("ix_equipment_category_id",["category_id"])
+            batch.create_foreign_key("fk_equipment_category","equipment_categories",["category_id"],["id"])
+    equipment_columns={column["name"] for column in sa.inspect(bind).get_columns("equipment")}
+    if "category" in equipment_columns:
+        bind.execute(sa.text("UPDATE equipment SET category_id=(SELECT ec.id FROM equipment_categories ec WHERE ec.company_id=equipment.company_id AND ec.name=equipment.category LIMIT 1) WHERE category_id IS NULL"))
+        with op.batch_alter_table("equipment") as batch:
+            batch.alter_column("category_id",nullable=False)
+            batch.drop_column("category")
 
 def downgrade():
     with op.batch_alter_table("equipment") as batch:

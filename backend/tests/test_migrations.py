@@ -29,6 +29,8 @@ def test_alembic_upgrade_head_creates_foundation():
             "role_permissions",
             "company_user_roles",
             "alembic_version",
+            "customers",
+            "equipment",
         } <= tables
         assert {constraint["name"] for constraint in inspector.get_unique_constraints("companies")} == {
             "uq_companies_name"
@@ -49,7 +51,7 @@ def test_alembic_upgrade_head_creates_foundation():
         with engine.connect() as connection:
             assert (
                 connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-                == "20260925_0002"
+                == "20260925_0003"
             )
     finally:
         if engine is not None:

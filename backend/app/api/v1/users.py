@@ -235,7 +235,8 @@ def get_user(
 def update_user(
     user_id: int,
     payload: UserUpdate,
-    actor: User = Depends(get_current_user),
+    actor: User = Depends(require_permission("users.update")),
+    authorization: str = Header(default=""),
     db: Session = Depends(get_db),
 ):
     user = db.get(User, user_id)
@@ -252,7 +253,12 @@ def update_user(
             raise HTTPException(status_code=403, detail="User access denied")
     data = payload.model_dump(exclude_unset=True)
     if "email" in data and data["email"]:
-        if db.query(User).filter(User.email == str(data["email"])).first():
+        duplicate = (
+            db.query(User)
+            .filter(User.email == str(data["email"]), User.id != user.id)
+            .first()
+        )
+        if duplicate:
             raise HTTPException(status_code=409, detail="Email already in use")
         user.email = str(data["email"])
     if "full_name" in data and data["full_name"]:
@@ -303,7 +309,8 @@ def disable_user(
 @router.get("/{user_id}/memberships", response_model=list[MembershipRead])
 def list_memberships(
     user_id: int,
-    actor: User = Depends(get_current_user),
+    actor: User = Depends(require_permission("users.view")),
+    authorization: str = Header(default=""),
     db: Session = Depends(get_db),
 ):
     user = db.get(User, user_id)
@@ -329,7 +336,7 @@ def list_memberships(
 def add_membership(
     user_id: int,
     payload: MembershipCreate,
-    actor: User = Depends(get_current_user),
+    actor: User = Depends(require_permission("users.update")),
     authorization: str = Header(default=""),
     db: Session = Depends(get_db),
 ):
@@ -357,7 +364,8 @@ def update_membership(
     user_id: int,
     membership_id: int,
     payload: MembershipUpdate,
-    actor: User = Depends(get_current_user),
+    actor: User = Depends(require_permission("users.update")),
+    authorization: str = Header(default=""),
     db: Session = Depends(get_db),
 ):
     user = db.get(User, user_id)

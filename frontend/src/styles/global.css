@@ -452,6 +452,13 @@ textarea {
   background-size: cover;
   background-position: center;
 }
+.hero--branding {
+  --hero-image: url("/branding/vogel-servicios-workshop-bg.webp");
+  --hero-overlay-from: rgba(11, 23, 48, 0.92);
+  --hero-overlay-mid: rgba(11, 23, 48, 0.78);
+  --hero-overlay-to: rgba(11, 23, 48, 0.62);
+  background-position: center 58%;
+}
 .hero::after {
   content: "";
   position: absolute;
@@ -578,6 +585,10 @@ textarea {
   background-position: center;
   border-right: 1px solid var(--color-border);
 }
+.auth-shell__hero--branding {
+  background-image: url("/branding/vogel-servicios-workshop-bg.webp");
+  background-position: center;
+}
 .auth-shell__hero::after {
   content: "";
   position: absolute;
@@ -586,6 +597,13 @@ textarea {
     180deg,
     rgba(11, 23, 48, 0.85) 0%,
     rgba(11, 23, 48, 0.65) 100%
+  );
+}
+.auth-shell__hero--branding::after {
+  background: linear-gradient(
+    180deg,
+    rgba(11, 23, 48, 0.9) 0%,
+    rgba(11, 23, 48, 0.72) 100%
   );
 }
 .auth-shell__hero > * {
@@ -627,6 +645,10 @@ textarea {
 
 /* ===== Responsive shell ===== */
 @media (max-width: 900px) {
+  .hero--branding {
+    background-position: 62% center;
+  }
+
   .app-shell {
     grid-template-columns: 1fr;
   }

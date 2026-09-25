@@ -68,13 +68,7 @@ const greeting = computed(() => {
 
 <template>
   
-    <section
-      class="hero"
-      :style="{
-        backgroundImage:
-          'linear-gradient(135deg, rgba(11,23,48,0.78), rgba(11,23,48,0.45)), url(https://images.unsplash.com/photo-1581090700227-1e37b190418e?auto=format&fit=crop&w=1200&q=80)',
-      }"
-    >
+    <section class="hero hero--branding">
       <div class="hero__eyebrow">Plataforma Vogel</div>
       <h1 class="hero__title">{{ greeting }}, {{ firstName }}.</h1>
       <p class="hero__subtitle">{{ contextSubtitle }}</p>

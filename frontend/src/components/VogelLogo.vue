@@ -1,38 +1,56 @@
 <script setup lang="ts">
-defineProps<{ size?: number; mark?: boolean }>();
+withDefaults(defineProps<{ size?: number; mark?: boolean }>(), {
+  size: 36,
+  mark: false,
+});
+
+const OFFICIAL_LOGO_URL =
+  "https://vogelconsultoria.com.ar/assets/logo-vogel-generated-DhTW546M.webp";
 </script>
 
 <template>
-  <svg
-    :width="size ?? 36"
-    :height="size ?? 36"
-    viewBox="0 0 64 64"
-    xmlns="http://www.w3.org/2000/svg"
+  <span
+    class="vogel-logo"
+    :class="{ 'vogel-logo--mark': mark }"
+    :style="{ height: `${size}px` }"
     role="img"
     aria-label="Vogel Consultoría"
   >
-    <defs>
-      <linearGradient id="vogel-grad" x1="0" y1="0" x2="1" y2="1">
-        <stop offset="0%" stop-color="#2d7cff" />
-        <stop offset="100%" stop-color="#38e1c4" />
-      </linearGradient>
-    </defs>
-    <rect
-      x="2"
-      y="2"
-      width="60"
-      height="60"
-      rx="14"
-      fill="url(#vogel-grad)"
+    <img
+      :src="OFFICIAL_LOGO_URL"
+      alt="Vogel Consultoría"
+      decoding="async"
+      draggable="false"
     />
-    <path
-      d="M16 20 L24 44 L32 28 L40 44 L48 20"
-      stroke="#fff"
-      stroke-width="4.2"
-      stroke-linecap="round"
-      stroke-linejoin="round"
-      fill="none"
-    />
-    <circle cx="32" cy="50" r="3" fill="#fff" />
-  </svg>
+  </span>
 </template>
+
+<style scoped>
+.vogel-logo {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border-radius: 8px;
+}
+
+.vogel-logo img {
+  display: block;
+  width: auto;
+  height: 100%;
+  max-width: min(320px, 42vw);
+  object-fit: contain;
+  object-position: left center;
+}
+
+.vogel-logo--mark {
+  width: var(--logo-mark-size, 42px);
+}
+
+.vogel-logo--mark img {
+  width: 100%;
+  max-width: none;
+  object-fit: cover;
+  object-position: left center;
+}
+</style>

@@ -52,7 +52,13 @@ const form = ref({
 });
 
 const companies = ref<CompanyOption[]>([]);
-const companyId = ref<number | "all">("all");\n\nfunction syncCompanyContext() {\n  if (session.isSuperAdmin && session.activeCompany) {\n    companyId.value = session.activeCompany.id;\n  }\n}
+const companyId = ref<number | "all">("all");
+
+function syncCompanyContext() {
+  if (session.isSuperAdmin && session.activeCompany) {
+    companyId.value = session.activeCompany.id;
+  }
+}
 
 const canManage = computed(() => session.hasPermission("users.create"));
 const selectedCompany = computed(() =>

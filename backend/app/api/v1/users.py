@@ -258,7 +258,7 @@ def get_user(
 ):
     user = db.get(User, user_id)
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(status_code=404, detail="Usuario no encontrado.")
     if not actor.is_superadmin:
         current_company_id = _actor_current_company_id(authorization, actor, db)
         shared = (
@@ -267,7 +267,7 @@ def get_user(
             .first()
         )
         if not shared:
-            raise HTTPException(status_code=403, detail="User access denied")
+            raise HTTPException(status_code=403, detail="No tiene acceso a este usuario.")
     return _user_detail(db, user)
 
 
@@ -281,7 +281,7 @@ def update_user(
 ):
     user = db.get(User, user_id)
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(status_code=404, detail="Usuario no encontrado.")
     if not actor.is_superadmin:
         current_company_id = _actor_current_company_id(authorization, actor, db)
         same_company = (
@@ -290,7 +290,7 @@ def update_user(
             .first()
         )
         if not same_company:
-            raise HTTPException(status_code=403, detail="User access denied")
+            raise HTTPException(status_code=403, detail="No tiene acceso a este usuario.")
     data = payload.model_dump(exclude_unset=True)
     if "email" in data and data["email"]:
         duplicate = (
@@ -299,7 +299,7 @@ def update_user(
             .first()
         )
         if duplicate:
-            raise HTTPException(status_code=409, detail="Email already in use")
+            raise HTTPException(status_code=409, detail="El correo electrónico ya está registrado.")
         user.email = str(data["email"])
     if "full_name" in data and data["full_name"]:
         user.full_name = data["full_name"]
@@ -307,7 +307,7 @@ def update_user(
         user.password_hash = hash_password(data["password"])
     if "active" in data and data["active"] is not None:
         if user.is_superadmin and not data["active"]:
-            raise HTTPException(status_code=400, detail="Cannot disable SuperAdmin")
+            raise HTTPException(status_code=400, detail="No se puede desactivar un SuperAdmin.")
         user.active = data["active"]
     db.commit()
     db.refresh(user)
@@ -322,7 +322,7 @@ def enable_user(
 ):
     user = db.get(User, user_id)
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(status_code=404, detail="Usuario no encontrado.")
     user.active = True
     db.commit()
     db.refresh(user)
@@ -337,9 +337,9 @@ def disable_user(
 ):
     user = db.get(User, user_id)
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(status_code=404, detail="Usuario no encontrado.")
     if user.is_superadmin:
-        raise HTTPException(status_code=400, detail="Cannot disable SuperAdmin")
+        raise HTTPException(status_code=400, detail="No se puede desactivar un SuperAdmin.")
     user.active = False
     db.commit()
     db.refresh(user)
@@ -355,7 +355,7 @@ def list_memberships(
 ):
     user = db.get(User, user_id)
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(status_code=404, detail="Usuario no encontrado.")
     if not actor.is_superadmin:
         current_company_id = _actor_current_company_id(authorization, actor, db)
         shared = (
@@ -364,7 +364,7 @@ def list_memberships(
             .first()
         )
         if not shared:
-            raise HTTPException(status_code=403, detail="User access denied")
+            raise HTTPException(status_code=403, detail="No tiene acceso a este usuario.")
     return [_membership_read(db, m) for m in user.company_memberships]
 
 
@@ -382,20 +382,20 @@ def add_membership(
 ):
     user = db.get(User, user_id)
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(status_code=404, detail="Usuario no encontrado.")
     if not actor.is_superadmin:
         current_company_id = _actor_current_company_id(authorization, actor, db)
         if payload.company_id != current_company_id:
-            raise HTTPException(status_code=403, detail="Cannot add membership to other company")
+            raise HTTPException(status_code=403, detail="No puede asignar una membresía a otra empresa.")
     if not db.get(Company, payload.company_id):
-        raise HTTPException(status_code=404, detail="Company not found")
+        raise HTTPException(status_code=404, detail="Empresa no encontrada.")
     existing = (
         db.query(CompanyUser)
         .filter_by(user_id=user.id, company_id=payload.company_id)
         .first()
     )
     if existing:
-        raise HTTPException(status_code=409, detail="Membership already exists")
+        raise HTTPException(status_code=409, detail="El usuario ya pertenece a esa empresa.")
     return _attach_membership(db, user, payload)
 
 
@@ -410,18 +410,18 @@ def update_membership(
 ):
     user = db.get(User, user_id)
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(status_code=404, detail="Usuario no encontrado.")
     membership = (
         db.query(CompanyUser)
         .filter_by(id=membership_id, user_id=user.id)
         .first()
     )
     if not membership:
-        raise HTTPException(status_code=404, detail="Membership not found")
+        raise HTTPException(status_code=404, detail="Membresía no encontrada.")
     if not actor.is_superadmin:
         current_company_id = _actor_current_company_id(authorization, actor, db)
         if membership.company_id != current_company_id:
-            raise HTTPException(status_code=403, detail="Membership access denied")
+            raise HTTPException(status_code=403, detail="No tiene acceso a esta membresía.")
     data = payload.model_dump(exclude_unset=True)
     if "role" in data and data["role"]:
         membership.role = data["role"]

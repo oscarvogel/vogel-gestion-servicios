@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import Modal from "../components/Modal.vue";
 import { apiGet, apiPost, apiPatch } from "../lib/api";
 import { useSessionStore, type CompanyOption } from "../stores/session";
@@ -25,6 +26,8 @@ interface UserItem {
 
 const session = useSessionStore();
 const toasts = useToastStore();
+const route = useRoute();
+const router = useRouter();
 
 const items = ref<UserItem[]>([]);
 const total = ref(0);
@@ -52,6 +55,11 @@ const companies = ref<CompanyOption[]>([]);
 const companyId = ref<number | "all">("all");
 
 const canManage = computed(() => session.hasPermission("users.create"));
+const selectedCompany = computed(() =>
+  companyId.value === "all"
+    ? null
+    : companies.value.find((company) => company.id === companyId.value) ?? null,
+);
 
 async function loadCompanies() {
   try {
@@ -95,12 +103,25 @@ async function load() {
 
 watch([search, activeFilter, companyId], () => {
   page.value = 1;
+  if (session.isSuperAdmin) {
+    const query =
+      companyId.value === "all" ? {} : { company_id: String(companyId.value) };
+    router.replace({ name: "users", query });
+  }
   load();
 });
 watch(page, load);
 
 onMounted(async () => {
   await loadCompanies();
+  const requestedCompanyId = Number(route.query.company_id);
+  if (
+    session.isSuperAdmin &&
+    Number.isInteger(requestedCompanyId) &&
+    companies.value.some((company) => company.id === requestedCompanyId)
+  ) {
+    companyId.value = requestedCompanyId;
+  }
   await load();
 });
 
@@ -267,10 +288,23 @@ function isExistingMembership(companyId: number) {
   
     <div class="card flex flex--between" style="gap:16px;flex-wrap:wrap;align-items:center">
       <div>
-        <h2 style="margin:0;font-size:20px">Usuarios</h2>
+        <button
+          v-if="session.isSuperAdmin && selectedCompany"
+          class="btn btn--ghost btn--sm"
+          type="button"
+          style="margin-bottom:8px"
+          @click="router.push({ name: 'companies' })"
+        >← Empresas</button>
+        <h2 style="margin:0;font-size:20px">
+          {{ selectedCompany ? `Usuarios · ${selectedCompany.name}` : 'Usuarios' }}
+        </h2>
         <p class="text-secondary" style="margin:4px 0 0">
           {{ total }} usuarios ·
-          {{ session.activeCompany ? `Filtrando por ${session.activeCompany.name}` : 'Vista plataforma' }}
+          {{ selectedCompany
+            ? `Padrón de ${selectedCompany.name}`
+            : session.activeCompany
+              ? `Filtrando por ${session.activeCompany.name}`
+              : 'Vista plataforma' }}
         </p>
       </div>
       <div class="toolbar">
@@ -289,7 +323,9 @@ function isExistingMembership(companyId: number) {
           <option value="all">Todas las empresas</option>
           <option v-for="c in companies" :key="c.id" :value="c.id">{{ c.name }}</option>
         </select>
-        <button v-if="canManage" class="btn btn--primary" type="button" @click="openCreate">+ Nuevo usuario</button>
+        <button v-if="canManage" class="btn btn--primary" type="button" @click="openCreate">
+          {{ selectedCompany ? `+ Usuario en ${selectedCompany.name}` : '+ Nuevo usuario' }}
+        </button>
       </div>
     </div>
 

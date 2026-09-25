@@ -196,6 +196,10 @@ async function toggleActive(item: CompanyItem) {
   }
 }
 
+function viewUsers(item: CompanyItem) {
+  router.push({ name: "users", query: { company_id: String(item.id) } });
+}
+
 async function enterCompany(item: CompanyItem) {
   try {
     await session.selectCompany({
@@ -276,6 +280,12 @@ async function enterCompany(item: CompanyItem) {
                 <button class="btn btn--ghost btn--sm" type="button" @click="toggleActive(item)">
                   {{ item.active ? 'Desactivar' : 'Activar' }}
                 </button>
+                <button
+                  v-if="isPlatformView"
+                  class="btn btn--ghost btn--sm"
+                  type="button"
+                  @click="viewUsers(item)"
+                >Usuarios ({{ item.user_count }})</button>
                 <button
                   v-if="isPlatformView && item.active"
                   class="btn btn--primary btn--sm"

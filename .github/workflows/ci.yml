@@ -10,6 +10,30 @@ jobs:
         with: {python-version: "3.12"}
       - run: pip install -e .[dev]
       - run: pytest -q
+  mysql-migrations:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: vogel_test
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -proot"
+          --health-interval=5s --health-timeout=5s --health-retries=20
+    defaults: {run: {working-directory: backend}}
+    env:
+      DATABASE_URL: mysql+pymysql://root:root@127.0.0.1:3306/vogel_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: pip install -e .[dev]
+      - run: alembic upgrade head
+      - run: alembic current
+      - run: alembic downgrade 20260925_0004
+      - run: alembic upgrade head
   frontend:
     runs-on: ubuntu-latest
     defaults: {run: {working-directory: frontend}}

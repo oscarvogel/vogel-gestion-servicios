@@ -8,6 +8,7 @@ import DashboardView from "./views/DashboardView.vue";
 import CompaniesView from "./views/CompaniesView.vue";
 import UsersView from "./views/UsersView.vue";
 import CustomersView from "./views/CustomersView.vue";
+import WorkOrdersView from "./views/WorkOrdersView.vue";
 import RolesView from "./views/RolesView.vue";
 import SettingsView from "./views/SettingsView.vue";
 
@@ -66,6 +67,12 @@ const routes: RouteRecordRaw[] = [
         name: "customers",
         component: CustomersView,
         meta: { requiresAuth: true, permission: "customers.view" },
+      },
+      {
+        path: "work-orders",
+        name: "work-orders",
+        component: WorkOrdersView,
+        meta: { requiresAuth: true, permission: "work_orders.view" },
       },
       {
         path: "users",

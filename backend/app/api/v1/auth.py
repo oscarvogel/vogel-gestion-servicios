@@ -52,13 +52,27 @@ def refresh(payload: RefreshRequest, db: Session = Depends(get_db)):
         if token_payload.get("type") != "refresh":
             raise ValueError("unexpected token type")
         user_id = int(token_payload["sub"])
+        company_id = token_payload.get("company_id")
+        company_id = int(company_id) if company_id is not None else None
     except (JWTError, KeyError, TypeError, ValueError):
         raise HTTPException(status_code=401, detail="Invalid refresh token")
     user = db.get(User, user_id)
     if not user or not user.active:
         raise HTTPException(status_code=401, detail="Inactive user")
+    if company_id is not None:
+        company = db.get(Company, company_id)
+        if not company or not company.active:
+            company_id = None
+        elif not user.is_superadmin:
+            membership = (
+                db.query(CompanyUser)
+                .filter_by(user_id=user.id, company_id=company_id, active=True)
+                .first()
+            )
+            if not membership:
+                company_id = None
     return TokenBundle(
-        access_token=create_access_token(user.id, superadmin=user.is_superadmin)
+        access_token=create_access_token(user.id, company_id, superadmin=user.is_superadmin)
     )
 
 

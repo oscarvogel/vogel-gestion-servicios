@@ -24,9 +24,10 @@ def upgrade():
     rows=bind.execute(sa.text("SELECT DISTINCT company_id, category FROM equipment WHERE category IS NOT NULL AND category <> ''")).fetchall()
     for company_id,name in rows:
         bind.execute(sa.text("INSERT INTO equipment_categories (company_id,name,active) VALUES (:company_id,:name,1)"),{"company_id":company_id,"name":name})
-    op.add_column("equipment",sa.Column("category_id",sa.Integer(),nullable=True))
-    op.create_index("ix_equipment_category_id","equipment",["category_id"])
-    op.create_foreign_key("fk_equipment_category","equipment","equipment_categories",["category_id"],["id"])
+    with op.batch_alter_table("equipment") as batch:
+        batch.add_column(sa.Column("category_id",sa.Integer(),nullable=True))
+        batch.create_index("ix_equipment_category_id",["category_id"])
+        batch.create_foreign_key("fk_equipment_category","equipment_categories",["category_id"],["id"])
     bind.execute(sa.text("UPDATE equipment SET category_id=(SELECT ec.id FROM equipment_categories ec WHERE ec.company_id=equipment.company_id AND ec.name=equipment.category LIMIT 1)"))
     with op.batch_alter_table("equipment") as batch:
         batch.alter_column("category_id",nullable=False)

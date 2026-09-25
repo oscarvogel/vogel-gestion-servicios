@@ -41,7 +41,7 @@ onMounted(async () => {
     <div class="app-main">
       <Topbar :title="title" @toggle-menu="menuOpen = !menuOpen" />
       <main class="app-content">
-        <slot />
+        <router-view />
       </main>
     </div>
   </div>

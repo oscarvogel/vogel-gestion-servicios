@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import AppShell from "../components/AppShell.vue";
 import { useSessionStore } from "../stores/session";
 import { useThemeStore } from "../stores/theme";
 
@@ -8,7 +7,7 @@ const theme = useThemeStore();
 </script>
 
 <template>
-  <AppShell>
+  
     <div class="card">
       <h2 style="margin:0 0 6px;font-size:20px">Apariencia</h2>
       <p class="text-secondary">Tema por defecto: oscuro. Persistido en este navegador.</p>
@@ -66,5 +65,8 @@ const theme = useThemeStore();
         Mantenemos compatibilidades y no tocamos producción.
       </p>
     </div>
-  </AppShell>
+  
 </template>
+<style scoped>
+.page-wrap { display: flex; flex-direction: column; gap: 24px; }
+</style>

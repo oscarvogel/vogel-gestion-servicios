@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { onMounted, ref, computed } from "vue";
-import AppShell from "../components/AppShell.vue";
 import Modal from "../components/Modal.vue";
 import { apiGet, apiPost, apiPatch } from "../lib/api";
 import { useSessionStore } from "../stores/session";
@@ -127,7 +126,7 @@ const grouped = computed(() => {
 </script>
 
 <template>
-  <AppShell>
+  
     <div class="card flex flex--between" style="gap:16px;align-items:center;flex-wrap:wrap">
       <div>
         <h2 style="margin:0;font-size:20px">Roles y permisos</h2>
@@ -230,7 +229,7 @@ const grouped = computed(() => {
         </div>
       </form>
     </Modal>
-  </AppShell>
+  
 </template>
 
 <style scoped>
@@ -238,4 +237,7 @@ const grouped = computed(() => {
   background: rgba(45, 124, 255, 0.36);
   border-color: rgba(45, 124, 255, 0.7);
 }
+</style>
+<style scoped>
+.page-wrap { display: flex; flex-direction: column; gap: 24px; }
 </style>

@@ -2,7 +2,6 @@
 import { onMounted, ref, computed } from "vue";
 import { useSessionStore } from "../stores/session";
 import { apiGet } from "../lib/api";
-import AppShell from "../components/AppShell.vue";
 import { useToastStore } from "../stores/toasts";
 
 interface SuperAdminDashboard {
@@ -53,7 +52,7 @@ const greeting = computed(() => {
 </script>
 
 <template>
-  <AppShell>
+  
     <section
       class="hero"
       :style="{
@@ -152,5 +151,8 @@ const greeting = computed(() => {
         No hay empresa activa. Volvé al selector desde el topbar.
       </div>
     </template>
-  </AppShell>
+  
 </template>
+<style scoped>
+.page-wrap { display: flex; flex-direction: column; gap: 24px; }
+</style>

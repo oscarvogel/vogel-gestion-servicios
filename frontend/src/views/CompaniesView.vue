@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref, computed, watch } from "vue";
 import { useRouter } from "vue-router";
-import AppShell from "../components/AppShell.vue";
 import Modal from "../components/Modal.vue";
 import { apiGet, apiPost, apiPatch } from "../lib/api";
 import { useSessionStore } from "../stores/session";
@@ -214,7 +213,7 @@ async function enterCompany(item: CompanyItem) {
 </script>
 
 <template>
-  <AppShell>
+  
     <div class="card flex flex--between" style="gap:16px;align-items:center;flex-wrap:wrap">
       <div>
         <h2 style="margin:0;font-size:20px">Empresas</h2>
@@ -359,5 +358,8 @@ async function enterCompany(item: CompanyItem) {
         </div>
       </form>
     </Modal>
-  </AppShell>
+  
 </template>
+<style scoped>
+.page-wrap { display: flex; flex-direction: column; gap: 24px; }
+</style>

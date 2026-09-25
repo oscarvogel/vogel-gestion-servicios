@@ -43,17 +43,17 @@ def _password(name: str) -> str:
 
 def load_credentials() -> SeedCredentials:
     return SeedCredentials(
-        superadmin_email=os.getenv("STAGING_SUPERADMIN_EMAIL", "superadmin@staging.local"),
+        superadmin_email=os.getenv("STAGING_SUPERADMIN_EMAIL", "superadmin@staging.example.com"),
         superadmin_password=_password("STAGING_SUPERADMIN_PASSWORD"),
-        admin_a_email=os.getenv("STAGING_ADMIN_A_EMAIL", "admin.a@staging.local"),
+        admin_a_email=os.getenv("STAGING_ADMIN_A_EMAIL", "admin.a@staging.example.com"),
         admin_a_password=_password("STAGING_ADMIN_A_PASSWORD"),
-        admin_b_email=os.getenv("STAGING_ADMIN_B_EMAIL", "admin.b@staging.local"),
+        admin_b_email=os.getenv("STAGING_ADMIN_B_EMAIL", "admin.b@staging.example.com"),
         admin_b_password=_password("STAGING_ADMIN_B_PASSWORD"),
-        user_a_email=os.getenv("STAGING_USER_A_EMAIL", "usuario.a@staging.local"),
+        user_a_email=os.getenv("STAGING_USER_A_EMAIL", "usuario.a@staging.example.com"),
         user_a_password=_password("STAGING_USER_A_PASSWORD"),
-        user_b_email=os.getenv("STAGING_USER_B_EMAIL", "usuario.b@staging.local"),
+        user_b_email=os.getenv("STAGING_USER_B_EMAIL", "usuario.b@staging.example.com"),
         user_b_password=_password("STAGING_USER_B_PASSWORD"),
-        shared_email=os.getenv("STAGING_SHARED_EMAIL", "usuario.shared@staging.local"),
+        shared_email=os.getenv("STAGING_SHARED_EMAIL", "usuario.shared@staging.example.com"),
         shared_password=_password("STAGING_SHARED_PASSWORD"),
     )
 

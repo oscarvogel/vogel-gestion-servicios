@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
-import AppShell from "../components/AppShell.vue";
 import Modal from "../components/Modal.vue";
 import { apiGet, apiPost, apiPatch } from "../lib/api";
 import { useSessionStore, type CompanyOption } from "../stores/session";
@@ -195,7 +194,7 @@ function removeMembership(index: number) {
 </script>
 
 <template>
-  <AppShell>
+  
     <div class="card flex flex--between" style="gap:16px;flex-wrap:wrap;align-items:center">
       <div>
         <h2 style="margin:0;font-size:20px">Usuarios</h2>
@@ -332,5 +331,8 @@ function removeMembership(index: number) {
         </div>
       </form>
     </Modal>
-  </AppShell>
+  
 </template>
+<style scoped>
+.page-wrap { display: flex; flex-direction: column; gap: 24px; }
+</style>

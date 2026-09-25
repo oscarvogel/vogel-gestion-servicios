@@ -84,4 +84,9 @@
   --color-primary-hover: var(--vogel-primary-600);
   --shadow-glass: 0 16px 48px rgba(15, 31, 63, 0.14);
   --shadow-card: 0 6px 22px rgba(15, 31, 63, 0.08);
+  --sidebar-bg-from: #ffffff;
+  --sidebar-bg-to: #f4f6fc;
+  --hero-bg-color: #0b1730;
+  --hero-overlay-from: rgba(11, 23, 48, 0.78);
+  --hero-overlay-to: rgba(11, 23, 48, 0.45);
 }

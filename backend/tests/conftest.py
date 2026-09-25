@@ -4,9 +4,11 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.core.permissions import PERMISSIONS
 from app.main import app
 from app.api.dependencies import get_db
 from app.db.base import Base
+from app.models.role import Permission
 
 
 @pytest.fixture
@@ -17,9 +19,19 @@ def db_session():
         poolclass=StaticPool,
     )
     Base.metadata.create_all(engine)
+    # Pre-poblar permisos para que los tests no tengan que hacerlo.
     session_factory = sessionmaker(bind=engine, autocommit=False, autoflush=False)
     db = session_factory()
     try:
+        for perm in PERMISSIONS:
+            db.add(
+                Permission(
+                    code=perm.code,
+                    namespace=perm.namespace,
+                    description=perm.description,
+                )
+            )
+        db.commit()
         yield db
     finally:
         db.close()

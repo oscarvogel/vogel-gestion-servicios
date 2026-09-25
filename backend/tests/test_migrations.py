@@ -20,12 +20,27 @@ def test_alembic_upgrade_head_creates_foundation():
         engine = create_engine(f"sqlite:///{database_path}")
         inspector = inspect(engine)
         tables = set(inspector.get_table_names())
-        assert {"companies", "users", "company_users", "alembic_version"} <= tables
+        assert {
+            "companies",
+            "users",
+            "company_users",
+            "roles",
+            "permissions",
+            "role_permissions",
+            "company_user_roles",
+            "alembic_version",
+        } <= tables
         assert {constraint["name"] for constraint in inspector.get_unique_constraints("companies")} == {
             "uq_companies_name"
         }
         assert {constraint["name"] for constraint in inspector.get_unique_constraints("company_users")} == {
             "uq_company_user"
+        }
+        assert {constraint["name"] for constraint in inspector.get_unique_constraints("roles")} == {
+            "uq_roles_company_name"
+        }
+        assert {constraint["name"] for constraint in inspector.get_unique_constraints("permissions")} == {
+            "uq_permissions_code"
         }
         assert {index["name"] for index in inspector.get_indexes("company_users")} == {
             "ix_company_users_company_id",
@@ -34,7 +49,7 @@ def test_alembic_upgrade_head_creates_foundation():
         with engine.connect() as connection:
             assert (
                 connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-                == "20260925_0001"
+                == "20260925_0002"
             )
     finally:
         if engine is not None:

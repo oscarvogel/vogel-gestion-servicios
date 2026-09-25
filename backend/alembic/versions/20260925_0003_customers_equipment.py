@@ -10,6 +10,20 @@ branch_labels = None
 depends_on = None
 
 def upgrade():
+    permissions = [
+        ("customers.view", "customers", "Ver clientes"),
+        ("customers.manage", "customers", "Crear y editar clientes"),
+        ("equipment.view", "equipment", "Ver equipos"),
+        ("equipment.manage", "equipment", "Crear y editar equipos"),
+    ]
+    permissions_table = sa.table("permissions", sa.column("code"), sa.column("namespace"), sa.column("description"))
+    op.bulk_insert(permissions_table, [{"code": code, "namespace": ns, "description": desc} for code, ns, desc in permissions])
+    bind = op.get_bind()
+    for code, _, _ in permissions:
+        permission_id = bind.execute(sa.text("SELECT id FROM permissions WHERE code=:code"), {"code": code}).scalar()
+        admin_role_ids = [row[0] for row in bind.execute(sa.text("SELECT id FROM roles WHERE name='Administrador' AND active=1")).fetchall()]
+        for role_id in admin_role_ids:
+            bind.execute(sa.text("INSERT INTO role_permissions (role_id, permission_id) VALUES (:role_id, :permission_id)"), {"role_id": role_id, "permission_id": permission_id})
     op.create_table("customers",
         sa.Column("id", sa.Integer(), primary_key=True),
         sa.Column("company_id", sa.Integer(), nullable=False),

@@ -7,6 +7,7 @@ import AccessDeniedView from "./views/AccessDeniedView.vue";
 import DashboardView from "./views/DashboardView.vue";
 import CompaniesView from "./views/CompaniesView.vue";
 import UsersView from "./views/UsersView.vue";
+import CustomersView from "./views/CustomersView.vue";
 import RolesView from "./views/RolesView.vue";
 import SettingsView from "./views/SettingsView.vue";
 
@@ -59,6 +60,12 @@ const routes: RouteRecordRaw[] = [
         component: CompaniesView,
         alias: ["/empresas"],
         meta: { requiresAuth: true, superAdminOnly: true },
+      },
+      {
+        path: "customers",
+        name: "customers",
+        component: CustomersView,
+        meta: { requiresAuth: true, permission: "customers.view" },
       },
       {
         path: "users",

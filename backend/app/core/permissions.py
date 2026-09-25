@@ -26,6 +26,10 @@ PERMISSIONS: tuple[PermissionDef, ...] = (
     PermissionDef("users.disable", "users", "Activar/desactivar usuarios"),
     PermissionDef("roles.view", "roles", "Ver roles"),
     PermissionDef("roles.manage", "roles", "Crear/editar roles y asignarlos"),
+    PermissionDef("customers.view", "customers", "Ver clientes"),
+    PermissionDef("customers.manage", "customers", "Crear y editar clientes"),
+    PermissionDef("equipment.view", "equipment", "Ver equipos"),
+    PermissionDef("equipment.manage", "equipment", "Crear y editar equipos"),
 )
 
 

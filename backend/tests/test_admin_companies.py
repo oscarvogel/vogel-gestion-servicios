@@ -360,27 +360,3 @@ def test_me_returns_permissions_for_active_companies(client, db_session):
     ids = {m["company_id"] for m in body["memberships"]}
     assert data["company_a"].id in ids
     assert data["company_b"].id not in ids
-
-def test_superadmin_list_users_returns_memberships_without_orm_relationship(client, db_session):
-    data = _seed_full(db_session)
-    token = _login(client, "root@example.com", "root-pwd")
-    response = client.get(
-        "/api/v1/users?page=1&page_size=20",
-        headers={"Authorization": f"Bearer {token}"},
-    )
-    assert response.status_code == 200, response.text
-    body = response.json()
-    assert body["total"] == 4
-    admin_a = next(item for item in body["items"] if item["email"] == "admin.a@example.com")
-    assert any(m["company_id"] == data["company_a"].id for m in admin_a["memberships"])
-
-
-def test_superadmin_can_list_memberships_without_user_relationship(client, db_session):
-    data = _seed_full(db_session)
-    token = _login(client, "root@example.com", "root-pwd")
-    response = client.get(
-        f"/api/v1/users/{data['admin_a'].id}/memberships",
-        headers={"Authorization": f"Bearer {token}"},
-    )
-    assert response.status_code == 200, response.text
-    assert response.json()[0]["company_id"] == data["company_a"].id

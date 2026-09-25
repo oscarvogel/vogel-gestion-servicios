@@ -224,9 +224,14 @@ async function toggleActive(item: UserItem) {
 }
 
 function addMembership() {
-  if (companies.value.length === 0) return;
+  const used = new Set(form.value.memberships.map((membership) => membership.company_id));
+  const company = companies.value.find((candidate) => !used.has(candidate.id));
+  if (!company) {
+    toasts.push("No hay más empresas disponibles para asignar", "error");
+    return;
+  }
   form.value.memberships.push({
-    company_id: companies.value[0].id,
+    company_id: company.id,
     role: "MEMBER",
     is_admin: false,
     active: true,

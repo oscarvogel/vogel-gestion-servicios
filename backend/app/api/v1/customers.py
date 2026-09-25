@@ -2,10 +2,10 @@ from datetime import datetime
 from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, EmailStr, Field
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 from app.api.dependencies import get_current_company_id, get_db, require_permission
-from app.models.customer import Customer, Equipment
+from app.models.customer import Customer, Equipment, EquipmentCategory
 from app.models.user import User
 
 router = APIRouter()
@@ -77,9 +77,33 @@ def update_customer(customer_id:int,payload:CustomerPatch,company_id:int=Depends
     for key,value in data.items(): setattr(row,key,value)
     db.commit();db.refresh(row);return row
 
+class CategoryInput(BaseModel):
+    name: str = Field(min_length=1,max_length=80)
+
+class CategoryRead(CategoryInput):
+    id:int; company_id:int; active:bool
+    model_config={"from_attributes":True}
+
+@router.get("/equipment-categories/search", response_model=list[CategoryRead])
+def search_categories(q:str="",company_id:int=Depends(get_current_company_id),
+                      _actor:User=Depends(require_permission("equipment.view")),db:Session=Depends(get_db)):
+    query=db.query(EquipmentCategory).filter_by(company_id=company_id,active=True)
+    if q.strip(): query=query.filter(EquipmentCategory.name.ilike(f"%{q.strip()}%"))
+    return query.order_by(EquipmentCategory.name).limit(30).all()
+
+@router.post("/equipment-categories", response_model=CategoryRead, status_code=status.HTTP_201_CREATED)
+def create_category(payload:CategoryInput,company_id:int=Depends(get_current_company_id),
+                    _actor:User=Depends(require_permission("equipment.manage")),db:Session=Depends(get_db)):
+    name=" ".join(payload.name.split()).strip()
+    existing=db.query(EquipmentCategory).filter(EquipmentCategory.company_id==company_id,func.lower(EquipmentCategory.name)==name.lower()).first()
+    if existing:
+        if not existing.active: existing.active=True;db.commit();db.refresh(existing)
+        return existing
+    row=EquipmentCategory(company_id=company_id,name=name);db.add(row);db.commit();db.refresh(row);return row
+
 class EquipmentInput(BaseModel):
     customer_id: int
-    category: str = Field(min_length=1,max_length=80)
+    category_id: int
     brand: str | None = Field(default=None,max_length=100)
     model: str | None = Field(default=None,max_length=120)
     serial_number: str | None = Field(default=None,max_length=120)
@@ -87,7 +111,7 @@ class EquipmentInput(BaseModel):
     notes: str | None = None
 
 class EquipmentPatch(BaseModel):
-    category: str | None = Field(default=None,min_length=1,max_length=80)
+    category_id: int | None = None
     brand: str | None = Field(default=None,max_length=100)
     model: str | None = Field(default=None,max_length=120)
     serial_number: str | None = Field(default=None,max_length=120)
@@ -97,20 +121,28 @@ class EquipmentPatch(BaseModel):
 
 class EquipmentRead(EquipmentInput):
     id:int;company_id:int;active:bool;created_at:datetime;updated_at:datetime
+    category_name:str
     model_config={"from_attributes":True}
+
+def _equipment_read(row:Equipment,db:Session)->dict:
+    category=db.query(EquipmentCategory).filter_by(id=row.category_id,company_id=row.company_id).one()
+    return {**{key:getattr(row,key) for key in ("id","company_id","customer_id","category_id","brand","model","serial_number","description","notes","active","created_at","updated_at")},"category_name":category.name}
 
 @router.get("/{customer_id}/equipment", response_model=list[EquipmentRead])
 def list_equipment(customer_id:int,company_id:int=Depends(get_current_company_id),
                    _actor:User=Depends(require_permission("equipment.view")),db:Session=Depends(get_db)):
     _customer(db,company_id,customer_id)
-    return db.query(Equipment).filter_by(company_id=company_id,customer_id=customer_id).order_by(Equipment.id.desc()).all()
+    rows=db.query(Equipment).filter_by(company_id=company_id,customer_id=customer_id).order_by(Equipment.id.desc()).all()
+    return [_equipment_read(row,db) for row in rows]
 
 @router.post("/{customer_id}/equipment", response_model=EquipmentRead, status_code=status.HTTP_201_CREATED)
 def create_equipment(customer_id:int,payload:EquipmentInput,company_id:int=Depends(get_current_company_id),
                      _actor:User=Depends(require_permission("equipment.manage")),db:Session=Depends(get_db)):
     _customer(db,company_id,customer_id)
     if payload.customer_id != customer_id: raise HTTPException(status_code=422,detail="El cliente del equipo no coincide.")
-    row=Equipment(company_id=company_id,**payload.model_dump());db.add(row);db.commit();db.refresh(row);return row
+    category=db.query(EquipmentCategory).filter_by(id=payload.category_id,company_id=company_id,active=True).first()
+    if not category: raise HTTPException(status_code=422,detail="La categoría no pertenece a esta empresa o está inactiva.")
+    row=Equipment(company_id=company_id,**payload.model_dump());db.add(row);db.commit();db.refresh(row);return _equipment_read(row,db)
 
 @router.patch("/{customer_id}/equipment/{equipment_id}", response_model=EquipmentRead)
 def update_equipment(customer_id:int,equipment_id:int,payload:EquipmentPatch,company_id:int=Depends(get_current_company_id),
@@ -118,5 +150,8 @@ def update_equipment(customer_id:int,equipment_id:int,payload:EquipmentPatch,com
     _customer(db,company_id,customer_id)
     row=db.query(Equipment).filter_by(id=equipment_id,company_id=company_id,customer_id=customer_id).first()
     if not row: raise HTTPException(status_code=404,detail="Equipo no encontrado.")
-    for key,value in payload.model_dump(exclude_unset=True).items():setattr(row,key,value)
-    db.commit();db.refresh(row);return row
+    data=payload.model_dump(exclude_unset=True)
+    if data.get("category_id") and not db.query(EquipmentCategory).filter_by(id=data["category_id"],company_id=company_id,active=True).first():
+        raise HTTPException(status_code=422,detail="La categoría no pertenece a esta empresa o está inactiva.")
+    for key,value in data.items():setattr(row,key,value)
+    db.commit();db.refresh(row);return _equipment_read(row,db)

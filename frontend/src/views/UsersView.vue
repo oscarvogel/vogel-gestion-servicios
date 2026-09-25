@@ -52,7 +52,7 @@ const form = ref({
 });
 
 const companies = ref<CompanyOption[]>([]);
-const companyId = ref<number | "all">("all");
+const companyId = ref<number | "all">("all");\n\nfunction syncCompanyContext() {\n  if (session.isSuperAdmin && session.activeCompany) {\n    companyId.value = session.activeCompany.id;\n  }\n}
 
 const canManage = computed(() => session.hasPermission("users.create"));
 const selectedCompany = computed(() =>
@@ -315,7 +315,7 @@ function isExistingMembership(companyId: number) {
           <button :class="['toolbar__chip', { 'is-active': activeFilter === 'inactive' }]" type="button" @click="activeFilter = 'inactive'">Inactivos</button>
         </div>
         <select
-          v-if="session.isSuperAdmin"
+          v-if="session.isSuperAdmin && !session.activeCompany"
           v-model="companyId"
           class="toolbar__search"
           style="max-width:200px"

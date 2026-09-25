@@ -41,3 +41,20 @@ python backend/scripts/seed_staging.py
 ```
 
 Las contraseñas del seed se leen desde `STAGING_*_PASSWORD` o se generan de forma segura; no se almacenan en el repositorio.
+
+
+## Limpieza de residuos de smoke en staging
+
+Los smoke tests no deben reutilizar datos persistentes. Si una prueba crea datos en staging,
+debe eliminarlos en un bloque `finally`/teardown aunque la prueba falle.
+
+Para limpiar residuos históricos inequívocos (`Smoke ...`, `smoke-...`) existe un script
+explícito y protegido:
+
+```powershell
+$env:STAGING_CLEANUP_CONFIRM="YES"
+python backend/scripts/cleanup_staging_smoke.py
+```
+
+El script aborta si el entorno se identifica como producción y no elimina Empresa Demo A/B.
+No debe ejecutarse automáticamente durante un deploy.

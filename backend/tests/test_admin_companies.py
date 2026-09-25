@@ -360,3 +360,17 @@ def test_me_returns_permissions_for_active_companies(client, db_session):
     ids = {m["company_id"] for m in body["memberships"]}
     assert data["company_a"].id in ids
     assert data["company_b"].id not in ids
+
+
+def test_superadmin_user_list_tolerates_legacy_invalid_email(client, db_session):
+    data = _seed_full(db_session)
+    data["admin_a"].email = "legacy@localhost"
+    db_session.commit()
+    token = _login(client, "root@example.com", "root-pwd")
+    response = client.get(
+        "/api/v1/users?page=1&page_size=20",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 200, response.text
+    item = next(row for row in response.json()["items"] if row["id"] == data["admin_a"].id)
+    assert item["email"] == "legacy@localhost"

@@ -152,7 +152,9 @@ class UserUpdate(BaseModel):
 
 class UserRead(BaseModel):
     id: int
-    email: EmailStr
+    # Lectura tolerante: la base puede contener usuarios legacy/seed creados
+    # antes de validar EmailStr. Las altas y ediciones siguen validando EmailStr.
+    email: str
     full_name: str
     active: bool
     is_superadmin: bool

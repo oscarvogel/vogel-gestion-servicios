@@ -52,7 +52,6 @@ def _user_detail(db: Session, user: User, company_id: int | None = None) -> User
     if company_id is not None:
         rows = rows.filter(CompanyUser.company_id == company_id)
     rows = rows.all()
-    )
     memberships = [_membership_summary(db, m, c) for m, c in rows]
     return UserDetail(
         id=user.id,

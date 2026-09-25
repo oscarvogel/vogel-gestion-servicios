@@ -7,6 +7,7 @@ import VogelLogo from "../components/VogelLogo.vue";
 
 const email = ref("");
 const password = ref("");
+const showPassword = ref(false);
 const loading = ref(false);
 const error = ref<string | null>(null);
 
@@ -91,14 +92,25 @@ async function onSubmit() {
           </div>
           <div class="field">
             <label for="password">Contraseña</label>
-            <input
-              id="password"
-              v-model="password"
-              type="password"
-              autocomplete="current-password"
-              placeholder="••••••••"
-              required
-            />
+            <div style="display:flex;gap:8px;align-items:center">
+              <input
+                id="password"
+                v-model="password"
+                :type="showPassword ? 'text' : 'password'"
+                autocomplete="current-password"
+                placeholder="••••••••"
+                required
+                style="flex:1"
+              />
+              <button
+                type="button"
+                class="btn btn--ghost"
+                :aria-label="showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'"
+                @click="showPassword = !showPassword"
+              >
+                {{ showPassword ? "Ocultar" : "Mostrar" }}
+              </button>
+            </div>
           </div>
           <div v-if="error" class="badge badge--danger" style="margin-bottom:14px;display:block">
             {{ error }}

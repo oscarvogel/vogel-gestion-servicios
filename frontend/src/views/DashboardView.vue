@@ -29,6 +29,21 @@ const toasts = useToastStore();
 const data = ref<SuperAdminDashboard | null>(null);
 const loading = ref(false);
 
+const firstName = computed(() => {
+  const name = session.me?.full_name?.trim();
+  return name ? name.split(/\s+/)[0] : "tu cuenta";
+});
+
+const contextSubtitle = computed(() => {
+  if (session.isSuperAdmin) {
+    return "Dashboard de Plataforma. Gestioná empresas, usuarios y la salud global del servicio.";
+  }
+  const companyName = session.activeCompany?.name;
+  return companyName
+    ? `Operás en el contexto de ${companyName}.`
+    : "No hay una empresa seleccionada para esta sesión.";
+});
+
 async function load() {
   if (!session.isSuperAdmin) return;
   loading.value = true;
@@ -61,12 +76,8 @@ const greeting = computed(() => {
       }"
     >
       <div class="hero__eyebrow">Plataforma Vogel</div>
-      <h1 class="hero__title">{{ greeting }}, {{ session.me?.full_name?.split(' ')[0] }}.</h1>
-      <p class="hero__subtitle">
-        {{ session.isSuperAdmin
-          ? "Operás como SuperAdmin. Gestioná empresas, asigná administradores y mantené la salud de la plataforma."
-          : `Operás en el contexto de ${session.activeCompany?.name}.` }}
-      </p>
+      <h1 class="hero__title">{{ greeting }}, {{ firstName }}.</h1>
+      <p class="hero__subtitle">{{ contextSubtitle }}</p>
     </section>
 
     <template v-if="session.isSuperAdmin">
@@ -140,7 +151,7 @@ const greeting = computed(() => {
     <template v-else>
       <div class="card">
         <p class="card__title">Empresa activa</p>
-        <h2 style="margin:0 0 6px;font-size:22px">{{ session.activeCompany?.name }}</h2>
+        <h2 style="margin:0 0 6px;font-size:22px">{{ session.activeCompany?.name ?? "Sin empresa seleccionada" }}</h2>
         <p class="text-secondary" style="margin:0">
           {{ session.activeCompany?.is_admin
             ? "Sos administrador de esta empresa. Gestioná usuarios y roles."

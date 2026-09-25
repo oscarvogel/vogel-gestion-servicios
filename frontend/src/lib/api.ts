@@ -11,8 +11,41 @@ export const THEME_KEY = "vogel.theme";
 export const api: AxiosInstance = axios.create({ baseURL });
 
 let onUnauthorized: (() => void) | null = null;
+let refreshInFlight: Promise<string> | null = null;
+
+interface RetryableRequestConfig extends AxiosRequestConfig {
+  _authRetry?: boolean;
+}
+
 export function setUnauthorizedHandler(fn: () => void) {
   onUnauthorized = fn;
+}
+
+function notifyUnauthorized() {
+  clearSession();
+  onUnauthorized?.();
+}
+
+export async function refreshAccessToken(): Promise<string> {
+  const refreshToken = localStorage.getItem(REFRESH_KEY);
+  if (!refreshToken) {
+    throw new Error("No refresh token available");
+  }
+  if (!refreshInFlight) {
+    refreshInFlight = axios
+      .post<{ access_token: string }>(
+        `${baseURL}/auth/refresh`,
+        { refresh_token: refreshToken },
+      )
+      .then(({ data }) => {
+        setToken(data.access_token);
+        return data.access_token;
+      })
+      .finally(() => {
+        refreshInFlight = null;
+      });
+  }
+  return refreshInFlight;
 }
 
 api.interceptors.request.use((config) => {
@@ -26,9 +59,23 @@ api.interceptors.request.use((config) => {
 
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
-    if (error?.response?.status === 401 && onUnauthorized) {
-      onUnauthorized();
+  async (error) => {
+    const status = error?.response?.status;
+    const config = error?.config as RetryableRequestConfig | undefined;
+    const isRefreshRequest = config?.url?.endsWith("/auth/refresh");
+
+    if (status === 401 && !isRefreshRequest && config && !config._authRetry) {
+      config._authRetry = true;
+      try {
+        const accessToken = await refreshAccessToken();
+        config.headers = config.headers ?? {};
+        config.headers.Authorization = `Bearer ${accessToken}`;
+        return api(config);
+      } catch (_) {
+        notifyUnauthorized();
+      }
+    } else if (status === 401) {
+      notifyUnauthorized();
     }
     return Promise.reject(error);
   }

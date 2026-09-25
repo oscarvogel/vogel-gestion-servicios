@@ -5,9 +5,12 @@ import {
   apiPost,
   setToken,
   TOKEN_KEY,
+  REFRESH_KEY,
   ACTIVE_COMPANY_KEY,
   clearSession,
 } from "../lib/api";
+
+export type AuthStatus = "initializing" | "authenticated" | "anonymous";
 
 export interface MembershipSummary {
   company_id: number;
@@ -37,6 +40,22 @@ export interface CompanyOption {
   is_admin: boolean;
 }
 
+export type PostLoginDestination =
+  | "dashboard"
+  | "company-selector"
+  | "no-companies"
+  | "select-company";
+
+export function resolvePostLoginDestination(
+  user: MeResponse | null,
+  company: CompanyOption | null,
+): PostLoginDestination {
+  if (!user || user.is_superadmin || company) return "dashboard";
+  if (user.memberships.length === 0) return "no-companies";
+  if (user.memberships.length === 1) return "select-company";
+  return "company-selector";
+}
+
 export const useSessionStore = defineStore("session", () => {
   const me = ref<MeResponse | null>(null);
   const token = ref<string | null>(localStorage.getItem(TOKEN_KEY));
@@ -51,8 +70,12 @@ export const useSessionStore = defineStore("session", () => {
     })()
   );
   const loading = ref(false);
+  const authStatus = ref<AuthStatus>("initializing");
+  let bootstrapPromise: Promise<void> | null = null;
 
-  const isAuthenticated = computed(() => !!token.value && !!me.value);
+  const isAuthenticated = computed(
+    () => authStatus.value === "authenticated" && !!me.value
+  );
   const isSuperAdmin = computed(() => me.value?.is_superadmin === true);
   const permissions = computed(() => me.value?.permissions ?? []);
   const memberships = computed(() => me.value?.memberships ?? []);
@@ -74,6 +97,7 @@ export const useSessionStore = defineStore("session", () => {
 
   async function login(email: string, password: string) {
     loading.value = true;
+    authStatus.value = "initializing";
     try {
       const response = await apiPost<{
         access_token: string;
@@ -83,14 +107,20 @@ export const useSessionStore = defineStore("session", () => {
       setToken(response.access_token, response.refresh_token);
       token.value = response.access_token;
       await loadMe();
+      authStatus.value = "authenticated";
+    } catch (error) {
+      await logout();
+      throw error;
     } finally {
       loading.value = false;
     }
   }
 
   async function loadMe() {
-    if (!token.value) return;
+    token.value = localStorage.getItem(TOKEN_KEY);
+    if (!token.value) throw new Error("No access token available");
     const data = await apiGet<MeResponse>("/auth/me");
+    token.value = localStorage.getItem(TOKEN_KEY);
     me.value = data;
     // Si ya hay empresa activa pero no es válida para este usuario, limpiar.
     if (activeCompany.value) {
@@ -106,7 +136,7 @@ export const useSessionStore = defineStore("session", () => {
   }
 
   async function refresh() {
-    const refreshToken = localStorage.getItem("vogel.refresh");
+    const refreshToken = localStorage.getItem(REFRESH_KEY);
     if (!refreshToken) return false;
     try {
       const response = await apiPost<{
@@ -122,11 +152,54 @@ export const useSessionStore = defineStore("session", () => {
   }
 
   async function logout() {
-    setToken(null);
+    clearSession();
     token.value = null;
     me.value = null;
-    persistActiveCompany(null);
-    clearSession();
+    activeCompany.value = null;
+    authStatus.value = "anonymous";
+  }
+
+  async function bootstrap() {
+    if (bootstrapPromise) return bootstrapPromise;
+    if (authStatus.value === "authenticated" && me.value && token.value) {
+      return;
+    }
+
+    bootstrapPromise = (async () => {
+      authStatus.value = "initializing";
+      token.value = localStorage.getItem(TOKEN_KEY);
+      if (!token.value) {
+        me.value = null;
+        activeCompany.value = null;
+        clearSession();
+        authStatus.value = "anonymous";
+        return;
+      }
+
+      try {
+        await loadMe();
+        authStatus.value = "authenticated";
+        return;
+      } catch (_) {
+        // Access may be expired. Try the persisted refresh token exactly once.
+      }
+
+      if (await refresh()) {
+        try {
+          await loadMe();
+          authStatus.value = "authenticated";
+          return;
+        } catch (_) {
+          // The refreshed access token is not a valid session either.
+        }
+      }
+
+      await logout();
+    })().finally(() => {
+      bootstrapPromise = null;
+    });
+
+    return bootstrapPromise;
   }
 
   async function selectCompany(company: CompanyOption) {
@@ -159,6 +232,7 @@ export const useSessionStore = defineStore("session", () => {
     token,
     activeCompany,
     loading,
+    authStatus,
     isAuthenticated,
     isSuperAdmin,
     permissions,
@@ -166,6 +240,7 @@ export const useSessionStore = defineStore("session", () => {
     hasPermission,
     login,
     logout,
+    bootstrap,
     refresh,
     loadMe,
     selectCompany,

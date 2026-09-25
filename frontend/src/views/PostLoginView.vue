@@ -1,29 +1,27 @@
 <script setup lang="ts">
-import { onMounted } from "vue";
+import { onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
-import { useSessionStore } from "../stores/session";
+import { resolvePostLoginDestination, useSessionStore } from "../stores/session";
 
 const session = useSessionStore();
 const router = useRouter();
+const noCompanies = ref(false);
 
 onMounted(async () => {
   if (!session.me) {
     router.replace({ name: "login" });
     return;
   }
-  if (session.isSuperAdmin) {
+  const destination = resolvePostLoginDestination(session.me, session.activeCompany);
+  if (destination === "dashboard") {
     router.replace({ name: "dashboard" });
     return;
   }
-  if (session.activeCompany) {
-    router.replace({ name: "dashboard" });
+  if (destination === "no-companies") {
+    noCompanies.value = true;
     return;
   }
-  if (session.memberships.length === 0) {
-    router.replace({ name: "dashboard" });
-    return;
-  }
-  if (session.memberships.length === 1) {
+  if (destination === "select-company") {
     try {
       await session.selectCompany({
         id: session.memberships[0].company_id,
@@ -43,7 +41,18 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="auth-shell" style="grid-template-columns:1fr">
+  <div v-if="noCompanies" class="auth-shell" style="grid-template-columns:1fr">
+    <section class="auth-shell__form">
+      <div class="auth-card" style="text-align:center">
+        <h2>Sin empresas asignadas</h2>
+        <p class="text-secondary">Tu usuario todavía no tiene empresas disponibles para operar.</p>
+        <button class="btn btn--primary" type="button" @click="session.logout().then(() => router.replace({ name: 'login' }))">
+          Cerrar sesión
+        </button>
+      </div>
+    </section>
+  </div>
+  <div v-else class="auth-shell" style="grid-template-columns:1fr">
     <section class="auth-shell__form">
       <div class="auth-card" style="text-align:center">
         <span class="spinner" />

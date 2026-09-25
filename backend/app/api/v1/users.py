@@ -86,7 +86,7 @@ def _membership_read(db: Session, membership: CompanyUser) -> MembershipRead:
     )
 
 
-def _attach_membership(db: Session, user: User, payload: MembershipCreate) -> MembershipRead:
+def _attach_membership(db: Session, user: User, payload: MembershipCreate, *, commit: bool = True) -> MembershipRead:
     membership = CompanyUser(
         company_id=payload.company_id,
         user_id=user.id,
@@ -105,8 +105,11 @@ def _attach_membership(db: Session, user: User, payload: MembershipCreate) -> Me
                 company_user_id=membership.id, role_id=role_id, active=True
             )
         )
-    db.commit()
-    db.refresh(membership)
+    if commit:
+        db.commit()
+        db.refresh(membership)
+    else:
+        db.flush()
     return _membership_read(db, membership)
 
 
@@ -180,11 +183,43 @@ def list_users(
 @router.post("", response_model=UserDetail, status_code=status.HTTP_201_CREATED)
 def create_user(
     payload: UserCreate,
-    _admin: User = Depends(require_permission("users.create")),
+    actor: User = Depends(require_permission("users.create")),
+    authorization: str = Header(default=""),
     db: Session = Depends(get_db),
 ):
-    if db.query(User).filter(User.email == str(payload.email)).first():
-        raise HTTPException(status_code=409, detail="Email already in use")
+    existing = db.query(User).filter(User.email == str(payload.email)).first()
+    if existing:
+        raise HTTPException(status_code=409, detail="El correo electrónico ya está registrado.")
+
+    if payload.is_superadmin and not actor.is_superadmin:
+        raise HTTPException(status_code=403, detail="No tiene permisos para crear un SuperAdmin.")
+
+    memberships = list(payload.memberships)
+    if not payload.is_superadmin and not memberships:
+        raise HTTPException(
+            status_code=422,
+            detail="Debe asignar al menos una empresa al usuario.",
+        )
+
+    seen_company_ids: set[int] = set()
+    actor_company_id: int | None = None
+    if not actor.is_superadmin:
+        actor_company_id = _actor_current_company_id(authorization, actor, db)
+
+    for membership_data in memberships:
+        if membership_data.company_id in seen_company_ids:
+            raise HTTPException(status_code=422, detail="No puede repetir la misma empresa.")
+        seen_company_ids.add(membership_data.company_id)
+
+        company = db.get(Company, membership_data.company_id)
+        if not company or not company.active:
+            raise HTTPException(status_code=422, detail="La empresa seleccionada no es válida.")
+        if actor_company_id is not None and membership_data.company_id != actor_company_id:
+            raise HTTPException(
+                status_code=403,
+                detail="No tiene permisos para asignar usuarios a otra empresa.",
+            )
+
     user = User(
         email=str(payload.email),
         full_name=payload.full_name,
@@ -192,12 +227,17 @@ def create_user(
         active=True,
         is_superadmin=payload.is_superadmin,
     )
-    db.add(user)
-    db.flush()
-    for membership_data in payload.memberships:
-        _attach_membership(db, user, membership_data)
-    db.commit()
-    db.refresh(user)
+    try:
+        db.add(user)
+        db.flush()
+        for membership_data in memberships:
+            _attach_membership(db, user, membership_data, commit=False)
+        db.commit()
+        db.refresh(user)
+    except Exception:
+        db.rollback()
+        raise
+
     return _user_detail(db, user)
 
 

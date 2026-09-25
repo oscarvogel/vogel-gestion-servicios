@@ -113,3 +113,27 @@ export function clearSession() {
   localStorage.removeItem(REFRESH_KEY);
   localStorage.removeItem(ACTIVE_COMPANY_KEY);
 }
+
+
+const API_ERROR_MESSAGES: Record<number, string> = {
+  401: "La sesión venció. Ingresá nuevamente.",
+  403: "No tenés permisos para realizar esta acción.",
+  404: "No se encontró el recurso solicitado.",
+  409: "La operación entra en conflicto con datos existentes.",
+  422: "Revisá los datos ingresados.",
+  500: "Ocurrió un error interno. Intentá nuevamente.",
+};
+
+export function getApiErrorMessage(error: unknown, fallback = "No se pudo completar la operación"): string {
+  const response = (error as {
+    response?: { status?: number; data?: { detail?: unknown } };
+  })?.response;
+  const detail = response?.data?.detail;
+  if (typeof detail === "string" && detail.trim()) {
+    return detail;
+  }
+  if (Array.isArray(detail) && detail.length) {
+    return "Revisá los datos ingresados.";
+  }
+  return (response?.status && API_ERROR_MESSAGES[response.status]) || fallback;
+}

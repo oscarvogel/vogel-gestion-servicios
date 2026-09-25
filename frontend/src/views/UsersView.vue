@@ -106,11 +106,34 @@ onMounted(async () => {
 
 function openCreate() {
   editing.value = null;
+  const memberships: Array<{
+    company_id: number;
+    role: "ADMIN" | "MEMBER";
+    is_admin: boolean;
+    active: boolean;
+  }> = [];
+
+  if (session.isSuperAdmin && companyId.value !== "all") {
+    memberships.push({
+      company_id: companyId.value as number,
+      role: "MEMBER",
+      is_admin: false,
+      active: true,
+    });
+  } else if (!session.isSuperAdmin && session.activeCompany) {
+    memberships.push({
+      company_id: session.activeCompany.id,
+      role: "MEMBER",
+      is_admin: false,
+      active: true,
+    });
+  }
+
   form.value = {
     email: "",
     full_name: "",
     password: "",
-    memberships: [],
+    memberships,
   };
   showForm.value = true;
 }
@@ -140,6 +163,15 @@ async function save() {
     toasts.push("La contraseña inicial es obligatoria", "error");
     return;
   }
+  if (!editing.value && form.value.memberships.length === 0) {
+    toasts.push("Debe asignar al menos una empresa al usuario", "error");
+    return;
+  }
+  const companyIds = form.value.memberships.map((m) => m.company_id);
+  if (new Set(companyIds).size !== companyIds.length) {
+    toasts.push("No puede asignar dos veces la misma empresa", "error");
+    return;
+  }
   try {
     if (editing.value) {
       const payload: Record<string, unknown> = {
@@ -148,6 +180,15 @@ async function save() {
       };
       if (form.value.password) payload.password = form.value.password;
       await apiPatch(`/users/${editing.value.id}`, payload);
+      const existingCompanyIds = new Set(
+        editing.value.memberships.map((membership) => membership.company_id),
+      );
+      const newMemberships = form.value.memberships.filter(
+        (membership) => !existingCompanyIds.has(membership.company_id),
+      );
+      for (const membership of newMemberships) {
+        await apiPost(`/users/${editing.value.id}/memberships`, membership);
+      }
       toasts.push("Usuario actualizado", "success");
     } else {
       await apiPost("/users", {
@@ -161,9 +202,13 @@ async function save() {
     showForm.value = false;
     await load();
   } catch (err: unknown) {
-    const detail =
+    const rawDetail =
       (err as { response?: { data?: { detail?: string } } })?.response?.data
-        ?.detail || "No se pudo guardar";
+        ?.detail;
+    const detail =
+      rawDetail === "Email already in use"
+        ? "El correo electrónico ya está registrado."
+        : rawDetail || "No se pudo guardar el usuario";
     toasts.push(detail, "error");
   }
 }
@@ -179,9 +224,14 @@ async function toggleActive(item: UserItem) {
 }
 
 function addMembership() {
-  if (companies.value.length === 0) return;
+  const used = new Set(form.value.memberships.map((membership) => membership.company_id));
+  const company = companies.value.find((candidate) => !used.has(candidate.id));
+  if (!company) {
+    toasts.push("No hay más empresas disponibles para asignar", "error");
+    return;
+  }
   form.value.memberships.push({
-    company_id: companies.value[0].id,
+    company_id: company.id,
     role: "MEMBER",
     is_admin: false,
     active: true,
@@ -189,7 +239,27 @@ function addMembership() {
 }
 
 function removeMembership(index: number) {
+  const membership = form.value.memberships[index];
+  if (
+    editing.value?.memberships.some(
+      (existing) => existing.company_id === membership.company_id,
+    )
+  ) {
+    toasts.push(
+      "La baja de una membresía existente se gestiona desde el padrón de la empresa",
+      "error",
+    );
+    return;
+  }
   form.value.memberships.splice(index, 1);
+}
+
+function isExistingMembership(companyId: number) {
+  return Boolean(
+    editing.value?.memberships.some(
+      (membership) => membership.company_id === companyId,
+    ),
+  );
 }
 </script>
 
@@ -298,9 +368,12 @@ function removeMembership(index: number) {
           <input v-model="form.password" type="password" minlength="8" />
         </div>
 
-        <template v-if="!editing && session.isSuperAdmin">
+        <template v-if="session.isSuperAdmin">
           <hr style="border:none;border-top:1px solid var(--color-border);margin:14px 0" />
-          <p class="card__title">Membresías</p>
+          <p class="card__title">Membresías *</p>
+          <p v-if="form.memberships.length === 0" class="text-secondary" style="margin:0 0 12px">
+            Asigná al menos una empresa para poder crear el usuario.
+          </p>
           <div v-for="(m, idx) in form.memberships" :key="idx" class="field__row" style="align-items:end">
             <div class="field">
               <label>Empresa</label>
@@ -320,7 +393,14 @@ function removeMembership(index: number) {
                 <input type="checkbox" v-model="m.is_admin" /> Admin
               </label>
             </div>
-            <button class="btn btn--ghost btn--sm" type="button" @click="removeMembership(idx)">Quitar</button>
+            <button
+              class="btn btn--ghost btn--sm"
+              type="button"
+              :disabled="isExistingMembership(m.company_id)"
+              @click="removeMembership(idx)"
+            >
+              {{ isExistingMembership(m.company_id) ? 'Asignada' : 'Quitar' }}
+            </button>
           </div>
           <button class="btn btn--ghost btn--sm" type="button" @click="addMembership">+ Agregar membresía</button>
         </template>

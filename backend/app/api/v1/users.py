@@ -167,13 +167,25 @@ def list_users(
         like = f"%{search.strip()}%"
         base = base.filter((User.email.ilike(like)) | (User.full_name.ilike(like)))
     total = base.with_entities(func.count(func.distinct(User.id))).scalar() or 0
-    rows = (
-        base.order_by(User.active.desc(), User.full_name)
-        .distinct()
-        .offset((page - 1) * page_size)
-        .limit(page_size)
-        .all()
-    )
+    # Evitar SELECT DISTINCT sobre la entidad completa: con MySQL y joins de
+    # membresías puede producir consultas frágiles. Primero paginamos IDs únicos
+    # y después cargamos los usuarios por PK conservando el orden.
+    user_ids = [
+        row[0]
+        for row in (
+            base.with_entities(User.id)
+            .group_by(User.id, User.active, User.full_name)
+            .order_by(User.active.desc(), User.full_name, User.id)
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+            .all()
+        )
+    ]
+    users_by_id = {
+        user.id: user
+        for user in db.query(User).filter(User.id.in_(user_ids)).all()
+    } if user_ids else {}
+    rows = [users_by_id[user_id] for user_id in user_ids if user_id in users_by_id]
     items = [_user_detail(db, u) for u in rows]
     return UserListResponse(
         items=items, total=total, page=page, page_size=page_size

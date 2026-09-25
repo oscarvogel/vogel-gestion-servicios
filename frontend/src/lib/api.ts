@@ -37,9 +37,26 @@ export async function refreshAccessToken(): Promise<string> {
         `${baseURL}/auth/refresh`,
         { refresh_token: refreshToken },
       )
-      .then(({ data }) => {
-        setToken(data.access_token);
-        return data.access_token;
+      .then(async ({ data }) => {
+        let accessToken = data.access_token;
+        const rawCompany = localStorage.getItem(ACTIVE_COMPANY_KEY);
+        if (rawCompany) {
+          try {
+            const company = JSON.parse(rawCompany) as { id?: number };
+            if (company.id) {
+              const selected = await axios.post<{ access_token: string }>(
+                `${baseURL}/auth/select-company`,
+                { company_id: company.id },
+                { headers: { Authorization: `Bearer ${accessToken}` } },
+              );
+              accessToken = selected.data.access_token;
+            }
+          } catch (_) {
+            localStorage.removeItem(ACTIVE_COMPANY_KEY);
+          }
+        }
+        setToken(accessToken);
+        return accessToken;
       })
       .finally(() => {
         refreshInFlight = null;

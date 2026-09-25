@@ -365,7 +365,13 @@ def list_memberships(
         )
         if not shared:
             raise HTTPException(status_code=403, detail="No tiene acceso a este usuario.")
-    memberships = (\n        db.query(CompanyUser)\n        .filter(CompanyUser.user_id == user.id)\n        .order_by(CompanyUser.id)\n        .all()\n    )\n    return [_membership_read(db, m) for m in memberships]
+    memberships = (
+        db.query(CompanyUser)
+        .filter(CompanyUser.user_id == user.id)
+        .order_by(CompanyUser.id)
+        .all()
+    )
+    return [_membership_read(db, m) for m in memberships]
 
 
 @router.post(

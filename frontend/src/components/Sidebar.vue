@@ -42,6 +42,13 @@ const links = computed<NavLink[]>(() => {
       visible: platform,
     },
     {
+      id: "customers",
+      label: "Clientes y equipos",
+      to: "/app/customers",
+      icon: IconUsers,
+      visible: session.activeCompany !== null && session.hasPermission("customers.view"),
+    },
+    {
       id: "users",
       label: "Usuarios",
       to: "/app/users",

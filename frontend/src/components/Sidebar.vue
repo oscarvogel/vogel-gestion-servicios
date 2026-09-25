@@ -79,11 +79,7 @@ function navigate(to: string) {
   <div v-if="open" class="sidebar__scrim" @click="emit('close')" />
   <aside :class="['sidebar', { 'is-open': open }]">
     <div class="sidebar__brand">
-      <VogelLogo :size="42" />
-      <div>
-        <strong>Vogel</strong>
-        <small>Consultoría · Gestión de Servicios</small>
-      </div>
+      <VogelLogo :size="58" />
     </div>
 
     <nav class="sidebar__nav" aria-label="Principal">

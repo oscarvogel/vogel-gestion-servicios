@@ -103,6 +103,11 @@ async function load() {
 
 watch([search, activeFilter, companyId], () => {
   page.value = 1;
+  if (session.isSuperAdmin) {
+    const query =
+      companyId.value === "all" ? {} : { company_id: String(companyId.value) };
+    router.replace({ name: "users", query });
+  }
   load();
 });
 watch(page, load);

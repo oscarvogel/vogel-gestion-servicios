@@ -45,7 +45,7 @@ def upgrade():
     if "category" in columns:
         bind.execute(sa.text("UPDATE equipment SET category_id=(SELECT ec.id FROM equipment_categories ec WHERE ec.company_id=equipment.company_id AND LOWER(ec.name)=LOWER(equipment.category) LIMIT 1) WHERE category_id IS NULL"))
         with op.batch_alter_table("equipment") as batch:
-            batch.alter_column("category_id",nullable=False)
+            batch.alter_column("category_id",existing_type=sa.Integer(),nullable=False)
             batch.drop_column("category")
 
 def downgrade():
@@ -56,7 +56,7 @@ def downgrade():
         bind=op.get_bind()
         bind.execute(sa.text("UPDATE equipment SET category=(SELECT ec.name FROM equipment_categories ec WHERE ec.id=equipment.category_id)"))
         with op.batch_alter_table("equipment") as batch:
-            batch.alter_column("category",nullable=False)
+            batch.alter_column("category",existing_type=sa.String(80),nullable=False)
             batch.drop_constraint("fk_equipment_category",type_="foreignkey")
             batch.drop_index("ix_equipment_category_id")
             batch.drop_column("category_id")

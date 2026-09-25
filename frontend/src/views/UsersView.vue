@@ -106,11 +106,34 @@ onMounted(async () => {
 
 function openCreate() {
   editing.value = null;
+  const memberships: Array<{
+    company_id: number;
+    role: "ADMIN" | "MEMBER";
+    is_admin: boolean;
+    active: boolean;
+  }> = [];
+
+  if (session.isSuperAdmin && companyId.value !== "all") {
+    memberships.push({
+      company_id: companyId.value as number,
+      role: "MEMBER",
+      is_admin: false,
+      active: true,
+    });
+  } else if (!session.isSuperAdmin && session.activeCompany) {
+    memberships.push({
+      company_id: session.activeCompany.id,
+      role: "MEMBER",
+      is_admin: false,
+      active: true,
+    });
+  }
+
   form.value = {
     email: "",
     full_name: "",
     password: "",
-    memberships: [],
+    memberships,
   };
   showForm.value = true;
 }
@@ -140,6 +163,15 @@ async function save() {
     toasts.push("La contraseña inicial es obligatoria", "error");
     return;
   }
+  if (!editing.value && form.value.memberships.length === 0) {
+    toasts.push("Debe asignar al menos una empresa al usuario", "error");
+    return;
+  }
+  const companyIds = form.value.memberships.map((m) => m.company_id);
+  if (new Set(companyIds).size !== companyIds.length) {
+    toasts.push("No puede asignar dos veces la misma empresa", "error");
+    return;
+  }
   try {
     if (editing.value) {
       const payload: Record<string, unknown> = {
@@ -161,9 +193,13 @@ async function save() {
     showForm.value = false;
     await load();
   } catch (err: unknown) {
-    const detail =
+    const rawDetail =
       (err as { response?: { data?: { detail?: string } } })?.response?.data
-        ?.detail || "No se pudo guardar";
+        ?.detail;
+    const detail =
+      rawDetail === "Email already in use"
+        ? "El correo electrónico ya está registrado."
+        : rawDetail || "No se pudo guardar el usuario";
     toasts.push(detail, "error");
   }
 }
@@ -300,7 +336,10 @@ function removeMembership(index: number) {
 
         <template v-if="!editing && session.isSuperAdmin">
           <hr style="border:none;border-top:1px solid var(--color-border);margin:14px 0" />
-          <p class="card__title">Membresías</p>
+          <p class="card__title">Membresías *</p>
+          <p v-if="form.memberships.length === 0" class="text-secondary" style="margin:0 0 12px">
+            Asigná al menos una empresa para poder crear el usuario.
+          </p>
           <div v-for="(m, idx) in form.memberships" :key="idx" class="field__row" style="align-items:end">
             <div class="field">
               <label>Empresa</label>

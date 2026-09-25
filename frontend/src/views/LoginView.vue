@@ -47,11 +47,7 @@ async function onSubmit() {
         }"
     >
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:48px">
-        <VogelLogo :size="48" />
-        <div>
-          <strong style="font-size:14px;letter-spacing:0.18em;text-transform:uppercase">Vogel Consultoría</strong>
-          <div style="font-size:12px;color:var(--color-text-muted)">Gestión de Servicios</div>
-        </div>
+        <VogelLogo :size="78" />
       </div>
       <h1 style="font-size:38px;letter-spacing:-0.02em;line-height:1.1;max-width:520px">
         La plataforma operativa de tus servicios técnicos.
@@ -59,20 +55,14 @@ async function onSubmit() {
       <p style="margin-top:18px;color:var(--color-text-secondary);font-size:16px;max-width:520px">
         Administrá empresas, usuarios, equipos y órdenes de trabajo con un diseño claro, seguro y pensado para equipos distribuidos.
       </p>
-      <div style="margin-top:48px;display:flex;gap:16px;flex-wrap:wrap">
-        <span class="topbar__chip">Multi-tenant</span>
-        <span class="topbar__chip">SSO-ready</span>
-        <span class="topbar__chip">Roles y permisos granulares</span>
-      </div>
+      <p style="margin-top:36px;color:var(--color-text-muted);font-size:13px">
+        Una plataforma de Vogel Consultoría.
+      </p>
     </aside>
     <section class="auth-shell__form">
       <div class="auth-card">
         <div class="auth-card__brand">
-          <VogelLogo :size="44" />
-          <div>
-            <strong style="font-size:14px;letter-spacing:0.18em;text-transform:uppercase">Vogel Consultoría</strong>
-            <div style="font-size:12px;color:var(--color-text-muted)">Vogel Gestión de Servicios</div>
-          </div>
+          <VogelLogo :size="64" />
         </div>
         <h2 style="font-size:22px;margin:0 0 6px">Iniciar sesión</h2>
         <p class="text-secondary" style="font-size:14px;margin:0 0 24px">

@@ -147,9 +147,11 @@ const greeting = computed(() => {
         <p class="card__title">Empresa activa</p>
         <h2 style="margin:0 0 6px;font-size:22px">{{ session.activeCompany?.name ?? "Sin empresa seleccionada" }}</h2>
         <p class="text-secondary" style="margin:0">
-          {{ session.activeCompany?.is_admin
-            ? "Sos administrador de esta empresa. Gestioná usuarios y roles."
-            : "Sos miembro. Tu administrador puede modificar tus permisos." }}
+          {{ session.isSuperAdmin
+            ? "Estás operando como SuperAdmin dentro del contexto de esta empresa."
+            : session.activeCompany?.is_admin
+              ? "Sos administrador de esta empresa. Gestioná usuarios y roles."
+              : "Sos miembro. Tu administrador puede modificar tus permisos." }}
         </p>
       </div>
       <div class="card empty-state" v-if="!session.activeCompany">

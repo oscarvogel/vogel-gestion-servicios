@@ -28,5 +28,6 @@ const session=useSessionStore(),theme=useThemeStore();
     </tbody></table>
   </div>
 </div>
+</template>
 
 <style scoped>.settings-stack{display:flex;flex-direction:column;gap:24px}</style>

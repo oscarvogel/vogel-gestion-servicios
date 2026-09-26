@@ -74,6 +74,20 @@ const links = computed<NavLink[]>(() => {
         session.hasPermission("roles.view"),
     },
     {
+      id: "parameters",
+      label: "Parámetros",
+      to: "/app/parameters",
+      icon: IconSettings,
+      visible: session.activeCompany !== null && (platform || session.activeCompany?.is_admin === true),
+    },
+    {
+      id: "work-order-statuses",
+      label: "Estados de OT",
+      to: "/app/work-order-statuses",
+      icon: IconSettings,
+      visible: session.activeCompany !== null && (platform || session.activeCompany?.is_admin === true),
+    },
+    {
       id: "settings",
       label: "Configuración",
       to: "/app/settings",

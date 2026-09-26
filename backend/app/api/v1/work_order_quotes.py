@@ -25,6 +25,13 @@ def order(db,cid,oid):
     row=db.query(WorkOrder).filter_by(id=oid,company_id=cid).first()
     if not row:raise HTTPException(404,"Orden de trabajo no encontrada.")
     return row
+def parameter_bool(db,cid,key,default=True):
+    d=db.query(ParameterDefinition).filter_by(parameter=key,active=True).first()
+    if not d:return default
+    o=db.query(CompanyParameter).filter_by(company_id=cid,parameter_definition_id=d.id).first()
+    raw=(o.value if o else d.default_value)
+    return str(raw).strip().lower() in ("1","true","yes","si","sí","on")
+
 def markup(db,cid):
     d=db.query(ParameterDefinition).filter_by(parameter="pricing.parts_markup_percent",active=True).first()
     if not d:return Decimal("0")
@@ -40,7 +47,9 @@ def get_diagnosis(oid:int,cid:int=Depends(get_current_company_id),_a:User=Depend
     return None if not d else {"id":d.id,"diagnosis":d.diagnosis,"technical_notes":d.technical_notes,"diagnosed_at":d.diagnosed_at,"updated_at":d.updated_at}
 @router.put("/{oid}/diagnosis")
 def save_diagnosis(oid:int,p:DiagnosisInput,cid:int=Depends(get_current_company_id),a:User=Depends(require_permission("work_orders.manage")),db:Session=Depends(get_db)):
-    wo=order(db,cid,oid);d=db.query(WorkOrderDiagnosis).filter_by(company_id=cid,work_order_id=oid).first()
+    wo=order(db,cid,oid)
+    if not parameter_bool(db,cid,"work_orders.use_diagnosis",True):raise HTTPException(409,"El diagnóstico técnico está deshabilitado para esta empresa.")
+    d=db.query(WorkOrderDiagnosis).filter_by(company_id=cid,work_order_id=oid).first()
     if d:d.diagnosis=p.diagnosis.strip();d.technical_notes=p.technical_notes
     else:d=WorkOrderDiagnosis(company_id=cid,work_order_id=oid,diagnosis=p.diagnosis.strip(),technical_notes=p.technical_notes,diagnosed_by_user_id=a.id);db.add(d)
     db.add(WorkOrderEvent(company_id=cid,work_order_id=oid,event_type="DIAGNOSIS",status=wo.status,detail="Diagnóstico técnico guardado.",user_id=a.id));db.commit();db.refresh(d)
@@ -51,7 +60,8 @@ def list_quotes(oid:int,cid:int=Depends(get_current_company_id),_a:User=Depends(
 @router.post("/{oid}/quotes",status_code=201)
 def create_quote(oid:int,p:QuoteInput,cid:int=Depends(get_current_company_id),a:User=Depends(require_permission("work_orders.manage")),db:Session=Depends(get_db)):
     wo=order(db,cid,oid)
-    if not db.query(WorkOrderDiagnosis).filter_by(company_id=cid,work_order_id=oid).first():raise HTTPException(422,"Primero debe registrar el diagnóstico técnico.")
+    if not parameter_bool(db,cid,"work_orders.use_budget",True):raise HTTPException(409,"Los presupuestos están deshabilitados para esta empresa.")
+    if parameter_bool(db,cid,"work_orders.use_diagnosis",True) and not db.query(WorkOrderDiagnosis).filter_by(company_id=cid,work_order_id=oid).first():raise HTTPException(422,"Primero debe registrar el diagnóstico técnico.")
     version=(db.query(func.max(WorkOrderQuote.version)).filter_by(company_id=cid,work_order_id=oid).scalar() or 0)+1
     row=WorkOrderQuote(company_id=cid,work_order_id=oid,version=version,status="ISSUED",notes=p.notes,created_by_user_id=a.id);db.add(row);db.flush()
     default_markup=markup(db,cid);parts=Decimal("0");labor=Decimal("0")

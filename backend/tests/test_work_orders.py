@@ -119,4 +119,5 @@ def test_diagnosis_and_versioned_quote_uses_company_parts_markup(client,db_sessi
     second=client.post(f"/api/v1/work-orders/{created['id']}/quotes",headers=h,json=payload)
     assert second.status_code==201 and second.json()["version"]==2
     events=client.get(f"/api/v1/work-orders/{created['id']}/events",headers=h).json()
-    assert events[-1]["event_type"]=="QUOTE_CREATED"
+    assert any(e["event_type"]=="QUOTE_CREATED" for e in events)
+    assert any(e["event_type"]=="STATUS_CHANGE" and "Presupuestado" in (e["detail"] or "") for e in events)

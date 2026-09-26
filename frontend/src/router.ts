@@ -17,6 +17,7 @@ declare module "vue-router" {
     requiresAuth?: boolean;
     guestOnly?: boolean;
     superAdminOnly?: boolean;
+    companyAdminOnly?: boolean;
     permission?: string;
   }
 }
@@ -92,7 +93,7 @@ const routes: RouteRecordRaw[] = [
         path: "settings",
         name: "settings",
         component: SettingsView,
-        meta: { requiresAuth: true, superAdminOnly: true },
+        meta: { requiresAuth: true, companyAdminOnly: true },
       },
     ],
   },
@@ -119,6 +120,11 @@ export function createAppRouter() {
 
     if (to.matched.some((record) => record.meta.superAdminOnly) && !session.isSuperAdmin) {
       return { name: "forbidden" };
+    }
+
+    if (to.matched.some((record) => record.meta.companyAdminOnly)) {
+      const companyAdmin = session.activeCompany?.is_admin === true;
+      if (!session.isSuperAdmin && !companyAdmin) return { name: "forbidden" };
     }
 
     const requiredPermission = to.matched

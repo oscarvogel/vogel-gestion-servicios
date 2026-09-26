@@ -713,3 +713,266 @@ textarea {
   color: var(--color-text-primary);
   font-size: 12px;
 }
+
+
+/* ===== Mobile-first hardening =====
+   Keep every operational screen usable at 360–430px without horizontal page overflow. */
+html {
+  -webkit-text-size-adjust: 100%;
+}
+body {
+  overflow-x: hidden;
+}
+img,
+svg {
+  max-width: 100%;
+}
+input,
+select,
+textarea,
+button {
+  max-width: 100%;
+}
+.table {
+  display: block;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.table thead,
+.table tbody,
+.table tr {
+  min-width: max-content;
+}
+.table th,
+.table td {
+  white-space: nowrap;
+}
+.table td .text-muted,
+.table td .text-secondary {
+  white-space: normal;
+}
+.card,
+.hero,
+.toolbar,
+.field,
+.field__row {
+  min-width: 0;
+}
+
+@media (max-width: 600px) {
+  .app-content {
+    padding: 12px;
+    gap: 14px;
+  }
+
+  .topbar {
+    min-height: 56px;
+    height: auto;
+    padding: 8px 12px;
+    gap: 8px;
+  }
+  .topbar__title {
+    min-width: 0;
+    max-width: 42vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 14px;
+  }
+  .topbar__right {
+    gap: 6px;
+    min-width: 0;
+  }
+  .topbar__chip {
+    padding: 7px 9px;
+    font-size: 12px;
+  }
+
+  .sidebar {
+    width: min(88vw, 320px);
+    padding: 18px 12px;
+  }
+  .sidebar__brand {
+    margin-bottom: 18px;
+  }
+  .sidebar__link {
+    min-height: 44px;
+    padding: 11px 12px;
+  }
+
+  .card {
+    padding: 14px;
+    border-radius: var(--radius-md);
+  }
+  .card-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  .card__value {
+    font-size: 24px;
+  }
+
+  .hero {
+    padding: 20px 16px;
+    border-radius: var(--radius-lg);
+  }
+  .hero__title {
+    font-size: clamp(22px, 7vw, 28px);
+    line-height: 1.12;
+  }
+  .hero__subtitle {
+    font-size: 14px;
+  }
+
+  .toolbar {
+    width: 100%;
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .toolbar__search {
+    width: 100%;
+    min-width: 0;
+    min-height: 44px;
+  }
+  .toolbar__filters {
+    width: 100%;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    padding-bottom: 2px;
+    -webkit-overflow-scrolling: touch;
+  }
+  .toolbar__chip {
+    flex: 0 0 auto;
+    min-height: 40px;
+  }
+  .toolbar > .btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .field__row {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+  .field input,
+  .field select,
+  .field textarea {
+    width: 100%;
+    min-height: 44px;
+    font-size: 16px;
+  }
+
+  .btn {
+    min-height: 44px;
+    justify-content: center;
+  }
+  .btn--sm {
+    min-height: 40px;
+    padding: 8px 10px;
+  }
+
+  .flex.flex--between {
+    min-width: 0;
+  }
+  .card > .flex.flex--between {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 12px;
+  }
+  td > .flex,
+  .table td .flex {
+    flex-wrap: wrap;
+  }
+
+  .table {
+    width: calc(100vw - 52px);
+    border-radius: var(--radius-md);
+  }
+  .table th,
+  .table td {
+    padding: 11px 12px;
+    font-size: 13px;
+  }
+  .table th {
+    font-size: 11px;
+  }
+
+  .modal-backdrop {
+    align-items: end;
+    padding: 0;
+  }
+  .modal {
+    width: 100%;
+    max-width: none;
+    max-height: min(92dvh, 760px);
+    padding: 18px 14px calc(18px + env(safe-area-inset-bottom));
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  }
+  .modal__header {
+    position: sticky;
+    top: -18px;
+    z-index: 2;
+    margin: -18px -14px 14px;
+    padding: 16px 14px 12px;
+    background: var(--color-surface-strong);
+    border-bottom: 1px solid var(--color-border);
+  }
+  .modal__close {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .modal form > .flex.flex--between:last-child {
+    gap: 8px;
+  }
+  .modal form > .flex.flex--between:last-child .btn {
+    flex: 1;
+  }
+
+  .toast-stack {
+    left: 12px;
+    right: 12px;
+    bottom: calc(12px + env(safe-area-inset-bottom));
+  }
+  .toast {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .auth-shell__form {
+    min-height: 100dvh;
+    padding: 16px 12px;
+  }
+  .auth-card {
+    padding: 22px 16px;
+    border-radius: var(--radius-lg);
+  }
+
+  .empty-state {
+    padding: 32px 12px;
+  }
+}
+
+@media (max-width: 380px) {
+  .app-content {
+    padding-inline: 8px;
+  }
+  .card {
+    padding: 12px;
+  }
+  .table {
+    width: calc(100vw - 40px);
+  }
+  .topbar__title {
+    max-width: 34vw;
+  }
+}
+
+@media (orientation: landscape) and (max-height: 500px) {
+  .modal {
+    max-height: 96dvh;
+  }
+  .sidebar {
+    overflow-y: auto;
+  }
+}

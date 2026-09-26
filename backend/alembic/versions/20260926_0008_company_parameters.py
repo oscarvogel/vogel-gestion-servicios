@@ -45,7 +45,7 @@ def upgrade():
     op.bulk_insert(table,[{"parameter":p,"default_value":v,"description":d,"data_type":t,"category":c,"editable":True,"active":True} for p,v,d,t,c in DEFINITIONS])
 
 def downgrade():
-    op.drop_index("ix_company_parameters_parameter_definition_id",table_name="company_parameters")
-    op.drop_index("ix_company_parameters_company_id",table_name="company_parameters")
+    # Drop the table as a unit: on MySQL the explicit FK indexes cannot be
+    # removed before their foreign-key constraints.
     op.drop_table("company_parameters")
     op.drop_table("parameter_definitions")

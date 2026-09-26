@@ -125,5 +125,16 @@ async function goToCompanySelector() {
 .topbar__menu-action :deep(svg){display:block;width:18px!important;height:18px!important;min-width:18px!important;max-width:18px!important;flex:0 0 18px!important}
 .topbar__menu-icon{display:block;width:18px!important;height:18px!important;min-width:18px!important;max-width:18px!important;flex:0 0 18px!important}
 @media(max-width:900px){.topbar__mobile-menu{display:inline-flex}.topbar__identity-copy,.topbar__theme span{display:none}.topbar__company span{display:none}}
-@media(max-width:600px){.topbar__company{max-width:120px}.topbar__company strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.topbar__right{gap:4px}}
+@media(max-width:600px){
+.topbar{padding:0 12px;min-height:62px}
+.topbar__heading{gap:8px;flex:1}
+.topbar__mobile-menu{display:none}
+.topbar__title{font-size:15px}
+.topbar__subtitle{font-size:10px;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.topbar__company{display:none}
+.topbar__theme{display:none}
+.topbar__right{gap:4px}
+.topbar__identity{border:0;background:transparent;padding:4px}
+.topbar__avatar{width:36px;height:36px}
+}
 </style>

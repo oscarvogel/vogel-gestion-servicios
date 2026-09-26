@@ -127,20 +127,20 @@ const grouped = computed(() => {
 
 <template>
   
-    <div class="card flex flex--between" style="gap:16px;align-items:center;flex-wrap:wrap">
+    <div class="card page-header">
       <div>
         <h2 style="margin:0;font-size:20px">Roles y permisos</h2>
         <p class="text-secondary" style="margin:4px 0 0">
           {{ roles.length }} roles · {{ permissions.length }} permisos
         </p>
       </div>
-      <button v-if="canManage" class="btn btn--primary" type="button" @click="openCreate">
+      <button v-if="canManage" class="btn btn--primary desktop-primary-action" type="button" @click="openCreate">
         + Nuevo rol
-      </button>
+      </button><button v-if="canManage" class="mobile-fab" type="button" aria-label="Nuevo rol" @click="openCreate">+<span>Rol</span></button>
     </div>
 
     <div class="card">
-      <table v-if="roles.length" class="table">
+      <table v-if="roles.length" class="table table--cards-mobile">
         <thead>
           <tr>
             <th>Rol</th>
@@ -152,12 +152,12 @@ const grouped = computed(() => {
         </thead>
         <tbody>
           <tr v-for="role in roles" :key="role.id">
-            <td>
+            <td data-label="Rol">
               <strong>{{ role.name }}</strong>
               <span v-if="role.is_system" class="role-chip" style="margin-left:8px">Sistema</span>
             </td>
-            <td class="text-muted">{{ role.description || '—' }}</td>
-            <td>
+            <td data-label="Descripción" class="text-muted">{{ role.description || '—' }}</td>
+            <td data-label="Permisos">
               <span class="text-secondary" style="font-size:12px">
                 {{ role.permission_codes.length }} permisos asignados
               </span>
@@ -166,12 +166,12 @@ const grouped = computed(() => {
                 <span v-if="role.permission_codes.length > 4" class="text-muted">+{{ role.permission_codes.length - 4 }}</span>
               </div>
             </td>
-            <td>
+            <td data-label="Estado">
               <span :class="['badge', role.active ? 'badge--success' : 'badge--muted']">
                 {{ role.active ? 'Activo' : 'Inactivo' }}
               </span>
             </td>
-            <td>
+            <td data-label="Acciones" class="mobile-card-actions">
               <button
                 v-if="canManage && !role.is_system"
                 class="btn btn--ghost btn--sm"

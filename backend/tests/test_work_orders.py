@@ -3,6 +3,7 @@ from app.models.company import Company
 from app.models.customer import Customer,Equipment,EquipmentCategory
 from app.models.role import CompanyUserRole,Permission,Role,role_permissions
 from app.models.user import CompanyUser,User
+from app.models.work_order import WorkOrderStatus
 
 def setup(db,suffix):
     company=Company(name=f"OT {suffix}",slug=f"ot-{suffix}");db.add(company);db.flush()
@@ -11,7 +12,12 @@ def setup(db,suffix):
     role=Role(company_id=company.id,name="Administrador",is_system=True,active=True);db.add(role);db.flush()
     for code in ("customers.view","customers.manage","equipment.view","equipment.manage","work_orders.view","work_orders.manage"):
         p=db.query(Permission).filter_by(code=code).one();db.execute(role_permissions.insert().values(role_id=role.id,permission_id=p.id))
-    db.add(CompanyUserRole(company_user_id=membership.id,role_id=role.id,active=True));db.commit()
+    db.add(CompanyUserRole(company_user_id=membership.id,role_id=role.id,active=True))
+    db.add_all([
+        WorkOrderStatus(company_id=company.id,name="Recibido",color="#10B981",sort_order=10,active=True,is_initial=True,is_final=False),
+        WorkOrderStatus(company_id=company.id,name="En diagnóstico",color="#3B82F6",sort_order=20,active=True,is_initial=False,is_final=False),
+    ])
+    db.commit()
     token_client=None
     customer=Customer(company_id=company.id,name=f"Cliente {suffix}");db.add(customer);db.flush()
     cat=EquipmentCategory(company_id=company.id,name="Televisor");db.add(cat);db.flush()

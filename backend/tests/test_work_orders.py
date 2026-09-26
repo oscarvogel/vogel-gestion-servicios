@@ -121,3 +121,20 @@ def test_diagnosis_and_versioned_quote_uses_company_parts_markup(client,db_sessi
     events=client.get(f"/api/v1/work-orders/{created['id']}/events",headers=h).json()
     assert any(e["event_type"]=="QUOTE_CREATED" for e in events)
     assert any(e["event_type"]=="STATUS_CHANGE" and "Presupuestado" in (e["detail"] or "") for e in events)
+
+
+def test_company_dashboard_metrics_are_semantic_and_tenant_isolated(client,db_session):
+    a,_,ca,ea=setup(db_session,"dash-a");b,_,cb,eb=setup(db_session,"dash-b")
+    ha=login(client,"ot.dash-a@example.com",a.id);hb=login(client,"ot.dash-b@example.com",b.id)
+    first=client.post("/api/v1/work-orders",headers=ha,json={"customer_id":ca.id,"equipment_id":ea.id,"reported_fault":"A"}).json()
+    client.post("/api/v1/work-orders",headers=hb,json={"customer_id":cb.id,"equipment_id":eb.id,"reported_fault":"B"})
+    statuses=client.get("/api/v1/work-orders/statuses",headers=ha).json()
+    listo=next(s for s in statuses if s["marks_completed"])
+    client.post(f"/api/v1/work-orders/{first['id']}/status",headers=ha,json={"status_id":listo["id"]})
+    result=client.get("/api/v1/dashboard/company",headers=ha)
+    assert result.status_code==200,result.text
+    body=result.json()
+    assert body["total"]==1
+    assert body["summary"]["completed"]==1
+    assert body["summary"]["delivered"]==0
+    assert sum(s["count"] for s in body["statuses"])==1

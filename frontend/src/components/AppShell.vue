@@ -4,6 +4,7 @@ import { useRoute } from "vue-router";
 import { useSessionStore } from "../stores/session";
 import Sidebar from "./Sidebar.vue";
 import Topbar from "./Topbar.vue";
+import MobileBottomNav from "./MobileBottomNav.vue";
 
 const session = useSessionStore();
 const route = useRoute();
@@ -33,6 +34,7 @@ const title = computed(() => {
       <main class="app-content">
         <router-view />
       </main>
+      <MobileBottomNav @more="menuOpen = true" />
     </div>
   </div>
 </template>

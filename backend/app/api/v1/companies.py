@@ -153,6 +153,8 @@ def create_company(
     )
     db.add(company)
     db.flush()
+    from app.api.v1.company_parameters import seed_company_parameters
+    seed_company_parameters(db, company.id)
     from app.models.work_order import WorkOrderStatus
     for name,color,order,initial,final,completed,delivered in [
         ("Recibido","#10B981",10,True,False,False,False),("En diagnóstico","#3B82F6",20,False,False,False,False),

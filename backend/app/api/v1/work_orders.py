@@ -11,7 +11,7 @@ from app.models.work_order import WorkOrder,WorkOrderCounter,WorkOrderEvent,Work
 router=APIRouter()
 
 class StatusInput(BaseModel):
-    name:str=Field(min_length=1,max_length=60);color:str=Field(pattern=r"^#[0-9A-Fa-f]{6}$");sort_order:int=0;active:bool=True;is_initial:bool=False;is_final:bool=False;marks_completed:bool=False;marks_delivered:bool=False
+    name:str=Field(min_length=1,max_length=60);color:str=Field(pattern=r"^#[0-9A-Fa-f]{6}$");sort_order:int=0;active:bool=True;is_initial:bool=False;is_final:bool=False;marks_quoted:bool=False;marks_completed:bool=False;marks_delivered:bool=False
 class StatusRead(StatusInput):
     id:int
     model_config={"from_attributes":True}
@@ -34,6 +34,7 @@ def update_status(status_id:int,payload:StatusInput,company_id:int=Depends(get_c
     row=db.query(WorkOrderStatus).filter_by(id=status_id,company_id=company_id).first()
     if not row: raise HTTPException(404,"Estado no encontrado.")
     if payload.is_initial: db.query(WorkOrderStatus).filter(WorkOrderStatus.company_id==company_id,WorkOrderStatus.id!=row.id).update({"is_initial":False})
+    if payload.marks_quoted: db.query(WorkOrderStatus).filter(WorkOrderStatus.company_id==company_id,WorkOrderStatus.id!=row.id).update({"marks_quoted":False})
     if payload.marks_completed: db.query(WorkOrderStatus).filter(WorkOrderStatus.company_id==company_id,WorkOrderStatus.id!=row.id).update({"marks_completed":False})
     if payload.marks_delivered: db.query(WorkOrderStatus).filter(WorkOrderStatus.company_id==company_id,WorkOrderStatus.id!=row.id).update({"marks_delivered":False})
     for k,v in payload.model_dump().items(): setattr(row,k,v.strip() if k=="name" else v)

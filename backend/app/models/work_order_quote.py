@@ -14,6 +14,8 @@ class WorkOrderDiagnosis(Base):
     technical_notes:Mapped[str|None]=mapped_column(Text)
     diagnosed_by_user_id:Mapped[int]=mapped_column(ForeignKey("users.id"),nullable=False)
     diagnosed_at:Mapped[datetime]=mapped_column(DateTime,server_default=func.now(),nullable=False)
+    is_open:Mapped[bool]=mapped_column(nullable=False,default=True)
+    revision:Mapped[int]=mapped_column(Integer,nullable=False,default=1)
     updated_at:Mapped[datetime]=mapped_column(DateTime,server_default=func.now(),onupdate=func.now(),nullable=False)
 
 class WorkOrderQuote(Base):
@@ -25,11 +27,15 @@ class WorkOrderQuote(Base):
     version:Mapped[int]=mapped_column(Integer,nullable=False)
     status:Mapped[str]=mapped_column(String(20),nullable=False,default="DRAFT")
     notes:Mapped[str|None]=mapped_column(Text)
+    diagnosis_snapshot:Mapped[str|None]=mapped_column(Text)
+    diagnosis_revision:Mapped[int|None]=mapped_column(Integer)
     subtotal_parts:Mapped[Decimal]=mapped_column(Numeric(14,2),nullable=False,default=0)
     subtotal_labor:Mapped[Decimal]=mapped_column(Numeric(14,2),nullable=False,default=0)
     total:Mapped[Decimal]=mapped_column(Numeric(14,2),nullable=False,default=0)
     created_by_user_id:Mapped[int]=mapped_column(ForeignKey("users.id"),nullable=False)
     created_at:Mapped[datetime]=mapped_column(DateTime,server_default=func.now(),nullable=False)
+    sent_at:Mapped[datetime|None]=mapped_column(DateTime,nullable=True)
+    decided_at:Mapped[datetime|None]=mapped_column(DateTime,nullable=True)
     updated_at:Mapped[datetime]=mapped_column(DateTime,server_default=func.now(),onupdate=func.now(),nullable=False)
 
 class WorkOrderQuoteItem(Base):

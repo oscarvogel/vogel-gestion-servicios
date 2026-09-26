@@ -218,7 +218,7 @@ async function enterCompany(item: CompanyItem) {
 
 <template>
   
-    <div class="card flex flex--between" style="gap:16px;align-items:center;flex-wrap:wrap">
+    <div class="card page-header">
       <div>
         <h2 style="margin:0;font-size:20px">Empresas</h2>
         <p class="text-secondary" style="margin:4px 0 0">Total: {{ total }}</p>
@@ -246,12 +246,12 @@ async function enterCompany(item: CompanyItem) {
             @click="activeFilter = 'inactive'"
           >Inactivas</button>
         </div>
-        <button class="btn btn--primary" type="button" @click="openCreate">+ Nueva empresa</button>
-      </div>
+        <button class="btn btn--primary desktop-primary-action" type="button" @click="openCreate">+ Nueva empresa</button>
+      </div><button class="mobile-fab" type="button" aria-label="Nueva empresa" @click="openCreate">+<span>Empresa</span></button>
     </div>
 
     <div class="card">
-      <table v-if="items.length" class="table">
+      <table v-if="items.length" class="table table--cards-mobile">
         <thead>
           <tr>
             <th>Empresa</th>
@@ -263,18 +263,18 @@ async function enterCompany(item: CompanyItem) {
         </thead>
         <tbody>
           <tr v-for="item in items" :key="item.id">
-            <td>
+            <td data-label="Empresa">
               <strong>{{ item.name }}</strong>
               <div class="text-muted" style="font-size:12px">{{ item.slug }}</div>
             </td>
-            <td>{{ item.tax_id || "—" }}</td>
-            <td>{{ item.user_count }}</td>
-            <td>
+            <td data-label="CUIT">{{ item.tax_id || "—" }}</td>
+            <td data-label="Usuarios">{{ item.user_count }}</td>
+            <td data-label="Estado">
               <span :class="['badge', item.active ? 'badge--success' : 'badge--muted']">
                 {{ item.active ? 'Activa' : 'Inactiva' }}
               </span>
             </td>
-            <td>
+            <td data-label="Acciones" class="mobile-card-actions">
               <div class="flex gap-8">
                 <button class="btn btn--ghost btn--sm" type="button" @click="openEdit(item)">Editar</button>
                 <button class="btn btn--ghost btn--sm" type="button" @click="toggleActive(item)">

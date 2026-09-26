@@ -13,4 +13,12 @@ def upgrade():
     op.create_table("work_order_quote_items",sa.Column("id",sa.Integer(),primary_key=True),sa.Column("company_id",sa.Integer(),sa.ForeignKey("companies.id",ondelete="CASCADE"),nullable=False),sa.Column("quote_id",sa.Integer(),sa.ForeignKey("work_order_quotes.id",ondelete="CASCADE"),nullable=False),sa.Column("item_type",sa.String(10),nullable=False),sa.Column("description",sa.String(250),nullable=False),sa.Column("quantity",sa.Numeric(12,3),nullable=False),sa.Column("unit_cost",sa.Numeric(14,2),nullable=False),sa.Column("markup_percent",sa.Numeric(7,2),nullable=False),sa.Column("unit_price",sa.Numeric(14,2),nullable=False),sa.Column("line_total",sa.Numeric(14,2),nullable=False))
     op.create_index("ix_work_order_quote_items_company_id","work_order_quote_items",["company_id"]);op.create_index("ix_work_order_quote_items_quote_id","work_order_quote_items",["quote_id"])
 def downgrade():
-    op.drop_table("work_order_quote_items");op.drop_table("work_order_quotes");op.drop_table("work_order_diagnoses")
+    op.drop_index("ix_work_order_quote_items_quote_id",table_name="work_order_quote_items")
+    op.drop_index("ix_work_order_quote_items_company_id",table_name="work_order_quote_items")
+    op.drop_table("work_order_quote_items")
+    op.drop_index("ix_work_order_quotes_work_order_id",table_name="work_order_quotes")
+    op.drop_index("ix_work_order_quotes_company_id",table_name="work_order_quotes")
+    op.drop_table("work_order_quotes")
+    op.drop_index("ix_work_order_diagnoses_work_order_id",table_name="work_order_diagnoses")
+    op.drop_index("ix_work_order_diagnoses_company_id",table_name="work_order_diagnoses")
+    op.drop_table("work_order_diagnoses")

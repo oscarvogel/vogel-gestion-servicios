@@ -14,6 +14,7 @@ class WorkOrderStatus(Base):
     active: Mapped[bool] = mapped_column(nullable=False,default=True)
     is_initial: Mapped[bool] = mapped_column(nullable=False,default=False)
     is_final: Mapped[bool] = mapped_column(nullable=False,default=False)
+    marks_quoted: Mapped[bool] = mapped_column(nullable=False,default=False)
     marks_completed: Mapped[bool] = mapped_column(nullable=False,default=False)
     marks_delivered: Mapped[bool] = mapped_column(nullable=False,default=False)
 

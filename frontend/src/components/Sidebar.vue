@@ -78,7 +78,7 @@ const links = computed<NavLink[]>(() => {
       label: "Configuración",
       to: "/app/settings",
       icon: IconSettings,
-      visible: platform,
+      visible: platform || session.activeCompany?.is_admin === true,
     },
   ];
 });

@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.api.dependencies import get_current_company_id,get_db,require_permission
 from app.models.company import CompanyParameter,ParameterDefinition
 from app.models.user import User
-from app.models.work_order import WorkOrder,WorkOrderEvent
+from app.models.work_order import WorkOrder,WorkOrderEvent,WorkOrderStatus
 from app.models.work_order_quote import WorkOrderDiagnosis,WorkOrderQuote,WorkOrderQuoteItem
 router=APIRouter()
 class DiagnosisInput(BaseModel):
@@ -61,4 +61,10 @@ def create_quote(oid:int,p:QuoteInput,cid:int=Depends(get_current_company_id),a:
         if x.item_type=="PART":parts+=total
         else:labor+=total
     row.subtotal_parts=money(parts);row.subtotal_labor=money(labor);row.total=money(parts+labor)
-    db.add(WorkOrderEvent(company_id=cid,work_order_id=oid,event_type="QUOTE_CREATED",status=wo.status,detail="Presupuesto v%d generado por $%s."%(version,row.total),user_id=a.id));db.commit();db.refresh(row);return quote_read(db,row)
+    db.add(WorkOrderEvent(company_id=cid,work_order_id=oid,event_type="QUOTE_CREATED",status=wo.status,detail="Presupuesto v%d generado por $%s."%(version,row.total),user_id=a.id))
+    target=db.query(WorkOrderStatus).filter_by(company_id=cid,name="Presupuestado",active=True).first()
+    if target and wo.status_id!=target.id:
+        previous=db.get(WorkOrderStatus,wo.status_id) if wo.status_id else None
+        wo.status_id=target.id;wo.status=target.name.upper().replace(" ","_")[:30]
+        db.add(WorkOrderEvent(company_id=cid,work_order_id=oid,event_type="STATUS_CHANGE",status=wo.status,detail="Estado cambiado de %s a %s al emitir el presupuesto."%((previous.name if previous else "sin estado"),target.name),user_id=a.id))
+    db.commit();db.refresh(row);return quote_read(db,row)

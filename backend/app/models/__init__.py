@@ -8,6 +8,7 @@ from app.models.role import (
 )
 from app.models.user import CompanyUser, User
 from app.models.work_order import WorkOrder, WorkOrderCounter, WorkOrderEvent, WorkOrderEvidence, WorkOrderStatus
+from app.models.work_order_quote import WorkOrderDiagnosis, WorkOrderQuote, WorkOrderQuoteItem
 
 __all__ = [
     "Company",
@@ -27,4 +28,7 @@ __all__ = [
     "WorkOrderEvent",
     "WorkOrderEvidence",
     "WorkOrderStatus",
+    "WorkOrderDiagnosis",
+    "WorkOrderQuote",
+    "WorkOrderQuoteItem",
 ]

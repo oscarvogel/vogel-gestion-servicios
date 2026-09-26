@@ -108,6 +108,11 @@ export async function apiPost<T>(path: string, body?: unknown, config?: AxiosReq
   return res.data;
 }
 
+export async function apiPut<T>(path: string, body?: unknown, config?: AxiosRequestConfig): Promise<T> {
+  const res = await api.put<T>(path, body, config);
+  return res.data;
+}
+
 export async function apiPatch<T>(path: string, body?: unknown, config?: AxiosRequestConfig): Promise<T> {
   const res = await api.patch<T>(path, body, config);
   return res.data;

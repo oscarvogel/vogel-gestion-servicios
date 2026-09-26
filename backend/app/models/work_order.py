@@ -14,6 +14,8 @@ class WorkOrderStatus(Base):
     active: Mapped[bool] = mapped_column(nullable=False,default=True)
     is_initial: Mapped[bool] = mapped_column(nullable=False,default=False)
     is_final: Mapped[bool] = mapped_column(nullable=False,default=False)
+    marks_completed: Mapped[bool] = mapped_column(nullable=False,default=False)
+    marks_delivered: Mapped[bool] = mapped_column(nullable=False,default=False)
 
 class WorkOrderCounter(Base):
     __tablename__ = "work_order_counters"
@@ -29,6 +31,9 @@ class WorkOrder(Base):
     customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id"),index=True)
     equipment_id: Mapped[int] = mapped_column(ForeignKey("equipment.id"),index=True)
     received_at: Mapped[datetime] = mapped_column(DateTime,server_default=func.now(),nullable=False)
+    expected_delivery_at: Mapped[datetime | None] = mapped_column(DateTime)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime)
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime)
     reported_fault: Mapped[str] = mapped_column(Text,nullable=False)
     physical_condition: Mapped[str | None] = mapped_column(Text)
     accessories: Mapped[str | None] = mapped_column(Text)

@@ -57,7 +57,7 @@ def test_alembic_upgrade_head_creates_foundation():
         with engine.connect() as connection:
             assert (
                 connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-                == "20260925_0006"
+                == "20260926_0007"
             )
     finally:
         if engine is not None:

@@ -5,7 +5,7 @@ import {useSessionStore} from "../stores/session";
 import {useThemeStore} from "../stores/theme";
 import {useToastStore} from "../stores/toasts";
 
-interface CompanyParameter{parameter:string;value:string|number|boolean;description:string;data_type:string;category:string;editable:boolean}
+interface CompanyParameter{parameter:string;value:string|number|boolean;default_value:string|number|boolean;is_overridden:boolean;description:string;data_type:string;category:string;editable:boolean}
 interface OtStatus{id:number;name:string;color:string;sort_order:number;active:boolean;is_initial:boolean;is_final:boolean;marks_completed:boolean;marks_delivered:boolean}
 const session=useSessionStore(),theme=useThemeStore(),toast=useToastStore();
 const statuses=ref<OtStatus[]>([]),loadingStatuses=ref(false),showNewStatus=ref(false);
@@ -35,7 +35,7 @@ onMounted(()=>{loadStatuses();loadParameters()});
     <div v-if="loadingParameters" class="text-muted">Cargando personalización…</div>
     <div v-else class="parameter-grid">
       <div v-for="p in parameters" :key="p.parameter" class="parameter-card">
-        <div class="parameter-card__copy"><strong>{{p.description}}</strong><small>{{p.category}} · {{p.parameter}}</small></div>
+        <div class="parameter-card__copy"><strong>{{p.description}}</strong><small>{{p.category}} · {{p.parameter}} <span v-if="p.is_overridden">· personalizado</span><span v-else>· valor general</span></small></div>
         <label v-if="p.data_type==='bool'" class="switch"><input v-model="p.value" type="checkbox" :disabled="!p.editable" @change="saveParameter(p)"><span></span></label>
         <div v-else class="parameter-value"><input v-model="p.value" :type="p.data_type==='decimal'||p.data_type==='integer'?'number':'text'" :step="p.data_type==='decimal'?'0.01':undefined" :disabled="!p.editable"><button class="btn btn--ghost btn--sm" @click="saveParameter(p)">Guardar</button></div>
       </div>

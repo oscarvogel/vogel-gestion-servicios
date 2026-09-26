@@ -1,10 +1,10 @@
 """quote approval workflow
-Revision ID: 20260926_0010
-Revises: 20260926_0009
+Revision ID: 20260926_0011
+Revises: 20260926_0010
 """
 from alembic import op
 import sqlalchemy as sa
-revision="20260926_0010";down_revision="20260926_0009";branch_labels=None;depends_on=None
+revision="20260926_0011";down_revision="20260926_0010";branch_labels=None;depends_on=None
 def upgrade():
     with op.batch_alter_table("work_order_statuses") as b:
         b.add_column(sa.Column("marks_awaiting_quote_approval",sa.Boolean(),nullable=False,server_default=sa.false()))

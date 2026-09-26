@@ -5,23 +5,16 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_current_company_id, get_db, require_company_admin_or_superadmin
-from app.models.company import CompanyParameter
+from app.models.company import CompanyParameter, ParameterDefinition
 from app.models.user import User
 
 router=APIRouter()
 
-DEFAULTS=[
- ("work_orders.use_diagnosis","true","Habilita diagnóstico técnico formal en las órdenes de trabajo.","bool","ordenes"),
- ("work_orders.use_budget","true","Habilita presupuestos dentro del circuito de órdenes de trabajo.","bool","ordenes"),
- ("work_orders.require_budget_approval","true","Habilita el registro de aprobación o rechazo de presupuestos.","bool","ordenes"),
- ("work_orders.show_internal_costs","true","Habilita costos internos y margen para la empresa.","bool","precios"),
- ("work_orders.use_final_tests","true","Habilita el registro de pruebas finales.","bool","ordenes"),
- ("pricing.parts_markup_percent","35","Recargo predeterminado sobre el costo de repuestos. Sugiere precio de venta y puede modificarse en cada OT.","decimal","precios"),
-]
-
 class ParameterRead(BaseModel):
     parameter:str
     value:Any
+    default_value:Any
+    is_overridden:bool
     description:str
     data_type:str
     category:str
@@ -30,20 +23,20 @@ class ParameterRead(BaseModel):
 class ParameterUpdate(BaseModel):
     value:Any
 
-def _decode(row:CompanyParameter)->Any:
-    if row.data_type=="bool": return str(row.value).lower() in ("1","true","yes","on")
-    if row.data_type=="integer": return int(row.value)
-    if row.data_type=="decimal": return float(row.value)
-    return row.value
+def _decode(value:str,data_type:str)->Any:
+    if data_type=="bool": return str(value).lower() in ("1","true","yes","on")
+    if data_type=="integer": return int(value)
+    if data_type=="decimal": return float(value)
+    return value
 
-def _encode(row:CompanyParameter,value:Any)->str:
-    if row.data_type=="bool":
+def _encode(definition:ParameterDefinition,value:Any)->str:
+    if definition.data_type=="bool":
         if not isinstance(value,bool): raise HTTPException(422,detail="El parámetro requiere un valor verdadero/falso.")
         return "true" if value else "false"
-    if row.data_type=="integer":
+    if definition.data_type=="integer":
         try:return str(int(value))
         except (TypeError,ValueError):raise HTTPException(422,detail="El parámetro requiere un número entero.")
-    if row.data_type=="decimal":
+    if definition.data_type=="decimal":
         try:
             number=float(value)
             if number<0: raise ValueError
@@ -51,20 +44,29 @@ def _encode(row:CompanyParameter,value:Any)->str:
         except (TypeError,ValueError):raise HTTPException(422,detail="El parámetro requiere un número mayor o igual a cero.")
     return str(value)
 
-def seed_company_parameters(db:Session,company_id:int)->None:
-    existing={r[0] for r in db.query(CompanyParameter.parameter).filter_by(company_id=company_id).all()}
-    for p,v,d,t,c in DEFAULTS:
-        if p not in existing:db.add(CompanyParameter(company_id=company_id,parameter=p,value=v,description=d,data_type=t,category=c,editable=True))
+def _read(definition:ParameterDefinition,override:CompanyParameter|None)->ParameterRead:
+    effective=override.value if override else definition.default_value
+    return ParameterRead(parameter=definition.parameter,value=_decode(effective,definition.data_type),default_value=_decode(definition.default_value,definition.data_type),is_overridden=override is not None,description=definition.description,data_type=definition.data_type,category=definition.category,editable=definition.editable)
 
 @router.get("",response_model=list[ParameterRead])
 def list_parameters(company_id:int=Depends(get_current_company_id),db:Session=Depends(get_db)):
-    rows=db.query(CompanyParameter).filter_by(company_id=company_id).order_by(CompanyParameter.category,CompanyParameter.parameter).all()
-    return [ParameterRead(parameter=r.parameter,value=_decode(r),description=r.description,data_type=r.data_type,category=r.category,editable=r.editable) for r in rows]
+    definitions=db.query(ParameterDefinition).filter_by(active=True).order_by(ParameterDefinition.category,ParameterDefinition.parameter).all()
+    overrides={r.parameter_definition_id:r for r in db.query(CompanyParameter).filter_by(company_id=company_id).all()}
+    return [_read(d,overrides.get(d.id)) for d in definitions]
 
 @router.patch("/{parameter:path}",response_model=ParameterRead)
 def update_parameter(parameter:str,payload:ParameterUpdate,company_id:int=Depends(get_current_company_id),_admin:User=Depends(require_company_admin_or_superadmin),db:Session=Depends(get_db)):
-    row=db.query(CompanyParameter).filter_by(company_id=company_id,parameter=parameter).first()
-    if not row:raise HTTPException(404,detail="Parámetro no encontrado.")
-    if not row.editable:raise HTTPException(403,detail="Este parámetro no es editable.")
-    row.value=_encode(row,payload.value);db.commit();db.refresh(row)
-    return ParameterRead(parameter=row.parameter,value=_decode(row),description=row.description,data_type=row.data_type,category=row.category,editable=row.editable)
+    definition=db.query(ParameterDefinition).filter_by(parameter=parameter,active=True).first()
+    if not definition:raise HTTPException(404,detail="Parámetro no encontrado.")
+    if not definition.editable:raise HTTPException(403,detail="Este parámetro no es editable.")
+    encoded=_encode(definition,payload.value)
+    override=db.query(CompanyParameter).filter_by(company_id=company_id,parameter_definition_id=definition.id).first()
+    if encoded==definition.default_value:
+        if override:db.delete(override)
+        db.commit()
+        return _read(definition,None)
+    if override:override.value=encoded
+    else:
+        override=CompanyParameter(company_id=company_id,parameter_definition_id=definition.id,value=encoded);db.add(override)
+    db.commit();db.refresh(override)
+    return _read(definition,override)

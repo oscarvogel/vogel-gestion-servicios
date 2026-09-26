@@ -17,7 +17,7 @@ async function load(){loading.value=true;try{const r=await apiGet<{items:Custome
 function newCustomer(){editing.value=null;form.value={customer_type:"PERSON",name:"",document:"",phone:"",whatsapp:"",email:"",address:"",notes:""};showCustomer.value=true}
 function editCustomer(c:Customer){editing.value=c;form.value={customer_type:c.customer_type,name:c.name,document:c.document||"",phone:c.phone||"",whatsapp:c.whatsapp||"",email:c.email||"",address:c.address||"",notes:c.notes||""};showCustomer.value=true}
 async function saveCustomer(){try{const payload={...form.value,email:form.value.email||null,document:form.value.document||null,phone:form.value.phone||null,whatsapp:form.value.whatsapp||null,address:form.value.address||null,notes:form.value.notes||null};if(editing.value)await apiPatch("/customers/"+editing.value.id,payload);else await apiPost("/customers",payload);showCustomer.value=false;toast.push("Cliente guardado","success");await load()}catch(e){toast.push(getApiErrorMessage(e),"error")}}
-async function openCustomer(c:Customer){selected.value=c;equipment.value=await apiGet<Equipment[]>("/customers/"+c.id+"/equipment")}
+async function openCustomer(c:Customer){selected.value=c;equipment.value=await apiGet<Equipment[]>("/customers/"+c.id+"/equipment");window.scrollTo({top:0,behavior:"smooth"})}\nfunction closeCustomer(){selected.value=null;equipment.value=[];window.scrollTo({top:0,behavior:"smooth"})}
 function newEquipment(){eq.value={category_id:0,brand:"",model:"",serial_number:"",description:"",notes:""};categoryQuery.value="";categories.value=[];showEquipment.value=true}
 async function findCategories(){categoryOpen.value=true;categories.value=await apiGet<EquipmentCategory[]>("/customers/equipment-categories/search",{params:{q:categoryQuery.value}})}
 function chooseCategory(cat:EquipmentCategory){eq.value.category_id=cat.id;categoryQuery.value=cat.name;categoryOpen.value=false}
@@ -28,7 +28,7 @@ let timer:number|undefined;function searchChanged(){window.clearTimeout(timer);t
 onMounted(load);
 </script>
 <template>
-  <div class="card page-header">
+  <div v-if="!selected" class="card page-header">
     <div><h2 style="margin:0">Clientes</h2><p class="text-secondary" style="margin:4px 0 0">{{ total }} clientes en esta empresa</p></div>
     <div class="toolbar"><input v-model="search" class="toolbar__search" placeholder="Nombre, DNI/CUIT, teléfono o email" @input="searchChanged"><button class="btn btn--primary desktop-primary-action" @click="newCustomer">+ Nuevo cliente</button></div><button class="mobile-fab" aria-label="Nuevo cliente" @click="newCustomer">+<span>Cliente</span></button>
   </div>
@@ -37,7 +37,7 @@ onMounted(load);
       <tbody><tr v-for="c in items" :key="c.id"><td data-label="Cliente"><strong>{{ c.name }}</strong><div class="text-muted">{{ c.customer_type==='COMPANY'?'Empresa':'Persona' }}</div></td><td data-label="DNI/CUIT">{{ c.document||'—' }}</td><td data-label="Contacto">{{ c.phone||c.whatsapp||c.email||'—' }}</td><td data-label="Estado"><span :class="['badge',c.active?'badge--success':'badge--muted']">{{ c.active?'Activo':'Inactivo' }}</span></td><td data-label="Acciones" class="mobile-card-actions"><button class="btn btn--ghost btn--sm" @click="openCustomer(c)">Equipos</button> <button class="btn btn--ghost btn--sm" @click="editCustomer(c)">Editar</button></td></tr></tbody>
     </table><div v-else class="empty-state">{{ loading?'Cargando…':'Todavía no hay clientes en esta empresa.' }}</div>
   </div>
-  <div v-if="selected" class="card"><div class="flex flex--between"><div><p class="card__title">Equipos de {{ selected.name }}</p><p class="text-secondary">Cada equipo pertenece sólo a esta empresa.</p></div><button class="btn btn--primary" @click="newEquipment">+ Agregar equipo</button></div>
+  <div v-if="selected" class="customer-detail-shell"><button type="button" class="btn btn--ghost customer-detail-back" @click="closeCustomer">← Volver a clientes</button><div class="card customer-equipment-card"><div class="flex flex--between"><div><p class="card__title">Equipos de {{ selected.name }}</p><p class="text-secondary">Cada equipo pertenece sólo a esta empresa.</p></div><button class="btn btn--primary" @click="newEquipment">+ Agregar equipo</button></div>
     <table v-if="equipment.length" class="table table--cards-mobile"><thead><tr><th>Tipo</th><th>Marca / modelo</th><th>Serie</th><th>Descripción</th></tr></thead><tbody><tr v-for="e in equipment" :key="e.id"><td data-label="Tipo">{{e.category_name}}</td><td data-label="Marca / modelo">{{[e.brand,e.model].filter(Boolean).join(' ')||'—'}}</td><td data-label="Serie">{{e.serial_number||'—'}}</td><td data-label="Descripción">{{e.description||'—'}}</td></tr></tbody></table>
     <div v-else class="empty-state">Este cliente todavía no tiene equipos cargados.</div>
   </div>
@@ -57,4 +57,15 @@ onMounted(load);
 </template>
 <style scoped>
 .category-picker{position:relative}.category-picker__menu{position:absolute;z-index:20;top:100%;left:0;right:0;margin-top:6px;padding:6px;background:var(--surface,#152238);border:1px solid rgba(148,163,184,.25);border-radius:12px;box-shadow:0 18px 45px rgba(0,0,0,.35);max-height:220px;overflow:auto}.category-picker__option{display:block;width:100%;text-align:left;padding:10px 12px;border:0;border-radius:8px;background:transparent;color:inherit;cursor:pointer}.category-picker__option:hover{background:rgba(59,130,246,.14)}.category-picker__create{color:#60a5fa;font-weight:700;border-top:1px solid rgba(148,163,184,.15);margin-top:4px}
+@media(max-width:700px){
+.customers-list{padding:0;background:transparent;border:0;box-shadow:none}
+.customers-list .table--cards-mobile tbody{gap:12px}
+.customers-list .table--cards-mobile tr{padding:14px;border-radius:16px}
+.customer-detail-shell{display:grid;gap:10px}
+.customer-detail-back{justify-self:start}
+.customer-equipment-card{margin:0}
+.customer-equipment-card>.flex{align-items:flex-start;gap:12px;flex-direction:column}
+.customer-equipment-card>.flex .btn{width:100%}
+.customer-equipment-card .table--cards-mobile{margin-top:14px}
+}
 </style>

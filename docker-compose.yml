@@ -3,40 +3,25 @@ services:
     image: mysql:8.4
     restart: unless-stopped
     environment:
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-vogel_gestion_servicios}
-      MYSQL_USER: ${MYSQL_USER:-vogel}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-    volumes:
-      - mysql_data:/var/lib/mysql
+      MYSQL_DATABASE: vogel_gestion_servicios
+      MYSQL_USER: vogel
+      MYSQL_PASSWORD: change_me
+      MYSQL_ROOT_PASSWORD: change_root
+    volumes: [mysql_data:/var/lib/mysql]
     healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       interval: 5s
       timeout: 5s
       retries: 20
-
   backend:
     build: ./backend
-    restart: unless-stopped
-    environment:
-      DATABASE_URL: ${DATABASE_URL}
-      JWT_SECRET: ${JWT_SECRET}
-      ACCESS_TOKEN_MINUTES: ${ACCESS_TOKEN_MINUTES:-30}
-      REFRESH_TOKEN_DAYS: ${REFRESH_TOKEN_DAYS:-7}
-      CORS_ORIGINS: ${CORS_ORIGINS:-}
+    env_file: .env
     depends_on:
-      db:
-        condition: service_healthy
-    expose:
-      - "8000"
-
+      db: {condition: service_healthy}
+    ports: ["8000:8000"]
   frontend:
     build: ./frontend
-    restart: unless-stopped
-    depends_on:
-      - backend
-    ports:
-      - "5173:80"
-
+    depends_on: [backend]
+    ports: ["5173:80"]
 volumes:
   mysql_data:

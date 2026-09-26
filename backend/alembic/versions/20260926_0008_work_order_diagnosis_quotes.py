@@ -1,10 +1,10 @@
 """diagnosis and quotes for work orders
-Revision ID: 20260926_0008
-Revises: 20260926_0007
+Revision ID: 20260926_0010
+Revises: 20260926_0009
 """
 from alembic import op
 import sqlalchemy as sa
-revision="20260926_0008";down_revision="20260926_0007";branch_labels=None;depends_on=None
+revision="20260926_0010";down_revision="20260926_0009";branch_labels=None;depends_on=None
 def upgrade():
     op.create_table("work_order_diagnoses",sa.Column("id",sa.Integer(),primary_key=True),sa.Column("company_id",sa.Integer(),sa.ForeignKey("companies.id",ondelete="CASCADE"),nullable=False),sa.Column("work_order_id",sa.Integer(),sa.ForeignKey("work_orders.id",ondelete="CASCADE"),nullable=False),sa.Column("diagnosis",sa.Text(),nullable=False),sa.Column("technical_notes",sa.Text()),sa.Column("diagnosed_by_user_id",sa.Integer(),sa.ForeignKey("users.id"),nullable=False),sa.Column("diagnosed_at",sa.DateTime(),server_default=sa.func.now(),nullable=False),sa.Column("updated_at",sa.DateTime(),server_default=sa.func.now(),nullable=False),sa.UniqueConstraint("work_order_id",name="uq_work_order_diagnosis"))
     op.create_index("ix_work_order_diagnoses_company_id","work_order_diagnoses",["company_id"]);op.create_index("ix_work_order_diagnoses_work_order_id","work_order_diagnoses",["work_order_id"])

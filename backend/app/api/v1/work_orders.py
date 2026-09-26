@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime,timezone
 from fastapi import APIRouter,Depends,HTTPException,Query,status
 from pydantic import BaseModel,Field
 from sqlalchemy import or_,text
@@ -34,6 +34,8 @@ def update_status(status_id:int,payload:StatusInput,company_id:int=Depends(get_c
     row=db.query(WorkOrderStatus).filter_by(id=status_id,company_id=company_id).first()
     if not row: raise HTTPException(404,"Estado no encontrado.")
     if payload.is_initial: db.query(WorkOrderStatus).filter(WorkOrderStatus.company_id==company_id,WorkOrderStatus.id!=row.id).update({"is_initial":False})
+    if payload.marks_completed: db.query(WorkOrderStatus).filter(WorkOrderStatus.company_id==company_id,WorkOrderStatus.id!=row.id).update({"marks_completed":False})
+    if payload.marks_delivered: db.query(WorkOrderStatus).filter(WorkOrderStatus.company_id==company_id,WorkOrderStatus.id!=row.id).update({"marks_delivered":False})
     for k,v in payload.model_dump().items(): setattr(row,k,v.strip() if k=="name" else v)
     db.commit();db.refresh(row);return row
 
@@ -131,11 +133,14 @@ def events(work_order_id:int,company_id:int=Depends(get_current_company_id),_act
 def update_expected_delivery(work_order_id:int,payload:ExpectedDeliveryInput,company_id:int=Depends(get_current_company_id),actor:User=Depends(require_permission("work_orders.manage")),db:Session=Depends(get_db)):
     row=_row(db,company_id,work_order_id)
     previous=row.expected_delivery_at
-    if previous==payload.expected_delivery_at:
+    requested=payload.expected_delivery_at
+    if requested and requested.tzinfo is not None:
+        requested=requested.astimezone(timezone.utc).replace(tzinfo=None)
+    if previous==requested:
         return _read(db,row)
-    row.expected_delivery_at=payload.expected_delivery_at
+    row.expected_delivery_at=requested
     old=previous.isoformat(sep=" ",timespec="minutes") if previous else "sin fecha"
-    new=payload.expected_delivery_at.isoformat(sep=" ",timespec="minutes") if payload.expected_delivery_at else "sin fecha"
+    new=requested.isoformat(sep=" ",timespec="minutes") if requested else "sin fecha"
     db.add(WorkOrderEvent(company_id=company_id,work_order_id=row.id,event_type="EXPECTED_DELIVERY_CHANGE",status=row.status,detail=f"Entrega prevista cambiada de {old} a {new}.",user_id=actor.id))
     db.commit();db.refresh(row);return _read(db,row)
 

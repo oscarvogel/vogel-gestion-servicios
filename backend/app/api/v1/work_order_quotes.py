@@ -13,6 +13,8 @@ router=APIRouter()
 class DiagnosisInput(BaseModel):
     diagnosis:str=Field(min_length=1)
     technical_notes:str|None=None
+class DiagnosisReopenInput(BaseModel):
+    reason:str=Field(min_length=3,max_length=1000)
 class ItemInput(BaseModel):
     item_type:str=Field(pattern="^(PART|LABOR)$")
     description:str=Field(min_length=1,max_length=250)
@@ -43,20 +45,21 @@ def markup(db,cid):
 def money(v):return Decimal(v).quantize(Decimal("0.01"),rounding=ROUND_HALF_UP)
 def quote_read(db,row):
     items=db.query(WorkOrderQuoteItem).filter_by(quote_id=row.id,company_id=row.company_id).order_by(WorkOrderQuoteItem.id).all()
-    return {"id":row.id,"work_order_id":row.work_order_id,"version":row.version,"status":row.status,"notes":row.notes,"subtotal_parts":row.subtotal_parts,"subtotal_labor":row.subtotal_labor,"total":row.total,"created_at":row.created_at,"sent_at":row.sent_at,"decided_at":row.decided_at,"items":[{"id":i.id,"item_type":i.item_type,"description":i.description,"quantity":i.quantity,"unit_cost":i.unit_cost,"markup_percent":i.markup_percent,"unit_price":i.unit_price,"line_total":i.line_total} for i in items]}
+    return {"id":row.id,"work_order_id":row.work_order_id,"version":row.version,"status":row.status,"notes":row.notes,"diagnosis_snapshot":row.diagnosis_snapshot,"diagnosis_revision":row.diagnosis_revision,"subtotal_parts":row.subtotal_parts,"subtotal_labor":row.subtotal_labor,"total":row.total,"created_at":row.created_at,"sent_at":row.sent_at,"decided_at":row.decided_at,"items":[{"id":i.id,"item_type":i.item_type,"description":i.description,"quantity":i.quantity,"unit_cost":i.unit_cost,"markup_percent":i.markup_percent,"unit_price":i.unit_price,"line_total":i.line_total} for i in items]}
 @router.get("/{oid}/diagnosis")
 def get_diagnosis(oid:int,cid:int=Depends(get_current_company_id),_a:User=Depends(require_permission("work_orders.view")),db:Session=Depends(get_db)):
     order(db,cid,oid);d=db.query(WorkOrderDiagnosis).filter_by(company_id=cid,work_order_id=oid).first()
-    return None if not d else {"id":d.id,"diagnosis":d.diagnosis,"technical_notes":d.technical_notes,"diagnosed_at":d.diagnosed_at,"updated_at":d.updated_at}
+    return None if not d else {"id":d.id,"diagnosis":d.diagnosis,"technical_notes":d.technical_notes,"diagnosed_at":d.diagnosed_at,"updated_at":d.updated_at,"is_open":d.is_open,"revision":d.revision}
 @router.put("/{oid}/diagnosis")
 def save_diagnosis(oid:int,p:DiagnosisInput,cid:int=Depends(get_current_company_id),a:User=Depends(require_permission("work_orders.manage")),db:Session=Depends(get_db)):
     wo=order(db,cid,oid)
     if not parameter_bool(db,cid,"work_orders.use_diagnosis",True):raise HTTPException(409,"El diagnóstico técnico está deshabilitado para esta empresa.")
     d=db.query(WorkOrderDiagnosis).filter_by(company_id=cid,work_order_id=oid).first()
+    if d and not d.is_open:raise HTTPException(409,"El diagnóstico está cerrado por un presupuesto. Reabrilo antes de modificarlo.")
     if d:d.diagnosis=p.diagnosis.strip();d.technical_notes=p.technical_notes
     else:d=WorkOrderDiagnosis(company_id=cid,work_order_id=oid,diagnosis=p.diagnosis.strip(),technical_notes=p.technical_notes,diagnosed_by_user_id=a.id);db.add(d)
     db.add(WorkOrderEvent(company_id=cid,work_order_id=oid,event_type="DIAGNOSIS",status=wo.status,detail="Diagnóstico técnico guardado.",user_id=a.id));db.commit();db.refresh(d)
-    return {"id":d.id,"diagnosis":d.diagnosis,"technical_notes":d.technical_notes,"diagnosed_at":d.diagnosed_at,"updated_at":d.updated_at}
+    return {"id":d.id,"diagnosis":d.diagnosis,"technical_notes":d.technical_notes,"diagnosed_at":d.diagnosed_at,"updated_at":d.updated_at,"is_open":d.is_open,"revision":d.revision}
 @router.get("/{oid}/quotes")
 def list_quotes(oid:int,cid:int=Depends(get_current_company_id),_a:User=Depends(require_permission("work_orders.view")),db:Session=Depends(get_db)):
     order(db,cid,oid);return [quote_read(db,row) for row in db.query(WorkOrderQuote).filter_by(company_id=cid,work_order_id=oid).order_by(WorkOrderQuote.version.desc()).all()]
@@ -66,7 +69,9 @@ def create_quote(oid:int,p:QuoteInput,cid:int=Depends(get_current_company_id),a:
     if not parameter_bool(db,cid,"work_orders.use_budget",True):raise HTTPException(409,"Los presupuestos están deshabilitados para esta empresa.")
     if parameter_bool(db,cid,"work_orders.use_diagnosis",True) and not db.query(WorkOrderDiagnosis).filter_by(company_id=cid,work_order_id=oid).first():raise HTTPException(422,"Primero debe registrar el diagnóstico técnico.")
     version=(db.query(func.max(WorkOrderQuote.version)).filter_by(company_id=cid,work_order_id=oid).scalar() or 0)+1
-    row=WorkOrderQuote(company_id=cid,work_order_id=oid,version=version,status="ISSUED",notes=p.notes,created_by_user_id=a.id);db.add(row);db.flush()
+    diag=db.query(WorkOrderDiagnosis).filter_by(company_id=cid,work_order_id=oid).first()
+    row=WorkOrderQuote(company_id=cid,work_order_id=oid,version=version,status="ISSUED",notes=p.notes,diagnosis_snapshot=(diag.diagnosis if diag else None),diagnosis_revision=(diag.revision if diag else None),created_by_user_id=a.id);db.add(row);db.flush()
+    if diag:diag.is_open=False
     default_markup=markup(db,cid);parts=Decimal("0");labor=Decimal("0")
     for x in p.items:
         m=default_markup if x.item_type=="PART" else Decimal("0");price=money(x.unit_price if x.unit_price is not None else (x.unit_cost*(Decimal("1")+m/Decimal("100"))));total=money(x.quantity*price)
@@ -127,3 +132,13 @@ def reject_quote(oid:int,qid:int,p:QuoteDecisionInput,cid:int=Depends(get_curren
     if p.note and p.note.strip():detail+=" Motivo: "+p.note.strip()
     db.add(WorkOrderEvent(company_id=cid,work_order_id=oid,event_type="QUOTE_REJECTED",status=wo.status,detail=detail,user_id=a.id))
     db.commit();db.refresh(q);return quote_read(db,q)
+
+@router.post("/{oid}/diagnosis/reopen")
+def reopen_diagnosis(oid:int,p:DiagnosisReopenInput,cid:int=Depends(get_current_company_id),a:User=Depends(require_permission("work_orders.manage")),db:Session=Depends(get_db)):
+    wo=order(db,cid,oid);d=db.query(WorkOrderDiagnosis).filter_by(company_id=cid,work_order_id=oid).first()
+    if not d:raise HTTPException(404,"Diagnóstico no encontrado.")
+    if d.is_open:raise HTTPException(409,"El diagnóstico ya está abierto.")
+    d.is_open=True;d.revision+=1
+    db.add(WorkOrderEvent(company_id=cid,work_order_id=oid,event_type="DIAGNOSIS_REOPENED",status=wo.status,detail="Diagnóstico reabierto. Motivo: "+p.reason.strip(),user_id=a.id))
+    db.commit();db.refresh(d)
+    return {"id":d.id,"diagnosis":d.diagnosis,"technical_notes":d.technical_notes,"diagnosed_at":d.diagnosed_at,"updated_at":d.updated_at,"is_open":d.is_open,"revision":d.revision}

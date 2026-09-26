@@ -11,6 +11,8 @@ import CustomersView from "./views/CustomersView.vue";
 import WorkOrdersView from "./views/WorkOrdersView.vue";
 import RolesView from "./views/RolesView.vue";
 import SettingsView from "./views/SettingsView.vue";
+import ParametersView from "./views/ParametersView.vue";
+import WorkOrderStatusesView from "./views/WorkOrderStatusesView.vue";
 
 declare module "vue-router" {
   interface RouteMeta {
@@ -88,6 +90,18 @@ const routes: RouteRecordRaw[] = [
         component: RolesView,
         alias: ["/roles"],
         meta: { requiresAuth: true, permission: "roles.view" },
+      },
+      {
+        path: "parameters",
+        name: "parameters",
+        component: ParametersView,
+        meta: { requiresAuth: true, companyAdminOnly: true },
+      },
+      {
+        path: "work-order-statuses",
+        name: "work-order-statuses",
+        component: WorkOrderStatusesView,
+        meta: { requiresAuth: true, companyAdminOnly: true },
       },
       {
         path: "settings",

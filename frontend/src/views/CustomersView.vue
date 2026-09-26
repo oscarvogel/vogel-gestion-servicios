@@ -28,17 +28,17 @@ let timer:number|undefined;function searchChanged(){window.clearTimeout(timer);t
 onMounted(load);
 </script>
 <template>
-  <div class="card flex flex--between" style="gap:16px;align-items:center;flex-wrap:wrap">
+  <div class="card page-header">
     <div><h2 style="margin:0">Clientes</h2><p class="text-secondary" style="margin:4px 0 0">{{ total }} clientes en esta empresa</p></div>
-    <div class="toolbar"><input v-model="search" class="toolbar__search" placeholder="Nombre, DNI/CUIT, teléfono o email" @input="searchChanged"><button class="btn btn--primary" @click="newCustomer">+ Nuevo cliente</button></div>
+    <div class="toolbar"><input v-model="search" class="toolbar__search" placeholder="Nombre, DNI/CUIT, teléfono o email" @input="searchChanged"><button class="btn btn--primary desktop-primary-action" @click="newCustomer">+ Nuevo cliente</button></div><button class="mobile-fab" aria-label="Nuevo cliente" @click="newCustomer">+<span>Cliente</span></button>
   </div>
   <div class="card">
-    <table v-if="items.length" class="table"><thead><tr><th>Cliente</th><th>DNI/CUIT</th><th>Contacto</th><th>Estado</th><th></th></tr></thead>
-      <tbody><tr v-for="c in items" :key="c.id"><td><strong>{{ c.name }}</strong><div class="text-muted">{{ c.customer_type==='COMPANY'?'Empresa':'Persona' }}</div></td><td>{{ c.document||'—' }}</td><td>{{ c.phone||c.whatsapp||c.email||'—' }}</td><td><span :class="['badge',c.active?'badge--success':'badge--muted']">{{ c.active?'Activo':'Inactivo' }}</span></td><td><button class="btn btn--ghost btn--sm" @click="openCustomer(c)">Equipos</button> <button class="btn btn--ghost btn--sm" @click="editCustomer(c)">Editar</button></td></tr></tbody>
+    <table v-if="items.length" class="table table--cards-mobile"><thead><tr><th>Cliente</th><th>DNI/CUIT</th><th>Contacto</th><th>Estado</th><th></th></tr></thead>
+      <tbody><tr v-for="c in items" :key="c.id"><td data-label="Cliente"><strong>{{ c.name }}</strong><div class="text-muted">{{ c.customer_type==='COMPANY'?'Empresa':'Persona' }}</div></td><td data-label="DNI/CUIT">{{ c.document||'—' }}</td><td data-label="Contacto">{{ c.phone||c.whatsapp||c.email||'—' }}</td><td data-label="Estado"><span :class="['badge',c.active?'badge--success':'badge--muted']">{{ c.active?'Activo':'Inactivo' }}</span></td><td data-label="Acciones" class="mobile-card-actions"><button class="btn btn--ghost btn--sm" @click="openCustomer(c)">Equipos</button> <button class="btn btn--ghost btn--sm" @click="editCustomer(c)">Editar</button></td></tr></tbody>
     </table><div v-else class="empty-state">{{ loading?'Cargando…':'Todavía no hay clientes en esta empresa.' }}</div>
   </div>
   <div v-if="selected" class="card"><div class="flex flex--between"><div><p class="card__title">Equipos de {{ selected.name }}</p><p class="text-secondary">Cada equipo pertenece sólo a esta empresa.</p></div><button class="btn btn--primary" @click="newEquipment">+ Agregar equipo</button></div>
-    <table v-if="equipment.length" class="table"><thead><tr><th>Tipo</th><th>Marca / modelo</th><th>Serie</th><th>Descripción</th></tr></thead><tbody><tr v-for="e in equipment" :key="e.id"><td>{{e.category_name}}</td><td>{{[e.brand,e.model].filter(Boolean).join(' ')||'—'}}</td><td>{{e.serial_number||'—'}}</td><td>{{e.description||'—'}}</td></tr></tbody></table>
+    <table v-if="equipment.length" class="table table--cards-mobile"><thead><tr><th>Tipo</th><th>Marca / modelo</th><th>Serie</th><th>Descripción</th></tr></thead><tbody><tr v-for="e in equipment" :key="e.id"><td data-label="Tipo">{{e.category_name}}</td><td data-label="Marca / modelo">{{[e.brand,e.model].filter(Boolean).join(' ')||'—'}}</td><td data-label="Serie">{{e.serial_number||'—'}}</td><td data-label="Descripción">{{e.description||'—'}}</td></tr></tbody></table>
     <div v-else class="empty-state">Este cliente todavía no tiene equipos cargados.</div>
   </div>
   <Modal :open="showCustomer" :title="editing?'Editar cliente':'Nuevo cliente'" @close="showCustomer=false"><form @submit.prevent="saveCustomer">

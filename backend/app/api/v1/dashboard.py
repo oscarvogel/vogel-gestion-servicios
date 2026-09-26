@@ -1,14 +1,89 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import func
+from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import get_db, require_superadmin
+from app.api.dependencies import get_current_company_id, get_db, require_permission, require_superadmin
 from app.models.company import Company
 from app.models.user import CompanyUser, User
+from app.models.work_order import WorkOrder, WorkOrderStatus
 
 router = APIRouter()
+
+
+@router.get("/company")
+def company_dashboard(
+    company_id: int = Depends(get_current_company_id),
+    _actor: User = Depends(require_permission("work_orders.view")),
+    db: Session = Depends(get_db),
+):
+    """Operational KPI snapshot for the active company.
+
+    Semantic status flags are used instead of status names so every tenant can
+    customize its workflow without breaking dashboard metrics.
+    """
+    status = WorkOrderStatus
+    rows = (
+        db.query(
+            status.id,
+            status.name,
+            status.color,
+            status.sort_order,
+            status.is_initial,
+            status.is_final,
+            status.marks_quoted,
+            status.marks_awaiting_quote_approval,
+            status.marks_repair,
+            status.marks_completed,
+            status.marks_delivered,
+            func.count(WorkOrder.id).label("count"),
+        )
+        .outerjoin(
+            WorkOrder,
+            (WorkOrder.status_id == status.id) & (WorkOrder.company_id == company_id),
+        )
+        .filter(status.company_id == company_id, status.active.is_(True))
+        .group_by(
+            status.id, status.name, status.color, status.sort_order,
+            status.is_initial, status.is_final, status.marks_quoted,
+            status.marks_awaiting_quote_approval, status.marks_repair,
+            status.marks_completed, status.marks_delivered,
+        )
+        .order_by(status.sort_order, status.name)
+        .all()
+    )
+
+    total = db.query(func.count(WorkOrder.id)).filter(WorkOrder.company_id == company_id).scalar() or 0
+    open_count = sum(int(r.count) for r in rows if not r.is_final and not r.marks_delivered)
+    delivered = sum(int(r.count) for r in rows if r.marks_delivered)
+    completed = sum(int(r.count) for r in rows if r.marks_completed and not r.marks_delivered)
+    repair = sum(int(r.count) for r in rows if r.marks_repair)
+    awaiting_quote = sum(int(r.count) for r in rows if r.marks_awaiting_quote_approval)
+    quoted = sum(int(r.count) for r in rows if r.marks_quoted)
+
+    return {
+        "total": int(total),
+        "summary": {
+            "open": open_count,
+            "awaiting_quote_approval": awaiting_quote,
+            "quoted": quoted,
+            "repair": repair,
+            "completed": completed,
+            "delivered": delivered,
+        },
+        "statuses": [
+            {
+                "id": r.id,
+                "name": r.name,
+                "color": r.color,
+                "count": int(r.count),
+                "is_final": r.is_final,
+                "marks_delivered": r.marks_delivered,
+            }
+            for r in rows
+        ],
+    }
 
 
 @router.get("/superadmin")
@@ -17,31 +92,12 @@ def superadmin_dashboard(
     db: Session = Depends(get_db),
 ):
     total_companies = db.query(func.count(Company.id)).scalar() or 0
-    active_companies = (
-        db.query(func.count(Company.id)).filter(Company.active.is_(True)).scalar() or 0
-    )
+    active_companies = db.query(func.count(Company.id)).filter(Company.active.is_(True)).scalar() or 0
     total_users = db.query(func.count(User.id)).scalar() or 0
-    active_users = (
-        db.query(func.count(User.id)).filter(User.active.is_(True)).scalar() or 0
-    )
-    total_admins = (
-        db.query(func.count(CompanyUser.id))
-        .filter(CompanyUser.is_admin.is_(True), CompanyUser.active.is_(True))
-        .scalar()
-        or 0
-    )
-    total_superadmins = (
-        db.query(func.count(User.id))
-        .filter(User.is_superadmin.is_(True), User.active.is_(True))
-        .scalar()
-        or 0
-    )
-    recent_companies = (
-        db.query(Company)
-        .order_by(Company.created_at.desc(), Company.id.desc())
-        .limit(5)
-        .all()
-    )
+    active_users = db.query(func.count(User.id)).filter(User.active.is_(True)).scalar() or 0
+    total_admins = db.query(func.count(CompanyUser.id)).filter(CompanyUser.is_admin.is_(True), CompanyUser.active.is_(True)).scalar() or 0
+    total_superadmins = db.query(func.count(User.id)).filter(User.is_superadmin.is_(True), User.active.is_(True)).scalar() or 0
+    recent_companies = db.query(Company).order_by(Company.created_at.desc(), Company.id.desc()).limit(5).all()
     return {
         "kpis": {
             "total_companies": int(total_companies),
@@ -52,16 +108,10 @@ def superadmin_dashboard(
             "total_superadmins": int(total_superadmins),
         },
         "recent_companies": [
-            {
-                "id": c.id,
-                "name": c.name,
-                "slug": c.slug,
-                "active": c.active,
-                "created_at": c.created_at.isoformat(),
-            }
+            {"id": c.id, "name": c.name, "slug": c.slug, "active": c.active, "created_at": c.created_at.isoformat()}
             for c in recent_companies
         ],
-        "recent_activity": [],  # Reservado para bitácora; se implementa en próximos hitos.
+        "recent_activity": [],
         "quick_actions": [
             {"id": "new-company", "label": "Nueva empresa", "icon": "plus"},
             {"id": "new-user", "label": "Nuevo usuario", "icon": "user-plus"},

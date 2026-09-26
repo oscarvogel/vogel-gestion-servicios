@@ -71,8 +71,9 @@ async function onSubmit() {
             <label for="password">Contraseña</label>
             <div class="auth-password">
               <input id="password" v-model="password" :type="showPassword ? 'text' : 'password'" autocomplete="current-password" placeholder="••••••••" required />
-              <button type="button" class="btn btn--ghost auth-password__toggle" :aria-label="showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'" @click="showPassword = !showPassword">
-                {{ showPassword ? "Ocultar" : "Mostrar" }}
+              <button type="button" class="btn btn--ghost auth-password__toggle" :aria-label="showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'" :title="showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'" @click="showPassword = !showPassword">
+                <svg v-if="!showPassword" viewBox="0 0 24 24" aria-hidden="true"><path d="M2.1 12s3.6-6 9.9-6 9.9 6 9.9 6-3.6 6-9.9 6-9.9-6-9.9-6Z"/><circle cx="12" cy="12" r="3"/></svg>
+                <svg v-else viewBox="0 0 24 24" aria-hidden="true"><path d="m3 3 18 18M10.6 6.1A10.8 10.8 0 0 1 12 6c6.3 0 9.9 6 9.9 6a17.5 17.5 0 0 1-2.1 2.7M6.6 6.6C3.7 8.4 2.1 12 2.1 12s3.6 6 9.9 6c1.7 0 3.2-.4 4.5-1M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>
               </button>
             </div>
           </div>
@@ -92,23 +93,22 @@ async function onSubmit() {
 .auth-card__subtitle{font-size:14px;margin:0 0 24px}
 .auth-password{display:flex;gap:8px;align-items:center}
 .auth-password input{flex:1;min-width:0}
-.auth-password__toggle{flex:0 0 auto}
+.auth-password__toggle{flex:0 0 auto;width:44px;height:44px;padding:0;display:grid;place-items:center}
+.auth-password__toggle svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .auth-card__error{margin-bottom:14px;display:block}
 .auth-card__submit{width:100%;justify-content:center}
 @media(max-width:700px){
   .auth-shell{min-height:100dvh}
-  .auth-shell__form{display:flex;align-items:flex-start;justify-content:center;padding:clamp(28px,8vh,68px) 16px 24px}
+  .auth-shell__form{display:flex;align-items:center;justify-content:center;padding:24px 16px}
   .auth-card{width:100%;max-width:430px;padding:22px 18px 20px;border-radius:20px}
   .auth-card__brand{margin-bottom:16px}
   .auth-card__title{font-size:24px}
   .auth-card__subtitle{margin-bottom:20px;line-height:1.4}
   .auth-password{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}
-  .auth-password__toggle{min-width:78px;padding-inline:12px}
+  .auth-password__toggle{width:44px;min-width:44px;padding:0}
 }
 @media(max-width:380px){
   .auth-shell__form{padding:20px 10px}
   .auth-card{padding:18px 14px}
-  .auth-password{grid-template-columns:1fr}
-  .auth-password__toggle{width:100%}
 }
 </style>

@@ -17,6 +17,7 @@ class StatusRead(StatusInput):
     model_config={"from_attributes":True}
 class StatusChange(BaseModel):
     status_id:int
+    note:str|None=Field(default=None,max_length=1000)
 
 @router.get("/statuses",response_model=list[StatusRead])
 def list_statuses(company_id:int=Depends(get_current_company_id),_actor:User=Depends(require_permission("work_orders.view")),db:Session=Depends(get_db)):
@@ -131,5 +132,8 @@ def change_status(work_order_id:int,payload:StatusChange,company_id:int=Depends(
     if row.status_id==target.id:return _read(db,row)
     row.status_id=target.id
     row.status=target.name.upper().replace(" ","_")[:30]
-    db.add(WorkOrderEvent(company_id=company_id,work_order_id=row.id,event_type="STATUS_CHANGE",status=row.status,detail=f"Estado cambiado de {previous.name if previous else 'sin estado'} a {target.name}.",user_id=actor.id))
+    detail=f"Estado cambiado de {previous.name if previous else 'sin estado'} a {target.name}."
+    if payload.note and payload.note.strip():
+        detail+=f" Observación: {payload.note.strip()}"
+    db.add(WorkOrderEvent(company_id=company_id,work_order_id=row.id,event_type="STATUS_CHANGE",status=row.status,detail=detail,user_id=actor.id))
     db.commit();db.refresh(row);return _read(db,row)

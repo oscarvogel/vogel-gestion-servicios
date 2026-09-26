@@ -95,3 +95,25 @@ def test_completion_and_delivery_dates_follow_semantic_status_and_survive_revert
     assert reverted["completed_at"]==completed["completed_at"]
     delivered=client.post(f"/api/v1/work-orders/{created['id']}/status",headers=h,json={"status_id":entregado["id"]}).json()
     assert delivered["completed_at"] is not None and delivered["delivered_at"] is not None
+
+def test_diagnosis_and_versioned_quote_uses_company_parts_markup(client,db_session):
+    from app.models.company import ParameterDefinition,CompanyParameter
+    company,_,customer,equipment=setup(db_session,"quote")
+    h=login(client,"ot.quote@example.com",company.id)
+    created=client.post("/api/v1/work-orders",headers=h,json={"customer_id":customer.id,"equipment_id":equipment.id,"reported_fault":"No enciende"}).json()
+    blocked=client.post(f"/api/v1/work-orders/{created['id']}/quotes",headers=h,json={"items":[{"item_type":"PART","description":"Fuente","quantity":1,"unit_cost":1000}]})
+    assert blocked.status_code==422
+    d=client.put(f"/api/v1/work-orders/{created['id']}/diagnosis",headers=h,json={"diagnosis":"Fuente dañada","technical_notes":"Sin salida secundaria"})
+    assert d.status_code==200,d.text
+    definition=db_session.query(ParameterDefinition).filter_by(parameter="pricing.parts_markup_percent").first()
+    if not definition:
+        definition=ParameterDefinition(parameter="pricing.parts_markup_percent",default_value="35",description="Margen repuestos",data_type="decimal",category="pricing",editable=True,active=True);db_session.add(definition);db_session.flush()
+    db_session.add(CompanyParameter(company_id=company.id,parameter_definition_id=definition.id,value="50"));db_session.commit()
+    payload={"items":[{"item_type":"PART","description":"Fuente","quantity":2,"unit_cost":1000},{"item_type":"LABOR","description":"Reparación","quantity":1,"unit_cost":8000,"unit_price":8000}]}
+    first=client.post(f"/api/v1/work-orders/{created['id']}/quotes",headers=h,json=payload)
+    assert first.status_code==201,first.text
+    assert first.json()["version"]==1 and float(first.json()["subtotal_parts"])==3000 and float(first.json()["total"])==11000
+    second=client.post(f"/api/v1/work-orders/{created['id']}/quotes",headers=h,json=payload)
+    assert second.status_code==201 and second.json()["version"]==2
+    events=client.get(f"/api/v1/work-orders/{created['id']}/events",headers=h).json()
+    assert events[-1]["event_type"]=="QUOTE_CREATED"

@@ -16,6 +16,8 @@ def setup(db,suffix):
     db.add_all([
         WorkOrderStatus(company_id=company.id,name="Recibido",color="#10B981",sort_order=10,active=True,is_initial=True,is_final=False),
         WorkOrderStatus(company_id=company.id,name="En diagnóstico",color="#3B82F6",sort_order=20,active=True,is_initial=False,is_final=False),
+        WorkOrderStatus(company_id=company.id,name="Listo",color="#22C55E",sort_order=70,active=True,is_initial=False,is_final=False,marks_completed=True),
+        WorkOrderStatus(company_id=company.id,name="Entregado",color="#64748B",sort_order=80,active=True,is_initial=False,is_final=True,marks_delivered=True),
     ])
     db.commit()
     token_client=None
@@ -66,3 +68,30 @@ def test_status_change_requires_explicit_post_and_audits_optional_note(client,db
     events=client.get(f"/api/v1/work-orders/{created.json()['id']}/events",headers=h).json()
     assert events[-1]["event_type"]=="STATUS_CHANGE"
     assert "Se inicia revisión en banco" in events[-1]["detail"]
+
+
+def test_expected_delivery_is_audited_and_tenant_isolated(client,db_session):
+    a,_,ca,ea=setup(db_session,"dates-a");b,_,_,_=setup(db_session,"dates-b")
+    ha=login(client,"ot.dates-a@example.com",a.id);hb=login(client,"ot.dates-b@example.com",b.id)
+    created=client.post("/api/v1/work-orders",headers=ha,json={"customer_id":ca.id,"equipment_id":ea.id,"reported_fault":"No arranca"}).json()
+    changed=client.patch(f"/api/v1/work-orders/{created['id']}/expected-delivery",headers=ha,json={"expected_delivery_at":"2026-09-30T18:00:00Z"})
+    assert changed.status_code==200,changed.text
+    assert changed.json()["expected_delivery_at"].startswith("2026-09-30T18:00:00")
+    events=client.get(f"/api/v1/work-orders/{created['id']}/events",headers=ha).json()
+    assert events[-1]["event_type"]=="EXPECTED_DELIVERY_CHANGE"
+    assert client.patch(f"/api/v1/work-orders/{created['id']}/expected-delivery",headers=hb,json={"expected_delivery_at":"2026-10-01T18:00:00Z"}).status_code==404
+
+def test_completion_and_delivery_dates_follow_semantic_status_and_survive_revert(client,db_session):
+    company,_,customer,equipment=setup(db_session,"lifecycle")
+    h=login(client,"ot.lifecycle@example.com",company.id)
+    created=client.post("/api/v1/work-orders",headers=h,json={"customer_id":customer.id,"equipment_id":equipment.id,"reported_fault":"Sin audio"}).json()
+    statuses=client.get("/api/v1/work-orders/statuses",headers=h).json()
+    listo=next(s for s in statuses if s["marks_completed"])
+    entregado=next(s for s in statuses if s["marks_delivered"])
+    diagnostico=next(s for s in statuses if s["name"]=="En diagnóstico")
+    completed=client.post(f"/api/v1/work-orders/{created['id']}/status",headers=h,json={"status_id":listo["id"]}).json()
+    assert completed["completed_at"] is not None and completed["delivered_at"] is None
+    reverted=client.post(f"/api/v1/work-orders/{created['id']}/status",headers=h,json={"status_id":diagnostico["id"],"note":"Se reabre para control"}).json()
+    assert reverted["completed_at"]==completed["completed_at"]
+    delivered=client.post(f"/api/v1/work-orders/{created['id']}/status",headers=h,json={"status_id":entregado["id"]}).json()
+    assert delivered["completed_at"] is not None and delivered["delivered_at"] is not None

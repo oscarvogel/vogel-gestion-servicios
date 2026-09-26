@@ -16,6 +16,7 @@ def setup(db,suffix):
     db.add_all([
         WorkOrderStatus(company_id=company.id,name="Recibido",color="#10B981",sort_order=10,active=True,is_initial=True,is_final=False),
         WorkOrderStatus(company_id=company.id,name="En diagnóstico",color="#3B82F6",sort_order=20,active=True,is_initial=False,is_final=False),
+        WorkOrderStatus(company_id=company.id,name="Presupuestado",color="#8B5CF6",sort_order=30,active=True,is_initial=False,is_final=False),
         WorkOrderStatus(company_id=company.id,name="Listo",color="#22C55E",sort_order=70,active=True,is_initial=False,is_final=False,marks_completed=True),
         WorkOrderStatus(company_id=company.id,name="Entregado",color="#64748B",sort_order=80,active=True,is_initial=False,is_final=True,marks_delivered=True),
     ])
@@ -113,6 +114,8 @@ def test_diagnosis_and_versioned_quote_uses_company_parts_markup(client,db_sessi
     first=client.post(f"/api/v1/work-orders/{created['id']}/quotes",headers=h,json=payload)
     assert first.status_code==201,first.text
     assert first.json()["version"]==1 and float(first.json()["subtotal_parts"])==3000 and float(first.json()["total"])==11000
+    current=client.get("/api/v1/work-orders/"+str(created["id"]),headers=h)
+    assert current.status_code==200 and current.json()["status_name"]=="Presupuestado"
     second=client.post(f"/api/v1/work-orders/{created['id']}/quotes",headers=h,json=payload)
     assert second.status_code==201 and second.json()["version"]==2
     events=client.get(f"/api/v1/work-orders/{created['id']}/events",headers=h).json()

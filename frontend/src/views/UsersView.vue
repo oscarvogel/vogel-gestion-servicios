@@ -292,7 +292,7 @@ function isExistingMembership(companyId: number) {
 
 <template>
   
-    <div class="card flex flex--between" style="gap:16px;flex-wrap:wrap;align-items:center">
+    <div class="card page-header">
       <div>
         <button
           v-if="session.isSuperAdmin && selectedCompany"
@@ -329,14 +329,14 @@ function isExistingMembership(companyId: number) {
           <option value="all">Todas las empresas</option>
           <option v-for="c in companies" :key="c.id" :value="c.id">{{ c.name }}</option>
         </select>
-        <button v-if="canManage" class="btn btn--primary" type="button" @click="openCreate">
+        <button v-if="canManage" class="btn btn--primary desktop-primary-action" type="button" @click="openCreate">
           {{ selectedCompany ? `+ Usuario en ${selectedCompany.name}` : '+ Nuevo usuario' }}
         </button>
-      </div>
+      </div><button v-if="canManage" class="mobile-fab" type="button" aria-label="Nuevo usuario" @click="openCreate">+<span>Usuario</span></button>
     </div>
 
     <div class="card">
-      <table v-if="items.length" class="table">
+      <table v-if="items.length" class="table table--cards-mobile">
         <thead>
           <tr>
             <th>Usuario</th>
@@ -348,15 +348,15 @@ function isExistingMembership(companyId: number) {
         </thead>
         <tbody>
           <tr v-for="item in items" :key="item.id">
-            <td>
+            <td data-label="Usuario">
               <strong>{{ item.full_name }}</strong>
               <div class="text-muted" style="font-size:12px">
                 <span v-if="item.is_superadmin" class="role-chip" style="margin-right:6px">SuperAdmin</span>
                 Creado {{ new Date(item.created_at).toLocaleDateString('es-AR') }}
               </div>
             </td>
-            <td>{{ item.email }}</td>
-            <td>
+            <td data-label="Email">{{ item.email }}</td>
+            <td data-label="Membresías">
               <div class="flex gap-8" style="flex-wrap:wrap">
                 <span
                   v-for="m in item.memberships"
@@ -369,12 +369,12 @@ function isExistingMembership(companyId: number) {
                 <span v-if="item.memberships.length === 0" class="text-muted">Sin membresías</span>
               </div>
             </td>
-            <td>
+            <td data-label="Estado">
               <span :class="['badge', item.active ? 'badge--success' : 'badge--muted']">
                 {{ item.active ? 'Activo' : 'Inactivo' }}
               </span>
             </td>
-            <td>
+            <td data-label="Acciones" class="mobile-card-actions">
               <div class="flex gap-8">
                 <button v-if="canManage" class="btn btn--ghost btn--sm" type="button" @click="openEdit(item)">Editar</button>
                 <button

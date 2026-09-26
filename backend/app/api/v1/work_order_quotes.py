@@ -1,4 +1,5 @@
 from decimal import Decimal,ROUND_HALF_UP
+from datetime import datetime
 from fastapi import APIRouter,Depends,HTTPException
 from pydantic import BaseModel,Field
 from sqlalchemy import func
@@ -18,6 +19,8 @@ class ItemInput(BaseModel):
     quantity:Decimal=Field(gt=0)
     unit_cost:Decimal=Field(ge=0)
     unit_price:Decimal|None=Field(default=None,ge=0)
+class QuoteDecisionInput(BaseModel):
+    note:str|None=Field(default=None,max_length=1000)
 class QuoteInput(BaseModel):
     items:list[ItemInput]=Field(min_length=1)
     notes:str|None=None
@@ -40,7 +43,7 @@ def markup(db,cid):
 def money(v):return Decimal(v).quantize(Decimal("0.01"),rounding=ROUND_HALF_UP)
 def quote_read(db,row):
     items=db.query(WorkOrderQuoteItem).filter_by(quote_id=row.id,company_id=row.company_id).order_by(WorkOrderQuoteItem.id).all()
-    return {"id":row.id,"work_order_id":row.work_order_id,"version":row.version,"status":row.status,"notes":row.notes,"subtotal_parts":row.subtotal_parts,"subtotal_labor":row.subtotal_labor,"total":row.total,"created_at":row.created_at,"items":[{"id":i.id,"item_type":i.item_type,"description":i.description,"quantity":i.quantity,"unit_cost":i.unit_cost,"markup_percent":i.markup_percent,"unit_price":i.unit_price,"line_total":i.line_total} for i in items]}
+    return {"id":row.id,"work_order_id":row.work_order_id,"version":row.version,"status":row.status,"notes":row.notes,"subtotal_parts":row.subtotal_parts,"subtotal_labor":row.subtotal_labor,"total":row.total,"created_at":row.created_at,"sent_at":row.sent_at,"decided_at":row.decided_at,"items":[{"id":i.id,"item_type":i.item_type,"description":i.description,"quantity":i.quantity,"unit_cost":i.unit_cost,"markup_percent":i.markup_percent,"unit_price":i.unit_price,"line_total":i.line_total} for i in items]}
 @router.get("/{oid}/diagnosis")
 def get_diagnosis(oid:int,cid:int=Depends(get_current_company_id),_a:User=Depends(require_permission("work_orders.view")),db:Session=Depends(get_db)):
     order(db,cid,oid);d=db.query(WorkOrderDiagnosis).filter_by(company_id=cid,work_order_id=oid).first()
@@ -78,3 +81,49 @@ def create_quote(oid:int,p:QuoteInput,cid:int=Depends(get_current_company_id),a:
         wo.status_id=target.id;wo.status=target.name.upper().replace(" ","_")[:30]
         db.add(WorkOrderEvent(company_id=cid,work_order_id=oid,event_type="STATUS_CHANGE",status=wo.status,detail="Estado cambiado de %s a %s al emitir el presupuesto."%((previous.name if previous else "sin estado"),target.name),user_id=a.id))
     db.commit();db.refresh(row);return quote_read(db,row)
+
+def _move_status(db,cid,wo,marker,user_id,detail):
+    target=db.query(WorkOrderStatus).filter(getattr(WorkOrderStatus,marker).is_(True),WorkOrderStatus.company_id==cid,WorkOrderStatus.active.is_(True)).order_by(WorkOrderStatus.sort_order).first()
+    if target and wo.status_id!=target.id:
+        previous=db.get(WorkOrderStatus,wo.status_id) if wo.status_id else None
+        wo.status_id=target.id;wo.status=target.name.upper().replace(" ","_")[:30]
+        db.add(WorkOrderEvent(company_id=cid,work_order_id=wo.id,event_type="STATUS_CHANGE",status=wo.status,detail=detail+" Estado: %s → %s."%((previous.name if previous else "sin estado"),target.name),user_id=user_id))
+
+def _quote(db,cid,oid,qid):
+    q=db.query(WorkOrderQuote).filter_by(id=qid,work_order_id=oid,company_id=cid).first()
+    if not q:raise HTTPException(404,"Presupuesto no encontrado.")
+    return q
+
+@router.post("/{oid}/quotes/{qid}/send")
+def send_quote(oid:int,qid:int,p:QuoteDecisionInput,cid:int=Depends(get_current_company_id),a:User=Depends(require_permission("work_orders.manage")),db:Session=Depends(get_db)):
+    wo=order(db,cid,oid);q=_quote(db,cid,oid,qid)
+    if q.status in ("APPROVED","REJECTED"):raise HTTPException(409,"El presupuesto ya tiene una decisión registrada.")
+    q.sent_at=q.sent_at or datetime.utcnow()
+    approval=parameter_bool(db,cid,"work_orders.require_budget_approval",True)
+    q.status="PENDING_APPROVAL" if approval else "ISSUED"
+    detail="Presupuesto v%d marcado como enviado al cliente."%q.version
+    if p.note and p.note.strip():detail+=" Observación: "+p.note.strip()
+    db.add(WorkOrderEvent(company_id=cid,work_order_id=oid,event_type="QUOTE_SENT",status=wo.status,detail=detail,user_id=a.id))
+    if approval:_move_status(db,cid,wo,"marks_awaiting_quote_approval",a.id,"Presupuesto enviado y pendiente de aprobación.")
+    db.commit();db.refresh(q);return quote_read(db,q)
+
+@router.post("/{oid}/quotes/{qid}/approve")
+def approve_quote(oid:int,qid:int,p:QuoteDecisionInput,cid:int=Depends(get_current_company_id),a:User=Depends(require_permission("work_orders.manage")),db:Session=Depends(get_db)):
+    wo=order(db,cid,oid);q=_quote(db,cid,oid,qid)
+    if q.status=="REJECTED":raise HTTPException(409,"El presupuesto fue rechazado.")
+    q.status="APPROVED";q.decided_at=datetime.utcnow()
+    detail="Presupuesto v%d aprobado por el cliente."%q.version
+    if p.note and p.note.strip():detail+=" Observación: "+p.note.strip()
+    db.add(WorkOrderEvent(company_id=cid,work_order_id=oid,event_type="QUOTE_APPROVED",status=wo.status,detail=detail,user_id=a.id))
+    _move_status(db,cid,wo,"marks_repair",a.id,"Presupuesto aprobado.")
+    db.commit();db.refresh(q);return quote_read(db,q)
+
+@router.post("/{oid}/quotes/{qid}/reject")
+def reject_quote(oid:int,qid:int,p:QuoteDecisionInput,cid:int=Depends(get_current_company_id),a:User=Depends(require_permission("work_orders.manage")),db:Session=Depends(get_db)):
+    wo=order(db,cid,oid);q=_quote(db,cid,oid,qid)
+    if q.status=="APPROVED":raise HTTPException(409,"El presupuesto ya fue aprobado.")
+    q.status="REJECTED";q.decided_at=datetime.utcnow()
+    detail="Presupuesto v%d rechazado por el cliente."%q.version
+    if p.note and p.note.strip():detail+=" Motivo: "+p.note.strip()
+    db.add(WorkOrderEvent(company_id=cid,work_order_id=oid,event_type="QUOTE_REJECTED",status=wo.status,detail=detail,user_id=a.id))
+    db.commit();db.refresh(q);return quote_read(db,q)

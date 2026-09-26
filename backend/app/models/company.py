@@ -23,17 +23,26 @@ class Company(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
 
 
-class CompanyParameter(Base):
-    __tablename__ = "company_parameters"
-    __table_args__ = (UniqueConstraint("company_id", "parameter", name="uq_company_parameter"),)
-
+class ParameterDefinition(Base):
+    __tablename__ = "parameter_definitions"
     id: Mapped[int] = mapped_column(primary_key=True)
-    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"), nullable=False, index=True)
-    parameter: Mapped[str] = mapped_column(String(100), nullable=False)
-    value: Mapped[str] = mapped_column(Text, nullable=False)
+    parameter: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
+    default_value: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str] = mapped_column(String(500), nullable=False)
     data_type: Mapped[str] = mapped_column(String(20), nullable=False, default="string")
     category: Mapped[str] = mapped_column(String(60), nullable=False, default="general")
     editable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class CompanyParameter(Base):
+    __tablename__ = "company_parameters"
+    __table_args__ = (UniqueConstraint("company_id", "parameter_definition_id", name="uq_company_parameter"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"), nullable=False, index=True)
+    parameter_definition_id: Mapped[int] = mapped_column(ForeignKey("parameter_definitions.id", ondelete="CASCADE"), nullable=False, index=True)
+    value: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)

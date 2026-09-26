@@ -72,7 +72,7 @@ def create_quote(oid:int,p:QuoteInput,cid:int=Depends(get_current_company_id),a:
         else:labor+=total
     row.subtotal_parts=money(parts);row.subtotal_labor=money(labor);row.total=money(parts+labor)
     db.add(WorkOrderEvent(company_id=cid,work_order_id=oid,event_type="QUOTE_CREATED",status=wo.status,detail="Presupuesto v%d generado por $%s."%(version,row.total),user_id=a.id))
-    target=db.query(WorkOrderStatus).filter_by(company_id=cid,name="Presupuestado",active=True).first()
+    target=db.query(WorkOrderStatus).filter_by(company_id=cid,marks_quoted=True,active=True).order_by(WorkOrderStatus.sort_order).first()
     if target and wo.status_id!=target.id:
         previous=db.get(WorkOrderStatus,wo.status_id) if wo.status_id else None
         wo.status_id=target.id;wo.status=target.name.upper().replace(" ","_")[:30]

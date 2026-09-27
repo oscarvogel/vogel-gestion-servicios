@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
+from datetime import datetime, timedelta
+
 from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
@@ -62,6 +64,53 @@ def company_dashboard(
     awaiting_quote = sum(int(r.count) for r in rows if r.marks_awaiting_quote_approval)
     quoted = sum(int(r.count) for r in rows if r.marks_quoted)
 
+    now = datetime.now()
+    open_orders = (
+        db.query(WorkOrder.received_at)
+        .outerjoin(status, WorkOrder.status_id == status.id)
+        .filter(
+            WorkOrder.company_id == company_id,
+            func.coalesce(status.is_final, False).is_(False),
+            func.coalesce(status.marks_delivered, False).is_(False),
+        )
+        .all()
+    )
+    aging = {"0_2": 0, "3_7": 0, "8_15": 0, "16_plus": 0}
+    for order in open_orders:
+        days = max(0, (now - order.received_at).days)
+        if days <= 2: aging["0_2"] += 1
+        elif days <= 7: aging["3_7"] += 1
+        elif days <= 15: aging["8_15"] += 1
+        else: aging["16_plus"] += 1
+
+    week_start = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+    trend = []
+    for offset in range(7, -1, -1):
+        start = week_start - timedelta(weeks=offset)
+        end = start + timedelta(weeks=1)
+        received = db.query(func.count(WorkOrder.id)).filter(
+            WorkOrder.company_id == company_id, WorkOrder.received_at >= start, WorkOrder.received_at < end,
+        ).scalar() or 0
+        finished = db.query(func.count(WorkOrder.id)).filter(
+            WorkOrder.company_id == company_id, WorkOrder.completed_at.isnot(None),
+            WorkOrder.completed_at >= start, WorkOrder.completed_at < end,
+        ).scalar() or 0
+        trend.append({"label": start.strftime("%d/%m"), "received": int(received), "finished": int(finished)})
+
+    resolution_days = [
+        (completed_at - received_at).total_seconds() / 86400
+        for received_at, completed_at in db.query(WorkOrder.received_at, WorkOrder.completed_at)
+        .filter(WorkOrder.company_id == company_id, WorkOrder.completed_at.isnot(None)).all()
+        if completed_at >= received_at
+    ]
+    avg_resolution_days = round(sum(resolution_days) / len(resolution_days), 1) if resolution_days else None
+    attention = {
+        "older_than_15_days": aging["16_plus"],
+        "awaiting_quote_approval": awaiting_quote,
+        "waiting_parts": sum(int(r.count) for r in rows if "repuesto" in r.name.lower()),
+        "ready_to_deliver": completed,
+    }
+
     return {
         "total": int(total),
         "summary": {
@@ -72,6 +121,10 @@ def company_dashboard(
             "completed": completed,
             "delivered": delivered,
         },
+        "aging": aging,
+        "trend": trend,
+        "avg_resolution_days": avg_resolution_days,
+        "attention": attention,
         "statuses": [
             {
                 "id": r.id,

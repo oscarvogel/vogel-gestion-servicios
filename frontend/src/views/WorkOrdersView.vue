@@ -65,7 +65,7 @@ async function sendQuote(q:Quote){if(!selected.value)return;try{await apiPost("/
 async function reopenDiagnosis(){if(!selected.value||!reopenReason.value.trim())return;try{diagnosis.value=await apiPost<Diagnosis>("/work-orders/"+selected.value.id+"/diagnosis/reopen",{reason:reopenReason.value.trim()});showReopenDiagnosis.value=false;diagnosisForm.value={diagnosis:diagnosis.value.diagnosis,technical_notes:diagnosis.value.technical_notes||""};showDiagnosisModal.value=true;events.value=await apiGet<Event[]>("/work-orders/"+selected.value.id+"/events");toast.push("Diagnóstico reabierto","success")}catch(e){toast.push(getApiErrorMessage(e),"error")}}
 async function confirmStatus(){if(!selected.value||!pendingStatus.value)return;try{selected.value=await apiPost<Order>("/work-orders/"+selected.value.id+"/status",{status_id:pendingStatus.value.id,note:statusNote.value.trim()||null});pendingStatus.value=null;statusNote.value="";await load();events.value=await apiGet<Event[]>("/work-orders/"+selected.value.id+"/events");toast.push("Estado actualizado","success")}catch(e){toast.push(getApiErrorMessage(e),"error")}}
 async function saveStatus(st:OtStatus){try{await apiPatch("/work-orders/statuses/"+st.id,{name:st.name,color:st.color,sort_order:st.sort_order,active:st.active,is_initial:st.is_initial,is_final:st.is_final,marks_completed:st.marks_completed,marks_delivered:st.marks_delivered});await loadStatuses();await load();toast.push("Estado guardado","success")}catch(e){toast.push(getApiErrorMessage(e),"error")}}
-function printReceipt(){printQuote.value=null;document.body.classList.add("printing-receipt");window.print();setTimeout(()=>document.body.classList.remove("printing-receipt"),100)}
+function printReceipt(){printQuote.value=null;document.body.classList.add("printing-receipt");const cleanup=()=>{document.body.classList.remove("printing-receipt");window.removeEventListener("afterprint",cleanup)};window.addEventListener("afterprint",cleanup);setTimeout(()=>window.print(),60)}
 function printBudget(q:Quote){printQuote.value=q;setTimeout(()=>{window.print();printQuote.value=null},80)}
 let timer:number|undefined;function searchChanged(){window.clearTimeout(timer);timer=window.setTimeout(load,250)}
 onMounted(async()=>{await Promise.all([load(),loadStatuses(),loadCompanyTimezone(),loadFeatureParams()])});
@@ -74,38 +74,25 @@ onMounted(async()=>{await Promise.all([load(),loadStatuses(),loadCompanyTimezone
 <div v-if="!selected" class="card page-header"><div><h2 style="margin:0">Órdenes de trabajo</h2><p class="text-secondary" style="margin:4px 0 0">{{total}} órdenes en esta empresa</p></div><div class="toolbar"><input v-model="search" class="toolbar__search" placeholder="N° OT, cliente, teléfono, equipo o serie" @input="searchChanged"><button class="btn btn--primary desktop-primary-action" @click="newReception">+ Nueva recepción</button></div><button class="mobile-fab" aria-label="Nueva recepción" @click="newReception">+<span>Recepción</span></button></div>
 <div v-if="!selected" class="card work-orders-list"><table v-if="orders.length" class="table table--cards-mobile"><thead><tr><th>OT</th><th>Recepción</th><th>Cliente</th><th>Equipo</th><th>Falla informada</th><th>Estado</th><th></th></tr></thead><tbody><tr v-for="o in orders" :key="o.id" class="work-order-row" :style="{'--status-color':o.status_color,'--status-tint':o.status_color+'12'}"><td data-label="OT"><strong>#{{o.number}}</strong></td><td data-label="Recepción">{{formatCompanyDate(o.received_at)}}</td><td data-label="Cliente">{{o.customer_name}}<div class="text-muted">{{o.customer_phone||"—"}}</div></td><td data-label="Equipo">{{o.equipment_label}}<div class="text-muted">{{o.serial_number||"Sin serie"}}</div></td><td data-label="Falla">{{o.reported_fault}}</td><td data-label="Estado"><span class="status-pill" :style="{background:o.status_color+'22',color:o.status_color,borderColor:o.status_color+'66'}">{{o.status_name}}</span></td><td data-label="Acciones" class="mobile-card-actions"><button class="btn btn--primary btn--sm" @click="open(o)">Abrir OT</button></td></tr></tbody></table><div v-else class="empty-state">Todavía no hay órdenes de trabajo en esta empresa.</div></div>
 <div v-if="selected" class="order-detail-shell"><button type="button" class="btn btn--ghost order-detail-back no-print" @click="closeOrder">← Volver a órdenes</button><div class="card receipt"><div class="flex flex--between"><div><p class="card__title">Orden de trabajo #{{selected.number}}</p><p class="text-secondary">{{selected.customer_name}} · {{selected.equipment_label}}</p></div><div class="toolbar no-print"><div class="status-picker"><button type="button" class="status-picker__trigger" :style="{borderColor:(currentStatus?.color||selected.status_color)+'88'}" :disabled="isFinal" :title="isFinal?'La OT está en un estado final (entregada) y no admite cambios.':undefined" @click="statusMenuOpen=!statusMenuOpen"><span class="status-dot" :style="{background:currentStatus?.color||selected.status_color}"></span><strong>{{currentStatus?.name||selected.status_name}}</strong><span>⌄</span></button><div v-if="statusMenuOpen" class="status-picker__menu"><button v-for="s in statuses.filter(x=>x.active)" :key="s.id" type="button" class="status-picker__option" :class="{'status-picker__option--active':s.id===selected.status_id}" @click="requestStatus(s)"><span class="status-dot" :style="{background:s.color}"></span><span>{{s.name}}</span><small v-if="s.id===selected.status_id">Actual</small></button></div></div><button class="btn btn--ghost" @click="printReceipt">Imprimir comprobante</button></div></div><div class="receipt__grid"><div><strong>Falla informada</strong><p>{{selected.reported_fault}}</p></div><div><strong>Estado físico</strong><p>{{selected.physical_condition||"Sin observaciones"}}</p></div><div><strong>Accesorios</strong><p>{{selected.accessories||"Ninguno informado"}}</p></div><div><strong>Recibió</strong><p>{{selected.received_by_name}}</p></div></div>
-<section class="receipt-print print-only" aria-label="Comprobante de recepción">
+<section class="receipt-print" aria-label="Comprobante de recepción">
   <header class="receipt-print__header">
-    <div><p class="receipt-print__eyebrow">Comprobante de recepción</p><h1>{{session.currentCompany?.name||"Servicio técnico"}}</h1><p>Documento de ingreso de equipo a servicio técnico</p></div>
+    <div class="receipt-print__brand"><h1>{{session.activeCompany?.name||"Servicio técnico"}}</h1><p>Comprobante de recepción de equipo</p></div>
     <div class="receipt-print__number"><span>ORDEN DE TRABAJO</span><strong>#{{selected.number}}</strong><small>{{formatCompanyDate(selected.received_at)}}</small></div>
   </header>
   <div class="receipt-print__status"><span>Estado al imprimir</span><strong>{{selected.status_name}}</strong></div>
-  <section class="receipt-print__section">
-    <h2>Cliente y equipo</h2>
-    <div class="receipt-print__facts">
-      <div><span>Cliente</span><strong>{{selected.customer_name}}</strong></div>
-      <div><span>Teléfono</span><strong>{{selected.customer_phone||"No informado"}}</strong></div>
-      <div><span>Equipo</span><strong>{{selected.equipment_label}}</strong></div>
-      <div><span>N° de serie</span><strong>{{selected.serial_number||"No informado"}}</strong></div>
-    </div>
-  </section>
-  <section class="receipt-print__section">
-    <h2>Condiciones de recepción</h2>
+  <section class="receipt-print__section"><h2>Cliente y equipo</h2><div class="receipt-print__facts">
+    <div><span>Cliente</span><strong>{{selected.customer_name}}</strong></div><div><span>Teléfono</span><strong>{{selected.customer_phone||"No informado"}}</strong></div>
+    <div><span>Equipo</span><strong>{{selected.equipment_label}}</strong></div><div><span>N° de serie</span><strong>{{selected.serial_number||"No informado"}}</strong></div>
+  </div></section>
+  <section class="receipt-print__section"><h2>Condiciones de recepción</h2>
     <div class="receipt-print__block"><span>Falla informada por el cliente</span><p>{{selected.reported_fault}}</p></div>
-    <div class="receipt-print__twocol">
-      <div class="receipt-print__block"><span>Estado físico</span><p>{{selected.physical_condition||"Sin observaciones"}}</p></div>
-      <div class="receipt-print__block"><span>Accesorios entregados</span><p>{{selected.accessories||"Ninguno informado"}}</p></div>
-    </div>
+    <div class="receipt-print__twocol"><div class="receipt-print__block"><span>Estado físico</span><p>{{selected.physical_condition||"Sin observaciones"}}</p></div><div class="receipt-print__block"><span>Accesorios entregados</span><p>{{selected.accessories||"Ninguno informado"}}</p></div></div>
     <div v-if="selected.notes" class="receipt-print__block"><span>Observaciones</span><p>{{selected.notes}}</p></div>
   </section>
-  <section class="receipt-print__section receipt-print__dates">
-    <div><span>Recibido por</span><strong>{{selected.received_by_name}}</strong></div>
-    <div><span>Fecha de recepción</span><strong>{{formatCompanyDate(selected.received_at)}}</strong></div>
-    <div><span>Entrega estimada</span><strong>{{selected.expected_delivery_at?formatCompanyDate(selected.expected_delivery_at):"A confirmar"}}</strong></div>
-  </section>
-  <p class="receipt-print__notice">Este comprobante documenta el estado y los accesorios declarados al momento de la recepción. Conserve el número de orden para futuras consultas.</p>
+  <section class="receipt-print__section receipt-print__dates"><div><span>Recibido por</span><strong>{{selected.received_by_name}}</strong></div><div><span>Fecha de recepción</span><strong>{{formatCompanyDate(selected.received_at)}}</strong></div><div><span>Entrega estimada</span><strong>{{selected.expected_delivery_at?formatCompanyDate(selected.expected_delivery_at):"A confirmar"}}</strong></div></section>
+  <p class="receipt-print__notice">Este comprobante documenta el equipo, su estado y los accesorios declarados al momento de la recepción. Conserve el número de orden para futuras consultas.</p>
   <footer class="receipt-print__signatures"><div><span>Firma / conformidad del cliente</span></div><div><span>Firma / sello del servicio técnico</span></div></footer>
-  <div class="receipt-print__footer"><strong>OT #{{selected.number}}</strong><span>{{session.currentCompany?.name||"Servicio técnico"}}</span></div>
+  <div class="receipt-print__footer"><strong>OT #{{selected.number}}</strong><span>{{session.activeCompany?.name||"Servicio técnico"}}</span></div>
 </section>
 <div class="workshop no-print">
 <section v-if="diagnosisEnabled" class="workshop-panel workshop-summary">
@@ -132,21 +119,21 @@ onMounted(async()=>{await Promise.all([load(),loadStatuses(),loadCompanyTimezone
 </template>
 <style scoped>
 .receipt-print{display:none}
-@page{size:A4;margin:14mm}
+@page{size:A4;margin:12mm}
 @media print{
   body.printing-receipt *{visibility:hidden!important}
   body.printing-receipt .receipt-print,body.printing-receipt .receipt-print *{visibility:visible!important}
-  body.printing-receipt .receipt-print{display:block!important;position:absolute;inset:0;width:100%;background:#fff;color:#111827;font-family:Arial,Helvetica,sans-serif;font-size:10.5pt;line-height:1.35}
+  body.printing-receipt .receipt-print{display:block!important;position:fixed;left:0;top:0;width:100%;height:auto;background:#fff;color:#111827;font-family:Arial,Helvetica,sans-serif;font-size:10pt;line-height:1.3;box-sizing:border-box}
   .receipt-print__header{display:grid;grid-template-columns:1fr auto;gap:24px;align-items:start;padding-bottom:16px;border-bottom:3px solid #111827}
-  .receipt-print__eyebrow{margin:0 0 4px;text-transform:uppercase;letter-spacing:.12em;font-size:8pt;font-weight:700;color:#475569}.receipt-print__header h1{font-size:21pt;margin:0 0 4px}.receipt-print__header p{margin:0;color:#475569}
+  .receipt-print__eyebrow{margin:0 0 4px;text-transform:uppercase;letter-spacing:.12em;font-size:8pt;font-weight:700;color:#475569}.receipt-print__header h1{font-size:19pt;margin:0 0 4px;color:#111827}.receipt-print__header p{margin:0;color:#475569}
   .receipt-print__number{text-align:right;border:1.5px solid #111827;border-radius:8px;padding:10px 14px;min-width:150px}.receipt-print__number span,.receipt-print__number small{display:block;font-size:8pt;color:#475569}.receipt-print__number strong{display:block;font-size:24pt;line-height:1.05;margin:3px 0 5px}
   .receipt-print__status{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;margin:12px 0;background:#f1f5f9;border-left:4px solid #334155}.receipt-print__status span{font-size:8pt;text-transform:uppercase;letter-spacing:.08em;color:#64748b}
   .receipt-print__section{margin-top:16px;break-inside:avoid}.receipt-print__section h2{font-size:10pt;text-transform:uppercase;letter-spacing:.08em;margin:0 0 8px;padding-bottom:5px;border-bottom:1px solid #cbd5e1}
   .receipt-print__facts{display:grid;grid-template-columns:1fr 1fr;gap:9px 20px}.receipt-print__facts div,.receipt-print__dates div{display:flex;flex-direction:column;gap:2px}.receipt-print__facts span,.receipt-print__dates span,.receipt-print__block>span{font-size:8pt;text-transform:uppercase;color:#64748b;font-weight:700;letter-spacing:.04em}
   .receipt-print__block{border:1px solid #cbd5e1;border-radius:6px;padding:9px 11px;margin-bottom:8px;min-height:38px}.receipt-print__block p{margin:4px 0 0;white-space:pre-wrap}.receipt-print__twocol{display:grid;grid-template-columns:1fr 1fr;gap:8px}.receipt-print__dates{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;padding:10px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px}
-  .receipt-print__notice{margin:16px 0 24px;padding:9px 11px;border:1px solid #cbd5e1;border-radius:6px;color:#475569;font-size:8.5pt}
-  .receipt-print__signatures{display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:34px;break-inside:avoid}.receipt-print__signatures div{height:44px;border-top:1px solid #64748b;padding-top:6px;text-align:center;color:#475569;font-size:8pt}
-  .receipt-print__footer{display:flex;justify-content:space-between;margin-top:20px;padding-top:7px;border-top:1px solid #cbd5e1;color:#64748b;font-size:8pt}
+  .receipt-print__notice{margin:14px 0 20px;padding:9px 11px;border:1px solid #cbd5e1;border-radius:6px;color:#475569;font-size:8.5pt}
+  .receipt-print__signatures{display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:28px;break-inside:avoid}.receipt-print__signatures div{height:38px;border-top:1px solid #64748b;padding-top:6px;text-align:center;color:#475569;font-size:8pt}
+  .receipt-print__footer{display:flex;justify-content:space-between;margin-top:16px;padding-top:7px;border-top:1px solid #cbd5e1;color:#64748b;font-size:8pt}
 }
 
 .modal-backdrop{position:fixed;inset:0;z-index:100;background:rgba(2,6,23,.72);display:grid;place-items:center;padding:20px}.reception-modal{width:min(760px,100%);max-height:92vh;overflow:auto}.receipt__grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.timeline{display:flex;flex-direction:column;border-left:2px solid rgba(96,165,250,.45);padding:6px 0 12px 14px}.timeline span{color:var(--text-secondary);margin-top:3px}@media(max-width:700px){.receipt__grid{grid-template-columns:1fr}}@media print{body *{visibility:hidden}.receipt,.receipt *{visibility:visible}.receipt{position:absolute;inset:0;background:white;color:black;box-shadow:none}.no-print{display:none!important}}

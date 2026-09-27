@@ -36,12 +36,19 @@ interface CompanyDashboard {
     completed: number;
     delivered: number;
   };
+  aging: { "0_2": number; "3_7": number; "8_15": number; "16_plus": number };
+  trend: Array<{ label: string; received: number; finished: number }>;
+  avg_resolution_days: number | null;
+  attention: { older_than_15_days: number; awaiting_quote_approval: number; waiting_parts: number; ready_to_deliver: number };
   statuses: Array<{ id: number; name: string; color: string; count: number; is_final: boolean; marks_delivered: boolean }>;
 }
 
 const data = ref<SuperAdminDashboard | null>(null);
 const companyData = ref<CompanyDashboard | null>(null);
 const loading = ref(false);
+const maxStatus = computed(() => Math.max(1, ...(companyData.value?.statuses.map(s => s.count) ?? [1])));
+const maxTrend = computed(() => Math.max(1, ...(companyData.value?.trend.flatMap(w => [w.received, w.finished]) ?? [1])));
+const agingItems = computed(() => { const a=companyData.value?.aging; return a ? [{label:"0–2 días",value:a["0_2"]},{label:"3–7 días",value:a["3_7"]},{label:"8–15 días",value:a["8_15"]},{label:"+15 días",value:a["16_plus"]}] : []; });
 
 const firstName = computed(() => {
   const name = session.me?.full_name?.trim();
@@ -184,6 +191,16 @@ const greeting = computed(() => {
               <span class="kpi__label">Listas</span><strong>{{ companyData.summary.completed }}</strong><small>Para entregar</small>
             </RouterLink>
           </div>
+          <div class="analytics-grid">
+            <article class="analytics-card analytics-card--wide">
+              <div class="analytics-title"><div><small>Últimas 8 semanas</small><h3>Ingresadas vs terminadas</h3></div><strong v-if="companyData.avg_resolution_days !== null">{{ companyData.avg_resolution_days }} días <small>promedio</small></strong></div>
+              <div class="trend-chart"><div class="trend-week" v-for="week in companyData.trend" :key="week.label"><div class="trend-bars"><i class="bar received" :style="{height:(week.received/maxTrend*100)+'%'}" :title="'Ingresadas: '+week.received"></i><i class="bar finished" :style="{height:(week.finished/maxTrend*100)+'%'}" :title="'Terminadas: '+week.finished"></i></div><span>{{ week.label }}</span></div></div>
+              <div class="legend"><span><i class="dot received"></i>Ingresadas</span><span><i class="dot finished"></i>Terminadas</span></div>
+            </article>
+            <article class="analytics-card"><div class="analytics-title"><div><small>OT abiertas</small><h3>Antigüedad</h3></div></div><div class="metric-bars"><div v-for="item in agingItems" :key="item.label" class="metric-row"><span>{{ item.label }}</span><div><i :style="{width:(item.value/Math.max(1,companyData.summary.open)*100)+'%'}"></i></div><strong>{{ item.value }}</strong></div></div></article>
+            <article class="analytics-card analytics-card--wide"><div class="analytics-title"><div><small>Distribución actual</small><h3>OT por estado</h3></div></div><div class="metric-bars"><div v-for="status in companyData.statuses" :key="status.id" class="metric-row"><span>{{ status.name }}</span><div><i :style="{width:(status.count/maxStatus*100)+'%',backgroundColor:status.color}"></i></div><strong>{{ status.count }}</strong></div></div></article>
+            <article class="analytics-card"><div class="analytics-title"><div><small>Prioridades</small><h3>Requieren atención</h3></div></div><div class="attention-list"><div><span>Más de 15 días abiertas</span><strong>{{ companyData.attention.older_than_15_days }}</strong></div><div><span>Esperando aprobación</span><strong>{{ companyData.attention.awaiting_quote_approval }}</strong></div><div><span>Esperando repuesto</span><strong>{{ companyData.attention.waiting_parts }}</strong></div><div><span>Listas para entregar</span><strong>{{ companyData.attention.ready_to_deliver }}</strong></div></div></article>
+          </div>
           <div class="status-strip" v-if="companyData.statuses.length">
             <div class="status-strip__item" v-for="status in companyData.statuses" :key="status.id">
               <span class="status-dot" :style="{ backgroundColor: status.color }"></span>
@@ -215,8 +232,10 @@ const greeting = computed(() => {
 .status-strip__item { display:flex; align-items:center; gap:7px; padding:8px 11px; border:1px solid var(--border,#263a57); border-radius:999px; font-size:12px; }
 .status-strip__item strong { margin-left:3px; }
 .status-dot { width:8px; height:8px; border-radius:50%; flex:none; }
+.analytics-grid{display:grid;grid-template-columns:2fr 1fr;gap:14px}.analytics-card{border:1px solid var(--border,#263a57);border-radius:18px;background:var(--surface,#15243e);padding:18px;min-width:0}.analytics-title{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:16px}.analytics-title small{color:var(--text-muted,#8290a5);font-size:11px;text-transform:uppercase;letter-spacing:.08em}.analytics-title h3{margin:3px 0 0;font-size:16px}.analytics-title>strong{font-size:20px;white-space:nowrap}.analytics-title>strong small{display:block;text-align:right;text-transform:none;letter-spacing:0}.trend-chart{height:170px;display:flex;gap:8px;border-bottom:1px solid var(--border,#263a57)}.trend-week{flex:1;display:flex;flex-direction:column;justify-content:flex-end;min-width:0}.trend-bars{height:145px;display:flex;align-items:flex-end;justify-content:center;gap:3px}.bar{width:min(14px,40%);min-height:2px;border-radius:5px 5px 0 0;display:block}.received{background:#3b82f6}.finished{background:#22c55e}.trend-week>span{font-size:10px;color:var(--text-muted,#8290a5);text-align:center;height:20px;padding-top:5px}.legend{display:flex;gap:16px;margin-top:10px;font-size:11px;color:var(--text-muted,#8290a5)}.legend span{display:flex;align-items:center;gap:5px}.dot{width:7px;height:7px;border-radius:50%}.metric-bars{display:flex;flex-direction:column;gap:12px}.metric-row{display:grid;grid-template-columns:minmax(90px,140px) 1fr 28px;align-items:center;gap:10px;font-size:12px}.metric-row>div{height:8px;background:rgba(148,163,184,.12);border-radius:99px;overflow:hidden}.metric-row i{display:block;height:100%;background:#3b82f6;border-radius:99px}.metric-row strong{text-align:right}.attention-list{display:flex;flex-direction:column;gap:9px}.attention-list div{display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--border,#263a57);font-size:12px}.attention-list div:last-child{border-bottom:0}.attention-list strong{font-size:16px}
 @media (max-width:760px) {
   .operations__heading { align-items:flex-end; }
+  .analytics-grid{grid-template-columns:1fr}.analytics-card{padding:14px;border-radius:15px}.trend-chart{height:145px}.trend-bars{height:120px}.metric-row{grid-template-columns:90px 1fr 24px}
   .operations__heading h2 { font-size:18px; }
   .kpi-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
   .kpi { min-height:104px; padding:14px; border-radius:15px; }

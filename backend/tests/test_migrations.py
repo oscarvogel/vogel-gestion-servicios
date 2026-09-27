@@ -39,6 +39,8 @@ def test_alembic_upgrade_head_creates_foundation():
         "work_order_statuses",
         "company_parameters",
         "parameter_definitions",
+        "work_order_execution_items",
+        "work_order_final_tests",
         } <= tables
         assert {constraint["name"] for constraint in inspector.get_unique_constraints("companies")} == {
             "uq_companies_name"

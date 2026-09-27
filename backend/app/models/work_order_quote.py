@@ -50,3 +50,27 @@ class WorkOrderQuoteItem(Base):
     markup_percent:Mapped[Decimal]=mapped_column(Numeric(7,2),nullable=False,default=0)
     unit_price:Mapped[Decimal]=mapped_column(Numeric(14,2),nullable=False,default=0)
     line_total:Mapped[Decimal]=mapped_column(Numeric(14,2),nullable=False,default=0)
+
+
+class WorkOrderExecutionItem(Base):
+    __tablename__="work_order_execution_items"
+    id:Mapped[int]=mapped_column(primary_key=True)
+    company_id:Mapped[int]=mapped_column(ForeignKey("companies.id",ondelete="CASCADE"),index=True)
+    work_order_id:Mapped[int]=mapped_column(ForeignKey("work_orders.id",ondelete="CASCADE"),index=True)
+    item_type:Mapped[str]=mapped_column(String(10),nullable=False)
+    description:Mapped[str]=mapped_column(String(250),nullable=False)
+    quantity:Mapped[Decimal]=mapped_column(Numeric(12,3),nullable=False,default=1)
+    unit_cost:Mapped[Decimal]=mapped_column(Numeric(14,2),nullable=False,default=0)
+    unit_price:Mapped[Decimal]=mapped_column(Numeric(14,2),nullable=False,default=0)
+    created_by_user_id:Mapped[int]=mapped_column(ForeignKey("users.id"),nullable=False)
+    created_at:Mapped[datetime]=mapped_column(DateTime,server_default=func.now(),nullable=False)
+
+class WorkOrderFinalTest(Base):
+    __tablename__="work_order_final_tests"
+    id:Mapped[int]=mapped_column(primary_key=True)
+    company_id:Mapped[int]=mapped_column(ForeignKey("companies.id",ondelete="CASCADE"),index=True)
+    work_order_id:Mapped[int]=mapped_column(ForeignKey("work_orders.id",ondelete="CASCADE"),index=True)
+    passed:Mapped[bool]=mapped_column(nullable=False)
+    notes:Mapped[str|None]=mapped_column(Text)
+    tested_by_user_id:Mapped[int]=mapped_column(ForeignKey("users.id"),nullable=False)
+    tested_at:Mapped[datetime]=mapped_column(DateTime,server_default=func.now(),nullable=False)

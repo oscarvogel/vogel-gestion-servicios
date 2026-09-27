@@ -8,7 +8,7 @@ from app.api.dependencies import get_current_company_id,get_db,require_permissio
 from app.models.company import CompanyParameter,ParameterDefinition
 from app.models.user import User
 from app.models.work_order import WorkOrder,WorkOrderEvent,WorkOrderStatus
-from app.models.work_order_quote import WorkOrderDiagnosis,WorkOrderQuote,WorkOrderQuoteItem
+from app.models.work_order_quote import WorkOrderDiagnosis,WorkOrderQuote,WorkOrderQuoteItem,WorkOrderExecutionItem,WorkOrderFinalTest
 router=APIRouter()
 class DiagnosisInput(BaseModel):
     diagnosis:str=Field(min_length=1)
@@ -26,6 +26,15 @@ class QuoteDecisionInput(BaseModel):
 class QuoteInput(BaseModel):
     items:list[ItemInput]=Field(min_length=1)
     notes:str|None=None
+class ExecutionItemInput(BaseModel):
+    item_type:str=Field(pattern="^(PART|LABOR)$")
+    description:str=Field(min_length=1,max_length=250)
+    quantity:Decimal=Field(gt=0)
+    unit_cost:Decimal=Field(default=0,ge=0)
+    unit_price:Decimal=Field(default=0,ge=0)
+class FinalTestInput(BaseModel):
+    passed:bool
+    notes:str|None=Field(default=None,max_length=2000)
 def order(db,cid,oid):
     row=db.query(WorkOrder).filter_by(id=oid,company_id=cid).first()
     if not row:raise HTTPException(404,"Orden de trabajo no encontrada.")
@@ -154,3 +163,34 @@ def reopen_diagnosis(oid:int,p:DiagnosisReopenInput,cid:int=Depends(get_current_
     db.add(WorkOrderEvent(company_id=cid,work_order_id=oid,event_type="DIAGNOSIS_REOPENED",status=wo.status,detail="Diagnóstico reabierto. Motivo: "+p.reason.strip(),user_id=a.id))
     db.commit();db.refresh(d)
     return {"id":d.id,"diagnosis":d.diagnosis,"technical_notes":d.technical_notes,"diagnosed_at":d.diagnosed_at,"updated_at":d.updated_at,"is_open":d.is_open,"revision":d.revision}
+
+
+@router.get("/{oid}/execution")
+def list_execution(oid:int,cid:int=Depends(get_current_company_id),_a:User=Depends(require_permission("work_orders.view")),db:Session=Depends(get_db)):
+    order(db,cid,oid)
+    rows=db.query(WorkOrderExecutionItem).filter_by(company_id=cid,work_order_id=oid).order_by(WorkOrderExecutionItem.id).all()
+    return [{"id":r.id,"item_type":r.item_type,"description":r.description,"quantity":r.quantity,"unit_cost":r.unit_cost,"unit_price":r.unit_price,"created_at":r.created_at} for r in rows]
+
+@router.post("/{oid}/execution",status_code=201)
+def add_execution(oid:int,p:ExecutionItemInput,cid:int=Depends(get_current_company_id),a:User=Depends(require_permission("work_orders.manage")),db:Session=Depends(get_db)):
+    wo=order(db,cid,oid)
+    if _is_final(db,cid,oid,wo):raise HTTPException(409,"La orden está finalizada y no admite trabajos o repuestos.")
+    show_costs=parameter_bool(db,cid,"work_orders.show_internal_costs",True)
+    row=WorkOrderExecutionItem(company_id=cid,work_order_id=oid,item_type=p.item_type,description=p.description.strip(),quantity=p.quantity,unit_cost=(money(p.unit_cost) if show_costs else Decimal("0")),unit_price=money(p.unit_price),created_by_user_id=a.id)
+    db.add(row);db.add(WorkOrderEvent(company_id=cid,work_order_id=oid,event_type="WORK_EXECUTED",status=wo.status,detail=("Repuesto utilizado: " if p.item_type=="PART" else "Trabajo realizado: ")+p.description.strip(),user_id=a.id));db.commit();db.refresh(row)
+    return {"id":row.id,"item_type":row.item_type,"description":row.description,"quantity":row.quantity,"unit_cost":row.unit_cost,"unit_price":row.unit_price,"created_at":row.created_at}
+
+@router.get("/{oid}/final-tests")
+def list_final_tests(oid:int,cid:int=Depends(get_current_company_id),_a:User=Depends(require_permission("work_orders.view")),db:Session=Depends(get_db)):
+    order(db,cid,oid);rows=db.query(WorkOrderFinalTest).filter_by(company_id=cid,work_order_id=oid).order_by(WorkOrderFinalTest.id.desc()).all()
+    return [{"id":r.id,"passed":r.passed,"notes":r.notes,"tested_at":r.tested_at} for r in rows]
+
+@router.post("/{oid}/final-tests",status_code=201)
+def add_final_test(oid:int,p:FinalTestInput,cid:int=Depends(get_current_company_id),a:User=Depends(require_permission("work_orders.manage")),db:Session=Depends(get_db)):
+    wo=order(db,cid,oid)
+    if _is_final(db,cid,oid,wo):raise HTTPException(409,"La orden está finalizada y no admite pruebas.")
+    if not parameter_bool(db,cid,"work_orders.use_final_tests",True):raise HTTPException(409,"Las pruebas finales están deshabilitadas para esta empresa.")
+    row=WorkOrderFinalTest(company_id=cid,work_order_id=oid,passed=p.passed,notes=p.notes,tested_by_user_id=a.id);db.add(row)
+    detail=("Prueba final satisfactoria." if p.passed else "Prueba final no satisfactoria.")+((" "+p.notes.strip()) if p.notes and p.notes.strip() else "")
+    db.add(WorkOrderEvent(company_id=cid,work_order_id=oid,event_type="FINAL_TEST",status=wo.status,detail=detail,user_id=a.id));db.commit();db.refresh(row)
+    return {"id":row.id,"passed":row.passed,"notes":row.notes,"tested_at":row.tested_at}

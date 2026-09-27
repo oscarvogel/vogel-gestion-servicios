@@ -172,3 +172,42 @@ def test_company_dashboard_metrics_are_semantic_and_tenant_isolated(client,db_se
     assert body["summary"]["completed"]==1
     assert body["summary"]["delivered"]==0
     assert sum(s["count"] for s in body["statuses"])==1
+
+
+def _set_bool_parameter(db,company,key,value):
+    from app.models.company import ParameterDefinition,CompanyParameter
+    d=db.query(ParameterDefinition).filter_by(parameter=key).one()
+    o=db.query(CompanyParameter).filter_by(company_id=company.id,parameter_definition_id=d.id).first()
+    if o:o.value="true" if value else "false"
+    else:db.add(CompanyParameter(company_id=company.id,parameter_definition_id=d.id,value="true" if value else "false"))
+    db.commit()
+
+def test_simple_shop_can_execute_without_diagnosis_budget_or_final_tests(client,db_session):
+    company,_,customer,equipment=setup(db_session,"simple-flow")
+    for key in ("work_orders.use_diagnosis","work_orders.use_budget","work_orders.require_budget_approval","work_orders.use_final_tests","work_orders.show_internal_costs"):_set_bool_parameter(db_session,company,key,False)
+    h=login(client,"ot.simple-flow@example.com",company.id)
+    wo=client.post("/api/v1/work-orders",headers=h,json={"customer_id":customer.id,"equipment_id":equipment.id,"reported_fault":"No enciende"}).json()
+    executed=client.post(f"/api/v1/work-orders/{wo['id']}/execution",headers=h,json={"item_type":"LABOR","description":"Resoldado de conector","quantity":1,"unit_cost":5000,"unit_price":12000})
+    assert executed.status_code==201,executed.text
+    assert float(executed.json()["unit_cost"])==0
+    assert client.put(f"/api/v1/work-orders/{wo['id']}/diagnosis",headers=h,json={"diagnosis":"x"}).status_code==409
+    assert client.post(f"/api/v1/work-orders/{wo['id']}/quotes",headers=h,json={"items":[{"item_type":"LABOR","description":"x","quantity":1,"unit_cost":0,"unit_price":1}]}).status_code==409
+    assert client.post(f"/api/v1/work-orders/{wo['id']}/final-tests",headers=h,json={"passed":True}).status_code==409
+    statuses=client.get("/api/v1/work-orders/statuses",headers=h).json();listo=next(s for s in statuses if s["marks_completed"])
+    assert client.post(f"/api/v1/work-orders/{wo['id']}/status",headers=h,json={"status_id":listo["id"]}).status_code==200
+
+def test_full_shop_records_execution_and_final_test_without_mutating_quote(client,db_session):
+    company,_,customer,equipment=setup(db_session,"full-flow")
+    h=login(client,"ot.full-flow@example.com",company.id)
+    wo=client.post("/api/v1/work-orders",headers=h,json={"customer_id":customer.id,"equipment_id":equipment.id,"reported_fault":"Falla fuente"}).json()
+    assert client.put(f"/api/v1/work-orders/{wo['id']}/diagnosis",headers=h,json={"diagnosis":"Fuente dañada"}).status_code==200
+    q=client.post(f"/api/v1/work-orders/{wo['id']}/quotes",headers=h,json={"items":[{"item_type":"PART","description":"Fuente presupuestada","quantity":1,"unit_cost":1000,"unit_price":2000}]}).json()
+    assert client.post(f"/api/v1/work-orders/{wo['id']}/execution",headers=h,json={"item_type":"PART","description":"Fuente realmente utilizada","quantity":1,"unit_cost":1200,"unit_price":2300}).status_code==201
+    test=client.post(f"/api/v1/work-orders/{wo['id']}/final-tests",headers=h,json={"passed":True,"notes":"Encendido y carga estables"})
+    assert test.status_code==201,test.text
+    quotes=client.get(f"/api/v1/work-orders/{wo['id']}/quotes",headers=h).json()
+    assert quotes[0]["items"][0]["description"]=="Fuente presupuestada"
+    execution=client.get(f"/api/v1/work-orders/{wo['id']}/execution",headers=h).json()
+    assert execution[0]["description"]=="Fuente realmente utilizada"
+    events=client.get(f"/api/v1/work-orders/{wo['id']}/events",headers=h).json()
+    assert any(e["event_type"]=="WORK_EXECUTED" for e in events) and any(e["event_type"]=="FINAL_TEST" for e in events)

@@ -80,6 +80,12 @@ def _read(db:Session,row:WorkOrder):
         "status_id":row.status_id,"status_name":(db.get(WorkOrderStatus,row.status_id).name if row.status_id and db.get(WorkOrderStatus,row.status_id) else row.status.title()),
         "status_color":(db.get(WorkOrderStatus,row.status_id).color if row.status_id and db.get(WorkOrderStatus,row.status_id) else "#10B981")}
 
+def _is_final(db:Session,row:WorkOrder)->bool:
+    """True cuando la OT está en un estado marcado como final (ej: entregada)."""
+    if row.status_id is None: return False
+    st=db.get(WorkOrderStatus,row.status_id)
+    return bool(st and st.is_final)
+
 def _next_number(db:Session,company_id:int)->int:
     dialect=db.get_bind().dialect.name
     if dialect=="mysql":
@@ -135,6 +141,7 @@ def events(work_order_id:int,company_id:int=Depends(get_current_company_id),_act
 @router.patch("/{work_order_id}/expected-delivery",response_model=WorkOrderRead)
 def update_expected_delivery(work_order_id:int,payload:ExpectedDeliveryInput,company_id:int=Depends(get_current_company_id),actor:User=Depends(require_permission("work_orders.manage")),db:Session=Depends(get_db)):
     row=_row(db,company_id,work_order_id)
+    if _is_final(db,row): raise HTTPException(409,"La orden de trabajo está en un estado final (entregada) y no admite cambios.")
     previous=row.expected_delivery_at
     requested=payload.expected_delivery_at
     if requested and requested.tzinfo is not None:
@@ -150,6 +157,7 @@ def update_expected_delivery(work_order_id:int,payload:ExpectedDeliveryInput,com
 @router.post("/{work_order_id}/status",response_model=WorkOrderRead)
 def change_status(work_order_id:int,payload:StatusChange,company_id:int=Depends(get_current_company_id),actor:User=Depends(require_permission("work_orders.manage")),db:Session=Depends(get_db)):
     row=_row(db,company_id,work_order_id)
+    if _is_final(db,row): raise HTTPException(409,"La orden de trabajo está en un estado final (entregada) y no puede cambiar de estado.")
     target=db.query(WorkOrderStatus).filter_by(id=payload.status_id,company_id=company_id,active=True).first()
     if not target: raise HTTPException(422,"El estado no pertenece a esta empresa o está inactivo.")
     previous=db.get(WorkOrderStatus,row.status_id) if row.status_id else None

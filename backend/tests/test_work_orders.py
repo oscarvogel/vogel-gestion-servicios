@@ -121,3 +121,36 @@ def test_diagnosis_and_versioned_quote_uses_company_parts_markup(client,db_sessi
     events=client.get(f"/api/v1/work-orders/{created['id']}/events",headers=h).json()
     assert any(e["event_type"]=="QUOTE_CREATED" for e in events)
     assert any(e["event_type"]=="STATUS_CHANGE" and "Presupuestado" in (e["detail"] or "") for e in events)
+
+def test_work_order_final_state_locked(client,db_session):
+    company,_,customer,equipment=setup(db_session,"locked")
+    h=login(client,"ot.locked@example.com",company.id)
+    created=client.post("/api/v1/work-orders",headers=h,json={"customer_id":customer.id,"equipment_id":equipment.id,"reported_fault":"Pantalla rota"}).json()
+    statuses=client.get("/api/v1/work-orders/statuses",headers=h).json()
+    diagnostico=next(s for s in statuses if s["name"]=="En diagnóstico")
+    entregado=next(s for s in statuses if s["is_final"])
+
+    # 1. Mover a estado final (Entregado)
+    r_delivered=client.post(f"/api/v1/work-orders/{created['id']}/status",headers=h,json={"status_id":entregado["id"]})
+    assert r_delivered.status_code==200
+
+    # 2. Intentar volver atrás (a "En diagnóstico") -> debe fallar con 409
+    r_revert=client.post(f"/api/v1/work-orders/{created['id']}/status",headers=h,json={"status_id":diagnostico["id"]})
+    assert r_revert.status_code==409
+    assert "estado final" in r_revert.text
+
+    # 3. Intentar agregar diagnóstico -> debe fallar con 409
+    r_diag=client.put(f"/api/v1/work-orders/{created['id']}/diagnosis",headers=h,json={"diagnosis":"Nueva revisión","technical_notes":""})
+    assert r_diag.status_code==409
+    assert "estado final" in r_diag.text
+
+    # 4. Intentar agregar cotización -> debe fallar con 409
+    r_quote=client.post(f"/api/v1/work-orders/{created['id']}/quotes",headers=h,json={"items":[{"item_type":"PART","description":"Pantalla","quantity":1,"unit_cost":5000}]})
+    assert r_quote.status_code==409
+    assert "estado final" in r_quote.text
+
+    # 5. Intentar cambiar fecha de entrega prevista -> debe fallar con 409
+    r_delivery=client.patch(f"/api/v1/work-orders/{created['id']}/expected-delivery",headers=h,json={"expected_delivery_at":"2026-10-10T15:00:00Z"})
+    assert r_delivery.status_code==409
+    assert "estado final" in r_delivery.text
+

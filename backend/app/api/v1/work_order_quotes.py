@@ -30,6 +30,12 @@ def order(db,cid,oid):
     row=db.query(WorkOrder).filter_by(id=oid,company_id=cid).first()
     if not row:raise HTTPException(404,"Orden de trabajo no encontrada.")
     return row
+
+def _is_final(db,cid,oid,wo):
+    """True cuando la OT está en un estado marcado como final (ej: entregada)."""
+    if wo.status_id is None: return False
+    st=db.get(WorkOrderStatus,wo.status_id)
+    return bool(st and st.is_final)
 def parameter_bool(db,cid,key,default=True):
     d=db.query(ParameterDefinition).filter_by(parameter=key,active=True).first()
     if not d:return default
@@ -53,6 +59,7 @@ def get_diagnosis(oid:int,cid:int=Depends(get_current_company_id),_a:User=Depend
 @router.put("/{oid}/diagnosis")
 def save_diagnosis(oid:int,p:DiagnosisInput,cid:int=Depends(get_current_company_id),a:User=Depends(require_permission("work_orders.manage")),db:Session=Depends(get_db)):
     wo=order(db,cid,oid)
+    if _is_final(db,cid,oid,wo):raise HTTPException(409,"La orden de trabajo está en un estado final (entregada) y no admite diagnóstico.")
     if not parameter_bool(db,cid,"work_orders.use_diagnosis",True):raise HTTPException(409,"El diagnóstico técnico está deshabilitado para esta empresa.")
     d=db.query(WorkOrderDiagnosis).filter_by(company_id=cid,work_order_id=oid).first()
     if d and not d.is_open:raise HTTPException(409,"El diagnóstico está cerrado por un presupuesto. Reabrilo antes de modificarlo.")
@@ -66,6 +73,7 @@ def list_quotes(oid:int,cid:int=Depends(get_current_company_id),_a:User=Depends(
 @router.post("/{oid}/quotes",status_code=201)
 def create_quote(oid:int,p:QuoteInput,cid:int=Depends(get_current_company_id),a:User=Depends(require_permission("work_orders.manage")),db:Session=Depends(get_db)):
     wo=order(db,cid,oid)
+    if _is_final(db,cid,oid,wo):raise HTTPException(409,"La orden de trabajo está en un estado final (entregada) y no admite presupuestos.")
     if not parameter_bool(db,cid,"work_orders.use_budget",True):raise HTTPException(409,"Los presupuestos están deshabilitados para esta empresa.")
     if parameter_bool(db,cid,"work_orders.use_diagnosis",True) and not db.query(WorkOrderDiagnosis).filter_by(company_id=cid,work_order_id=oid).first():raise HTTPException(422,"Primero debe registrar el diagnóstico técnico.")
     version=(db.query(func.max(WorkOrderQuote.version)).filter_by(company_id=cid,work_order_id=oid).scalar() or 0)+1
@@ -102,6 +110,7 @@ def _quote(db,cid,oid,qid):
 @router.post("/{oid}/quotes/{qid}/send")
 def send_quote(oid:int,qid:int,p:QuoteDecisionInput,cid:int=Depends(get_current_company_id),a:User=Depends(require_permission("work_orders.manage")),db:Session=Depends(get_db)):
     wo=order(db,cid,oid);q=_quote(db,cid,oid,qid)
+    if _is_final(db,cid,oid,wo):raise HTTPException(409,"La orden de trabajo está en un estado final (entregada) y no admite envío de presupuesto.")
     if q.status in ("APPROVED","REJECTED"):raise HTTPException(409,"El presupuesto ya tiene una decisión registrada.")
     q.sent_at=q.sent_at or datetime.utcnow()
     approval=parameter_bool(db,cid,"work_orders.require_budget_approval",True)
@@ -115,6 +124,7 @@ def send_quote(oid:int,qid:int,p:QuoteDecisionInput,cid:int=Depends(get_current_
 @router.post("/{oid}/quotes/{qid}/approve")
 def approve_quote(oid:int,qid:int,p:QuoteDecisionInput,cid:int=Depends(get_current_company_id),a:User=Depends(require_permission("work_orders.manage")),db:Session=Depends(get_db)):
     wo=order(db,cid,oid);q=_quote(db,cid,oid,qid)
+    if _is_final(db,cid,oid,wo):raise HTTPException(409,"La orden de trabajo está en un estado final (entregada) y no admite decisión sobre el presupuesto.")
     if q.status=="REJECTED":raise HTTPException(409,"El presupuesto fue rechazado.")
     q.status="APPROVED";q.decided_at=datetime.utcnow()
     detail="Presupuesto v%d aprobado por el cliente."%q.version
@@ -126,6 +136,7 @@ def approve_quote(oid:int,qid:int,p:QuoteDecisionInput,cid:int=Depends(get_curre
 @router.post("/{oid}/quotes/{qid}/reject")
 def reject_quote(oid:int,qid:int,p:QuoteDecisionInput,cid:int=Depends(get_current_company_id),a:User=Depends(require_permission("work_orders.manage")),db:Session=Depends(get_db)):
     wo=order(db,cid,oid);q=_quote(db,cid,oid,qid)
+    if _is_final(db,cid,oid,wo):raise HTTPException(409,"La orden de trabajo está en un estado final (entregada) y no admite decisión sobre el presupuesto.")
     if q.status=="APPROVED":raise HTTPException(409,"El presupuesto ya fue aprobado.")
     q.status="REJECTED";q.decided_at=datetime.utcnow()
     detail="Presupuesto v%d rechazado por el cliente."%q.version
@@ -137,6 +148,7 @@ def reject_quote(oid:int,qid:int,p:QuoteDecisionInput,cid:int=Depends(get_curren
 def reopen_diagnosis(oid:int,p:DiagnosisReopenInput,cid:int=Depends(get_current_company_id),a:User=Depends(require_permission("work_orders.manage")),db:Session=Depends(get_db)):
     wo=order(db,cid,oid);d=db.query(WorkOrderDiagnosis).filter_by(company_id=cid,work_order_id=oid).first()
     if not d:raise HTTPException(404,"Diagnóstico no encontrado.")
+    if _is_final(db,cid,oid,wo):raise HTTPException(409,"La orden de trabajo está en un estado final (entregada) y no admite re-apertura del diagnóstico.")
     if d.is_open:raise HTTPException(409,"El diagnóstico ya está abierto.")
     d.is_open=True;d.revision+=1
     db.add(WorkOrderEvent(company_id=cid,work_order_id=oid,event_type="DIAGNOSIS_REOPENED",status=wo.status,detail="Diagnóstico reabierto. Motivo: "+p.reason.strip(),user_id=a.id))

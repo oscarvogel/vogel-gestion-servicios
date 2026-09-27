@@ -162,4 +162,13 @@ onMounted(async()=>{await Promise.all([load(),loadStatuses(),loadCompanyTimezone
   .order-detail-back{justify-self:start}
   .receipt{margin:0}
 }
+
+/* Receipt print isolation: keep this block last so older generic print rules cannot leak UI into the document. */
+@media print{
+  body.printing-receipt .receipt{position:static!important;margin:0!important;padding:0!important;border:0!important;box-shadow:none!important;background:#fff!important;}
+  body.printing-receipt .receipt > *:not(.receipt-print){display:none!important;}
+  body.printing-receipt .receipt-print{display:block!important;visibility:visible!important;position:static!important;width:100%!important;}
+  body.printing-receipt .receipt-print *{visibility:visible!important;}
+}
+
 </style>

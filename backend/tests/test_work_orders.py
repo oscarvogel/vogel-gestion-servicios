@@ -176,9 +176,16 @@ def test_company_dashboard_metrics_are_semantic_and_tenant_isolated(client,db_se
 
 def _set_bool_parameter(db,company,key,value):
     from app.models.company import ParameterDefinition,CompanyParameter
-    d=db.query(ParameterDefinition).filter_by(parameter=key).first()\n    if not d:\n        d=ParameterDefinition(parameter=key,default_value="true",description=key,data_type="bool",category="ordenes",editable=True,active=True);db.add(d);db.flush()\n    o=db.query(CompanyParameter).filter_by(company_id=company.id,parameter_definition_id=d.id).first()
-    if o:o.value="true" if value else "false"
-    else:db.add(CompanyParameter(company_id=company.id,parameter_definition_id=d.id,value="true" if value else "false"))
+    d=db.query(ParameterDefinition).filter_by(parameter=key).first()
+    if not d:
+        d=ParameterDefinition(parameter=key,default_value="true",description=key,data_type="bool",category="ordenes",editable=True,active=True)
+        db.add(d)
+        db.flush()
+    o=db.query(CompanyParameter).filter_by(company_id=company.id,parameter_definition_id=d.id).first()
+    if o:
+        o.value="true" if value else "false"
+    else:
+        db.add(CompanyParameter(company_id=company.id,parameter_definition_id=d.id,value="true" if value else "false"))
     db.commit()
 
 def test_simple_shop_can_execute_without_diagnosis_budget_or_final_tests(client,db_session):

@@ -44,6 +44,38 @@ def _duplicate_key(row: ParsedSourceRow) -> tuple | None:
     return (values[0], received.date().isoformat(), values[2], values[3], values[4], values[5])
 
 
+def _status_by_name(statuses: list[WorkOrderStatus], fragment: str) -> WorkOrderStatus | None:
+    return next((item for item in statuses if fragment in _norm(item.name)), None)
+
+
+def _suggest_status(fields: dict[str, Any], statuses_by_name: dict[str, WorkOrderStatus], statuses: list[WorkOrderStatus], initial: WorkOrderStatus | None) -> tuple[WorkOrderStatus | None, bool]:
+    color = _norm(fields.get("color_meaning"))
+    target: WorkOrderStatus | None = None
+    ambiguous_color = "en venta o vendido" in color
+    if color and not ambiguous_color:
+        if any(value in color for value in ("entregado", "retiran sin", "vendido")):
+            target = next((item for item in statuses if item.marks_delivered), None) or _status_by_name(statuses, "entregado")
+        elif any(value in color for value in ("falta entregar", "para la venta", "en venta")):
+            target = _status_by_name(statuses, "listo")
+            target = target or next((item for item in statuses if item.marks_completed and not item.marks_delivered), None)
+        elif "presupuesto" in color:
+            target = _status_by_name(statuses, "presupuest")
+        elif any(value in color for value in ("repuesto", "en espera", "espera")):
+            target = _status_by_name(statuses, "repuesto")
+        elif any(value in color for value in ("sin arreglo", "no justifica reparacion", "descartado")):
+            target = _status_by_name(statuses, "no reparado")
+
+    matched = target is not None
+    if target is None and not ambiguous_color and fields.get("legacy_status"):
+        target = statuses_by_name.get(_norm(fields["legacy_status"]))
+        matched = target is not None
+    elif ambiguous_color:
+        matched = False
+    if target is None:
+        target = initial
+    return target, matched
+
+
 def _preview_signature(company_id: int, file_sha: str, issued: int) -> str:
     message = f"{company_id}:{file_sha}:{issued}".encode("utf-8")
     signature = hmac.new(settings.jwt_secret.encode("utf-8"), message, hashlib.sha256).hexdigest()
@@ -107,11 +139,9 @@ def preview_work_order_import(db: Session, company_id: int, content: bytes, file
             warnings.append("La planilla no informa el motivo del trabajo.")
         if not fields.get("legacy_status"):
             warnings.append("La planilla no informa un estado original.")
-        target = statuses_by_name.get(_norm(fields.get("legacy_status"))) if fields.get("legacy_status") else None
-        if target is None:
-            target = initial
-            if fields.get("legacy_status"):
-                warnings.append("El estado original no coincide con uno configurado; se propone el estado inicial.")
+        target, matched_status = _suggest_status(fields, statuses_by_name, statuses, initial)
+        if not matched_status and (fields.get("legacy_status") or fields.get("color_meaning")):
+            warnings.append("El estado o significado del color no coincide con uno configurado; revisá la equivalencia propuesta.")
         already = (row.sheet, row.row_number) in imported_locations
         duplicate = bool(_duplicate_key(row) and duplicate_counts[_duplicate_key(row)] > 1)
         if already:
@@ -133,6 +163,7 @@ def preview_work_order_import(db: Session, company_id: int, content: bytes, file
             "received_at": fields["received_at"].isoformat() if fields.get("received_at") else None,
             "category": fields.get("category"), "brand": fields.get("brand"), "model": fields.get("model"),
             "motive": fields.get("motive"), "legacy_status": fields.get("legacy_status"),
+            "color_meaning": fields.get("color_meaning"),
             "suggested_status_id": target.id if target else None,
             "suggested_status_name": target.name if target else "RECEIVED",
             "state": state, "problems": problems, "warnings": warnings,

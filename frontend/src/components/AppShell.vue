@@ -15,6 +15,8 @@ const title = computed(() => {
     "/app/dashboard": "Dashboard",
     "/app/companies": "Empresas",
     "/app/users": "Usuarios",
+    "/app/work-orders/import": "Importar trabajos",
+    "/app/work-orders": "Órdenes de trabajo",
     "/app/roles": "Roles y permisos",
     "/app/settings": "Configuración",
   };

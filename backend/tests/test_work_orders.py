@@ -217,3 +217,31 @@ def test_full_shop_records_execution_and_final_test_without_mutating_quote(clien
     assert execution[0]["description"]=="Fuente realmente utilizada"
     events=client.get(f"/api/v1/work-orders/{wo['id']}/events",headers=h).json()
     assert any(e["event_type"]=="WORK_EXECUTED" for e in events) and any(e["event_type"]=="FINAL_TEST" for e in events)
+
+
+def test_work_order_list_paginates_and_filters_server_side(client,db_session):
+    company,_,customer,equipment=setup(db_session,"filters")
+    h=login(client,"ot.filters@example.com",company.id)
+    for n in range(27):
+        r=client.post("/api/v1/work-orders",headers=h,json={"customer_id":customer.id,"equipment_id":equipment.id,"reported_fault":f"Falla {n}"})
+        assert r.status_code==201
+    first=client.get("/api/v1/work-orders",headers=h)
+    assert first.status_code==200
+    assert first.json()["total"]==27
+    assert len(first.json()["items"])==25
+    assert first.json()["page_size"]==25
+    assert first.json()["items"][0]["number"]==27
+    second=client.get("/api/v1/work-orders",headers=h,params={"page":2,"page_size":25})
+    assert len(second.json()["items"])==2
+
+    statuses=client.get("/api/v1/work-orders/statuses",headers=h).json()
+    diagnostic=next(s for s in statuses if s["name"]=="En diagnóstico")
+    target=first.json()["items"][0]
+    assert client.post(f"/api/v1/work-orders/{target['id']}/status",headers=h,json={"status_id":diagnostic["id"]}).status_code==200
+    filtered=client.get("/api/v1/work-orders",headers=h,params={"status_id":diagnostic["id"]})
+    assert filtered.status_code==200
+    assert filtered.json()["total"]==1
+    assert filtered.json()["items"][0]["id"]==target["id"]
+
+    by_customer=client.get("/api/v1/work-orders",headers=h,params={"customer":"Cliente filters"})
+    assert by_customer.status_code==200 and by_customer.json()["total"]==27

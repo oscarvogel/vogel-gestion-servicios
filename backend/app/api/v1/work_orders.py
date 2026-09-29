@@ -1,4 +1,4 @@
-from datetime import datetime,timezone
+from datetime import date,datetime,time,timedelta,timezone
 from fastapi import APIRouter,Depends,HTTPException,Query,status
 from pydantic import BaseModel,Field
 from sqlalchemy import or_,text
@@ -97,14 +97,20 @@ def _next_number(db:Session,company_id:int)->int:
     counter.last_number+=1;db.flush();return counter.last_number
 
 @router.get("",response_model=WorkOrderList)
-def list_orders(search:str|None=None,page:int=Query(1,ge=1),page_size:int=Query(30,ge=1,le=100),company_id:int=Depends(get_current_company_id),
+def list_orders(search:str|None=None,status_id:list[int]|None=Query(None),customer:str|None=None,date_from:date|None=None,date_to:date|None=None,
+                page:int=Query(1,ge=1),page_size:int=Query(25,ge=1,le=100),company_id:int=Depends(get_current_company_id),
                 _actor:User=Depends(require_permission("work_orders.view")),db:Session=Depends(get_db)):
     q=db.query(WorkOrder).join(Customer,Customer.id==WorkOrder.customer_id).join(Equipment,Equipment.id==WorkOrder.equipment_id).filter(WorkOrder.company_id==company_id)
     if search and search.strip():
-        term=search.strip();like=f"%{term}%";clauses=[Customer.name.ilike(like),Customer.phone.ilike(like),Customer.whatsapp.ilike(like),Equipment.brand.ilike(like),Equipment.model.ilike(like),Equipment.serial_number.ilike(like)]
+        term=search.strip();like=f"%{term}%";clauses=[Customer.name.ilike(like),Customer.document.ilike(like),Customer.phone.ilike(like),Customer.whatsapp.ilike(like),Equipment.brand.ilike(like),Equipment.model.ilike(like),Equipment.serial_number.ilike(like)]
         if term.isdigit(): clauses.append(WorkOrder.number==int(term))
         q=q.filter(or_(*clauses))
-    total=q.count();rows=q.order_by(WorkOrder.id.desc()).offset((page-1)*page_size).limit(page_size).all()
+    if status_id: q=q.filter(WorkOrder.status_id.in_(status_id))
+    if customer and customer.strip():
+        like=f"%{customer.strip()}%";q=q.filter(or_(Customer.name.ilike(like),Customer.document.ilike(like),Customer.phone.ilike(like),Customer.whatsapp.ilike(like)))
+    if date_from: q=q.filter(WorkOrder.received_at>=datetime.combine(date_from,time.min))
+    if date_to: q=q.filter(WorkOrder.received_at<datetime.combine(date_to+timedelta(days=1),time.min))
+    total=q.count();rows=q.order_by(WorkOrder.received_at.desc(),WorkOrder.id.desc()).offset((page-1)*page_size).limit(page_size).all()
     return {"items":[_read(db,r) for r in rows],"total":total,"page":page,"page_size":page_size}
 
 @router.post("",response_model=WorkOrderRead,status_code=status.HTTP_201_CREATED)

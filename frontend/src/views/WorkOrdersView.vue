@@ -43,7 +43,8 @@ const showQuickEquipment=ref(false),categoryQuery=ref(""),categories=ref<Equipme
 const quickEquipment=ref({category_id:0,brand:"",model:"",serial_number:"",description:"",notes:""});
 async function loadStatuses(){statuses.value=await apiGet<OtStatus[]>("/work-orders/statuses")}
 async function load(){try{const r=await apiGet<{items:Order[];total:number;page:number;page_size:number}>("/work-orders",{params:{search:search.value||undefined,status_id:statusIds.value.length?statusIds.value:undefined,customer:customerFilter.value||undefined,date_from:dateFrom.value||undefined,date_to:dateTo.value||undefined,page:page.value,page_size:pageSize.value}});orders.value=r.items;total.value=r.total;if(page.value>totalPages.value){page.value=totalPages.value;return load()}}catch(e){toast.push(getApiErrorMessage(e,"No se pudieron cargar las órdenes"),"error")}}
-function filtersChanged(){page.value=1;load()}\nfunction applyFilters(){page.value=1;load()}
+function filtersChanged(){page.value=1;load()}
+function applyFilters(){page.value=1;load()}
 function clearFilters(){statusIds.value=[];customerFilter.value="";dateFrom.value="";dateTo.value="";page.value=1;load()}
 function changePage(next:number){if(next<1||next>totalPages.value)return;page.value=next;load();window.scrollTo({top:0,behavior:"smooth"})}
 async function newReception(){form.value={customer_id:0,equipment_id:0,reported_fault:"",physical_condition:"",accessories:"",notes:""};equipment.value=[];customers.value=[];customerQuery.value="";customerOpen.value=false;showReception.value=true}

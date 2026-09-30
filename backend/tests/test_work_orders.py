@@ -245,3 +245,18 @@ def test_work_order_list_paginates_and_filters_server_side(client,db_session):
 
     by_customer=client.get("/api/v1/work-orders",headers=h,params={"customer":"Cliente filters"})
     assert by_customer.status_code==200 and by_customer.json()["total"]==27
+
+
+def test_work_order_list_filters_by_received_date_range(client,db_session):
+    from datetime import date,timedelta
+    company,_,customer,equipment=setup(db_session,"dates")
+    h=login(client,"ot.dates@example.com",company.id)
+    r=client.post("/api/v1/work-orders",headers=h,json={"customer_id":customer.id,"equipment_id":equipment.id,"reported_fault":"Sin imagen"})
+    assert r.status_code==201
+    day=timedelta(days=1)
+    inside=client.get("/api/v1/work-orders",headers=h,params={"date_from":(date.today()-day).isoformat(),"date_to":(date.today()+day).isoformat()})
+    assert inside.status_code==200 and inside.json()["total"]==1
+    future=client.get("/api/v1/work-orders",headers=h,params={"date_from":(date.today()+2*day).isoformat()})
+    assert future.status_code==200 and future.json()["total"]==0
+    past=client.get("/api/v1/work-orders",headers=h,params={"date_to":(date.today()-2*day).isoformat()})
+    assert past.status_code==200 and past.json()["total"]==0

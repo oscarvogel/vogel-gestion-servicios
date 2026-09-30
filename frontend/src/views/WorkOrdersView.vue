@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import {computed,onMounted,ref} from "vue";
+import {computed,onMounted,ref,watch} from "vue";
+import {useRoute,useRouter} from "vue-router";
 import {apiGet,apiPatch,apiPost,apiPut,getApiErrorMessage} from "../lib/api";
 import {useToastStore} from "../stores/toasts";
 import {useSessionStore} from "../stores/session";
@@ -81,7 +82,29 @@ async function saveStatus(st:OtStatus){try{await apiPatch("/work-orders/statuses
 function printReceipt(){printQuote.value=null;document.body.classList.add("printing-receipt");const cleanup=()=>{document.body.classList.remove("printing-receipt");window.removeEventListener("afterprint",cleanup)};window.addEventListener("afterprint",cleanup);setTimeout(()=>window.print(),60)}
 function printBudget(q:Quote){printQuote.value=q;setTimeout(()=>{window.print();printQuote.value=null},80)}
 let timer:number|undefined;function searchChanged(){window.clearTimeout(timer);page.value=1;timer=window.setTimeout(load,250)}
-onMounted(async()=>{await Promise.all([load(),loadStatuses(),loadCompanyTimezone(),loadFeatureParams()])});
+const route=useRoute(),router=useRouter();
+async function openById(id:number){
+  try{
+    const row=await apiGet<Order>("/work-orders/"+id);
+    await open(row);
+  }catch(e){toast.push(getApiErrorMessage(e,"No se pudo abrir la orden"),"error")}
+}
+async function handleDeepLinks(){
+  const q=route.query as Record<string,unknown>;
+  const openId=q.open ?? q.openId ?? q.id;
+  const wantsNew=q.new==="1"||q.action==="new";
+  if(openId!==undefined&&openId!==null&&String(openId).trim()!==""){
+    const id=Number(String(openId));
+    if(Number.isInteger(id)&&id>0){await openById(id)}
+  }else if(wantsNew&&session.hasPermission("work_orders.manage")){
+    await newReception();
+  }
+  if(openId!==undefined||wantsNew){
+    router.replace({path:route.path,query:{...route.query,open:undefined,openId:undefined,id:undefined,new:undefined,action:undefined}});
+  }
+}
+onMounted(async()=>{await Promise.all([load(),loadStatuses(),loadCompanyTimezone(),loadFeatureParams()]);await handleDeepLinks()});
+watch(()=>route.query.open,async(v)=>{if(v)await handleDeepLinks()});
 </script>
 <template>
 <div v-if="!selected" class="card page-header"><div><h2 style="margin:0">Órdenes de trabajo</h2><p class="text-secondary" style="margin:4px 0 0">{{total}} órdenes en esta empresa</p></div><div class="toolbar"><input v-model="search" class="toolbar__search" placeholder="N° OT, cliente, teléfono, equipo o serie" @input="searchChanged"><RouterLink v-if="session.hasPermission('work_orders.manage')" class="btn btn--ghost" to="/app/work-orders/import">Importar trabajos</RouterLink><button class="btn btn--primary desktop-primary-action" @click="newReception">+ Nueva recepción</button></div><button class="mobile-fab" aria-label="Nueva recepción" @click="newReception">+<span>Recepción</span></button></div>

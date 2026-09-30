@@ -6,8 +6,9 @@ from datetime import datetime, timedelta
 from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import get_current_company_id, get_db, require_permission, require_superadmin
+from app.api.dependencies import get_current_company_id, get_db, require_permission, require_superadmin, user_has_permission
 from app.models.company import Company
+from app.models.customer import Customer, Equipment, EquipmentCategory
 from app.models.user import CompanyUser, User
 from app.models.work_order import WorkOrder, WorkOrderStatus
 
@@ -17,7 +18,7 @@ router = APIRouter()
 @router.get("/company")
 def company_dashboard(
     company_id: int = Depends(get_current_company_id),
-    _actor: User = Depends(require_permission("work_orders.view")),
+    actor: User = Depends(require_permission("work_orders.view")),
     db: Session = Depends(get_db),
 ):
     """Operational KPI snapshot for the active company.
@@ -111,6 +112,41 @@ def company_dashboard(
         "ready_to_deliver": completed,
     }
 
+    recent_orders = (
+        db.query(WorkOrder)
+        .filter(WorkOrder.company_id == company_id)
+        .order_by(WorkOrder.received_at.desc(), WorkOrder.id.desc())
+        .limit(8)
+        .all()
+    )
+    recent_work_orders = []
+    for order in recent_orders:
+        customer = db.query(Customer).filter_by(id=order.customer_id, company_id=company_id).first()
+        equipment = db.query(Equipment).filter_by(id=order.equipment_id, company_id=company_id).first()
+        equipment_label = ""
+        serial_number = None
+        if equipment:
+            category = db.query(EquipmentCategory).filter_by(id=equipment.category_id, company_id=company_id).first()
+            equipment_label = " ".join(x for x in ((category.name if category else None), equipment.brand, equipment.model) if x)
+            serial_number = equipment.serial_number
+        status_row = db.get(WorkOrderStatus, order.status_id) if order.status_id else None
+        recent_work_orders.append(
+            {
+                "id": order.id,
+                "number": order.number,
+                "customer_name": customer.name if customer else "—",
+                "customer_phone": (customer.phone or customer.whatsapp) if customer else None,
+                "equipment_label": equipment_label or "—",
+                "serial_number": serial_number,
+                "status_name": (status_row.name if status_row else order.status.title()),
+                "status_color": (status_row.color if status_row else "#3B82F6"),
+                "received_at": order.received_at.isoformat() if order.received_at else None,
+                "expected_delivery_at": order.expected_delivery_at.isoformat() if order.expected_delivery_at else None,
+            }
+        )
+
+    can_create = user_has_permission(db, actor, company_id, "work_orders.manage")
+
     return {
         "total": int(total),
         "summary": {
@@ -125,6 +161,8 @@ def company_dashboard(
         "trend": trend,
         "avg_resolution_days": avg_resolution_days,
         "attention": attention,
+        "recent_work_orders": recent_work_orders,
+        "can_create_work_orders": bool(can_create),
         "statuses": [
             {
                 "id": r.id,

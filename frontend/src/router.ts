@@ -9,6 +9,7 @@ import CompaniesView from "./views/CompaniesView.vue";
 import UsersView from "./views/UsersView.vue";
 import CustomersView from "./views/CustomersView.vue";
 import WorkOrdersView from "./views/WorkOrdersView.vue";
+import WorkOrderImportView from "./views/WorkOrderImportView.vue";
 import RolesView from "./views/RolesView.vue";
 import SettingsView from "./views/SettingsView.vue";
 import ParametersView from "./views/ParametersView.vue";
@@ -76,6 +77,12 @@ const routes: RouteRecordRaw[] = [
         name: "work-orders",
         component: WorkOrdersView,
         meta: { requiresAuth: true, permission: "work_orders.view" },
+      },
+      {
+        path: "work-orders/import",
+        name: "work-orders-import",
+        component: WorkOrderImportView,
+        meta: { requiresAuth: true, permission: "work_orders.manage" },
       },
       {
         path: "users",

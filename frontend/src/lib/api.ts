@@ -8,7 +8,13 @@ export const REFRESH_KEY = "vogel.refresh";
 export const ACTIVE_COMPANY_KEY = "vogel.activeCompany";
 export const THEME_KEY = "vogel.theme";
 
-export const api: AxiosInstance = axios.create({ baseURL });
+export const api: AxiosInstance = axios.create({
+  baseURL,
+  // FastAPI espera arrays como claves repetidas (?status_id=1&status_id=2),
+  // no con corchetes (?status_id[]=1). Sin esto los filtros multi-valor
+  // llegan vacíos al backend.
+  paramsSerializer: { indexes: null },
+});
 
 let onUnauthorized: (() => void) | null = null;
 let refreshInFlight: Promise<string> | null = null;

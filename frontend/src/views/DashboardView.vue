@@ -26,6 +26,18 @@ interface SuperAdminDashboard {
 
 const session = useSessionStore();
 const toasts = useToastStore();
+interface RecentWorkOrder {
+  id: number;
+  number: number;
+  customer_name: string;
+  customer_phone: string | null;
+  equipment_label: string;
+  serial_number: string | null;
+  status_name: string;
+  status_color: string;
+  received_at: string | null;
+  expected_delivery_at: string | null;
+}
 interface CompanyDashboard {
   total: number;
   summary: {
@@ -41,11 +53,21 @@ interface CompanyDashboard {
   avg_resolution_days: number | null;
   attention: { older_than_15_days: number; awaiting_quote_approval: number; waiting_parts: number; ready_to_deliver: number };
   statuses: Array<{ id: number; name: string; color: string; count: number; is_final: boolean; marks_delivered: boolean }>;
+  recent_work_orders: RecentWorkOrder[];
+  can_create_work_orders: boolean;
 }
 
 const data = ref<SuperAdminDashboard | null>(null);
 const companyData = ref<CompanyDashboard | null>(null);
 const loading = ref(false);
+const canCreateOrder = computed(() => companyData.value?.can_create_work_orders === true && session.hasPermission("work_orders.manage"));
+const canViewOrders = computed(() => session.hasPermission("work_orders.view"));
+function formatShortDate(value: string | null) {
+  if (!value) return "—";
+  const d = new Date(/[zZ]|[+-]\d\d:\d\d$/.test(value) ? value : value + "Z");
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit" });
+}
 const maxStatus = computed(() => Math.max(1, ...(companyData.value?.statuses.map(s => s.count) ?? [1])));
 const maxTrend = computed(() => Math.max(1, ...(companyData.value?.trend.flatMap(w => [w.received, w.finished]) ?? [1])));
 const agingItems = computed(() => { const a=companyData.value?.aging; return a ? [{label:"0–2 días",value:a["0_2"]},{label:"3–7 días",value:a["3_7"]},{label:"8–15 días",value:a["8_15"]},{label:"+15 días",value:a["16_plus"]}] : []; });
@@ -175,22 +197,51 @@ const greeting = computed(() => {
               <p class="operations__eyebrow">Órdenes de trabajo</p>
               <h2>Resumen operativo</h2>
             </div>
-            <RouterLink class="btn btn--primary" to="/work-orders/new">+ Nueva OT</RouterLink>
+            <RouterLink v-if="canCreateOrder" class="btn btn--primary btn--desktop-only" :to="{ path: '/app/work-orders', query: { new: '1' } }">+ Nueva OT</RouterLink>
           </div>
           <div class="kpi-grid">
-            <RouterLink class="kpi kpi--primary" to="/work-orders">
+            <RouterLink class="kpi kpi--primary" to="/app/work-orders">
               <span class="kpi__label">Abiertas</span><strong>{{ companyData.summary.open }}</strong><small>OT activas</small>
             </RouterLink>
-            <RouterLink class="kpi" to="/work-orders">
+            <RouterLink class="kpi" to="/app/work-orders">
               <span class="kpi__label">Esperando aprobación</span><strong>{{ companyData.summary.awaiting_quote_approval }}</strong><small>Presupuestos</small>
             </RouterLink>
-            <RouterLink class="kpi" to="/work-orders">
+            <RouterLink class="kpi" to="/app/work-orders">
               <span class="kpi__label">En reparación</span><strong>{{ companyData.summary.repair }}</strong><small>En proceso</small>
             </RouterLink>
-            <RouterLink class="kpi" to="/work-orders">
+            <RouterLink class="kpi" to="/app/work-orders">
               <span class="kpi__label">Listas</span><strong>{{ companyData.summary.completed }}</strong><small>Para entregar</small>
             </RouterLink>
           </div>
+          <article v-if="canViewOrders" class="analytics-card recent-orders" aria-label="Últimas órdenes de trabajo">
+            <div class="analytics-title">
+              <div><small>Accesos directos</small><h3>Últimas órdenes de trabajo</h3></div>
+              <div class="recent-orders__actions">
+                <RouterLink class="btn btn--ghost btn--sm" to="/app/work-orders">Ver todas</RouterLink>
+                <RouterLink v-if="canCreateOrder" class="btn btn--primary btn--sm btn--desktop-only" :to="{ path: '/app/work-orders', query: { new: '1' } }">+ Nueva OT</RouterLink>
+              </div>
+            </div>
+            <div v-if="companyData.recent_work_orders.length" class="recent-list">
+              <RouterLink
+                v-for="order in companyData.recent_work_orders"
+                :key="order.id"
+                class="recent-item"
+                :to="{ path: '/app/work-orders', query: { open: String(order.id) } }"
+              >
+                <span class="recent-item__number">#{{ order.number }}</span>
+                <span class="recent-item__main">
+                  <strong>{{ order.customer_name }}</strong>
+                  <small>{{ order.equipment_label }}</small>
+                </span>
+                <span class="recent-item__meta">
+                  <span class="status-pill" :style="{ background: order.status_color + '22', color: order.status_color, borderColor: order.status_color + '66' }">{{ order.status_name }}</span>
+                  <small class="text-muted">{{ formatShortDate(order.received_at) }}</small>
+                </span>
+                <span class="recent-item__chevron" aria-hidden="true">›</span>
+              </RouterLink>
+            </div>
+            <div v-else class="empty-state">Todavía no existen órdenes en esta empresa. Creá la primera con Nueva OT.</div>
+          </article>
           <div class="analytics-grid">
             <article class="analytics-card analytics-card--wide">
               <div class="analytics-title"><div><small>Últimas 8 semanas</small><h3>Ingresadas vs terminadas</h3></div><strong v-if="companyData.avg_resolution_days !== null">{{ companyData.avg_resolution_days }} días <small>promedio</small></strong></div>
@@ -232,9 +283,24 @@ const greeting = computed(() => {
 .status-strip__item { display:flex; align-items:center; gap:7px; padding:8px 11px; border:1px solid var(--border,#263a57); border-radius:999px; font-size:12px; }
 .status-strip__item strong { margin-left:3px; }
 .status-dot { width:8px; height:8px; border-radius:50%; flex:none; }
+.recent-orders { margin-top:2px; }
+.recent-orders__actions { display:flex; gap:8px; align-items:center; flex:none; }
+.recent-list { display:flex; flex-direction:column; gap:8px; }
+.recent-item { display:grid; grid-template-columns:auto 1fr auto 16px; gap:12px; align-items:center; padding:12px 14px; border:1px solid var(--border,#263a57); border-radius:14px; text-decoration:none; color:inherit; transition:border-color .15s ease,transform .15s ease; }
+.recent-item:hover { border-color:#3b82f6; transform:translateY(-1px); }
+.recent-item__number { font-weight:800; font-size:15px; white-space:nowrap; }
+.recent-item__main { display:flex; flex-direction:column; gap:2px; min-width:0; }
+.recent-item__main strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.recent-item__main small { color:var(--text-muted,#8290a5); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.recent-item__meta { display:flex; align-items:center; gap:10px; }
+.recent-item__chevron { color:var(--text-muted,#8290a5); font-size:20px; }
 .analytics-grid{display:grid;grid-template-columns:2fr 1fr;gap:14px}.analytics-card{border:1px solid var(--border,#263a57);border-radius:18px;background:var(--surface,#15243e);padding:18px;min-width:0}.analytics-title{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:16px}.analytics-title small{color:var(--text-muted,#8290a5);font-size:11px;text-transform:uppercase;letter-spacing:.08em}.analytics-title h3{margin:3px 0 0;font-size:16px}.analytics-title>strong{font-size:20px;white-space:nowrap}.analytics-title>strong small{display:block;text-align:right;text-transform:none;letter-spacing:0}.trend-chart{height:170px;display:flex;gap:8px;border-bottom:1px solid var(--border,#263a57)}.trend-week{flex:1;display:flex;flex-direction:column;justify-content:flex-end;min-width:0}.trend-bars{height:145px;display:flex;align-items:flex-end;justify-content:center;gap:3px}.bar{width:min(14px,40%);min-height:2px;border-radius:5px 5px 0 0;display:block}.received{background:#3b82f6}.finished{background:#22c55e}.trend-week>span{font-size:10px;color:var(--text-muted,#8290a5);text-align:center;height:20px;padding-top:5px}.legend{display:flex;gap:16px;margin-top:10px;font-size:11px;color:var(--text-muted,#8290a5)}.legend span{display:flex;align-items:center;gap:5px}.dot{width:7px;height:7px;border-radius:50%}.metric-bars{display:flex;flex-direction:column;gap:12px}.metric-row{display:grid;grid-template-columns:minmax(90px,140px) 1fr 28px;align-items:center;gap:10px;font-size:12px}.metric-row>div{height:8px;background:rgba(148,163,184,.12);border-radius:99px;overflow:hidden}.metric-row i{display:block;height:100%;background:#3b82f6;border-radius:99px}.metric-row strong{text-align:right}.attention-list{display:flex;flex-direction:column;gap:9px}.attention-list div{display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--border,#263a57);font-size:12px}.attention-list div:last-child{border-bottom:0}.attention-list strong{font-size:16px}
 @media (max-width:760px) {
   .operations__heading { align-items:flex-end; }
+  .btn--desktop-only { display:none; }
+  .recent-item { grid-template-columns:auto 1fr auto; }
+  .recent-item__chevron { display:none; }
+  .recent-item__meta { flex-direction:column; align-items:flex-end; gap:4px; }
   .analytics-grid{grid-template-columns:1fr}.analytics-card{padding:14px;border-radius:15px}.trend-chart{height:145px}.trend-bars{height:120px}.metric-row{grid-template-columns:90px 1fr 24px}
   .operations__heading h2 { font-size:18px; }
   .kpi-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }

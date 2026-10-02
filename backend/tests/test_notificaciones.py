@@ -383,3 +383,32 @@ def test_company_can_configure_its_instance_and_sender_without_superadmin(client
     otra, _, _, _ = setup(db_session, "notif-settings-b")
     h2 = login(client, "ot.notif-settings-b@example.com", otra.id)
     assert client.get("/api/v1/work-orders/notification-settings", headers=h2).json()["whatsapp_instance_id"] is None
+
+
+def test_guardar_desde_la_pantalla_persiste_los_avisos(client, db_session):
+    """Replica el PATCH que manda la pantalla de estados: el objeto entero.
+
+    Si el guardado de la UI no persistiera, el usuario marca WhatsApp, sale y al
+    volver no esta. Este test falla si pasa eso.
+    """
+    company, _, _, _ = setup(db_session, "notif-guardar-ui")
+    headers = login(client, "ot.notif-guardar-ui@example.com", company.id)
+    original = next(s for s in client.get("/api/v1/work-orders/statuses", headers=headers).json() if s["name"] == "Listo")
+    assert original["notify_whatsapp"] is False
+
+    # El usuario marca los checks y escribe la plantilla en pantalla.
+    editado = {**original, "notify_whatsapp": True, "notify_email": True,
+               "notifications_active": True,
+               "notification_template": "Hola {{cliente}}",
+               "notification_email_subject": "Tu OT {{numero_ot}}"}
+    guardado = client.patch(f"/api/v1/work-orders/statuses/{original['id']}", headers=headers, json=editado)
+    assert guardado.status_code == 200, guardado.text
+
+    # Salir y volver: se relee del servidor.
+    releido = next(s for s in client.get("/api/v1/work-orders/statuses", headers=headers).json() if s["id"] == original["id"])
+    assert releido["notify_whatsapp"] is True, "el check de WhatsApp no quedo marcado"
+    assert releido["notify_email"] is True
+    assert releido["notification_template"] == "Hola {{cliente}}"
+    assert releido["notification_email_subject"] == "Tu OT {{numero_ot}}"
+    # Y no se perdieron los flags que ya venian puestos.
+    assert releido["marks_completed"] is True, "el guardado de avisos perdio los flags del estado"

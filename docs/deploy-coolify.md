@@ -192,6 +192,16 @@ Este falso negativo se confundió con un deploy lento y estuvo a punto de provoc
 retroalimentación innecesaria. Cuando el loop no converge, **verificá el marcador antes de
 concluir que el deploy falló**.
 
+### Trampa 4: el auto-deploy se salta merges seguidos
+
+Paso el 2026-10-02 con dos PRs mergeados seguidos: produccion tomo el primero y se quedo
+con el bundle viejo en el segundo, sin error visible. El deploy automatico no se apila ni
+avisa cuando ya hay uno en curso.
+
+**Verifica el bundle despues de cada merge, uno por vez.** Si dos PRs se mergean juntos,
+espera a que el primero termine de servir antes de mergear el segundo, o disparalo a mano
+con \POST /api/v1/deploy?uuid=...&force=true\.
+
 ## Desplegar a mano
 
 ```powershell

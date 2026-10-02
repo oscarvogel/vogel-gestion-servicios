@@ -4,14 +4,90 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, inspect, text
 
+HEAD_REVISION = "20260929_0013"
+REVISION_BEFORE_EQUIPMENT_CATEGORIES = "20260925_0003"
+REVISION_EQUIPMENT_CATEGORIES = "20260925_0004"
 
-def test_alembic_upgrade_head_creates_foundation():
-    database_path = Path(__file__).with_name("migration-test.sqlite3")
-    if database_path.exists():
-        database_path.unlink()
+
+def _alembic_config(database_path: Path) -> Config:
     config = Config(str(Path(__file__).parents[1] / "alembic.ini"))
     config.set_main_option("script_location", str(Path(__file__).parents[1] / "alembic"))
     config.set_main_option("sqlalchemy.url", f"sqlite:///{database_path}")
+    return config
+
+
+def _schema_signature(database_path: Path) -> dict:
+    """Estructura de la base, para comparar una recuperación contra un upgrade limpio."""
+    engine = create_engine(f"sqlite:///{database_path}")
+    try:
+        inspector = inspect(engine)
+        signature = {}
+        for table in sorted(inspector.get_table_names()):
+            if table == "alembic_version":
+                continue
+            signature[table] = {
+                "columns": sorted(column["name"] for column in inspector.get_columns(table)),
+                "indexes": sorted(index["name"] for index in inspector.get_indexes(table)),
+                "foreign_keys": sorted(
+                    f"{fk['constrained_columns']}->{fk['referred_table']}.{fk['referred_columns']}"
+                    for fk in inspector.get_foreign_keys(table)
+                ),
+                "unique_constraints": sorted(
+                    uc["name"] or "" for uc in inspector.get_unique_constraints(table)
+                ),
+            }
+        return signature
+    finally:
+        engine.dispose()
+
+
+def _assert_schema_matches_clean_upgrade(monkeypatch, tmp_path, database_path):
+    """Una base recuperada de un deploy parcial debe quedar igual que una migrada de cero."""
+    reference_path = tmp_path / "clean-reference.sqlite3"
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{reference_path}")
+    command.upgrade(_alembic_config(reference_path), "head")
+    assert _schema_signature(database_path) == _schema_signature(reference_path)
+
+
+def _seed_legacy_equipment(database_path: Path) -> None:
+    """Empresa, cliente y dos equipos con la columna legacy `category` (estado previo a 0004)."""
+    engine = create_engine(f"sqlite:///{database_path}")
+    try:
+        with engine.begin() as connection:
+            connection.execute(text("INSERT INTO companies (id, name) VALUES (1, 'Vogel')"))
+            connection.execute(
+                text("INSERT INTO customers (id, company_id, name) VALUES (1, 1, 'Cliente Uno')")
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO equipment (id, company_id, customer_id, category) VALUES"
+                    " (1, 1, 1, 'Bomba'), (2, 1, 1, 'Compresor')"
+                )
+            )
+    finally:
+        engine.dispose()
+
+
+def _unstamp_revision(database_path: Path, revision: str) -> None:
+    """Simula un deploy que aplicó el DDL pero no llegó a registrar la revisión."""
+    engine = create_engine(f"sqlite:///{database_path}")
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text("UPDATE alembic_version SET version_num = :revision"), {"revision": revision}
+            )
+    finally:
+        engine.dispose()
+
+
+def test_alembic_upgrade_head_creates_foundation(monkeypatch):
+    database_path = Path(__file__).with_name("migration-test.sqlite3")
+    if database_path.exists():
+        database_path.unlink()
+    # env.py prioriza DATABASE_URL sobre sqlalchemy.url: sin esto el test correría
+    # migraciones contra la base real de quien tenga esa variable seteada.
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{database_path}")
+    config = _alembic_config(database_path)
 
     engine = None
     try:
@@ -67,3 +143,96 @@ def test_alembic_upgrade_head_creates_foundation():
         if engine is not None:
             engine.dispose()
         database_path.unlink(missing_ok=True)
+
+
+def test_migration_0004_resumes_when_revision_was_not_stamped(monkeypatch, tmp_path):
+    """Issue #35: la 0004 quedó aplicada pero Alembic no la registró.
+
+    Eso dejaba `equipment_categories` creada y, en cada arranque, la migración volvía a
+    ejecutar CREATE TABLE y el backend moría con MySQL 1050. El reintento tiene que
+    completar sin perder datos ni duplicar categorías.
+    """
+    database_path = tmp_path / "partial-deploy.sqlite3"
+
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{database_path}")
+    config = _alembic_config(database_path)
+    command.upgrade(config, REVISION_BEFORE_EQUIPMENT_CATEGORIES)
+    _seed_legacy_equipment(database_path)
+
+    # Primer arranque: crea la tabla y migra las categorías legacy.
+    command.upgrade(config, REVISION_EQUIPMENT_CATEGORIES)
+    _unstamp_revision(database_path, REVISION_BEFORE_EQUIPMENT_CATEGORIES)
+
+    # Reintento: antes de las guardas por paso esto re-ejecutaba CREATE TABLE y fallaba.
+    command.upgrade(config, "head")
+
+    engine = create_engine(f"sqlite:///{database_path}")
+    try:
+        inspector = inspect(engine)
+        assert "equipment_categories" in set(inspector.get_table_names())
+        columns = {column["name"] for column in inspector.get_columns("equipment")}
+        assert "category_id" in columns
+        assert "category" not in columns
+        with engine.connect() as connection:
+            assert connection.execute(
+                text("SELECT name FROM equipment_categories ORDER BY name")
+            ).scalars().all() == ["Bomba", "Compresor"]
+            assert connection.execute(text("SELECT COUNT(*) FROM equipment")).scalar_one() == 2
+            assert connection.execute(
+                text("SELECT COUNT(*) FROM equipment WHERE category_id IS NOT NULL")
+            ).scalar_one() == 2
+            assert connection.execute(
+                text("SELECT version_num FROM alembic_version")
+            ).scalar_one() == HEAD_REVISION
+    finally:
+        engine.dispose()
+
+    _assert_schema_matches_clean_upgrade(monkeypatch, tmp_path, database_path)
+
+
+def test_migration_0004_does_not_duplicate_categories_when_column_survives(monkeypatch, tmp_path):
+    """El otro corte posible: la tabla y `category_id` ya existen pero el texto legacy
+    `category` sigue en `equipment`. Al reintentar, el backfill no debe duplicar categorías
+    ni perder el vínculo equipo->categoría.
+    """
+    database_path = tmp_path / "partial-column.sqlite3"
+
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{database_path}")
+    config = _alembic_config(database_path)
+    command.upgrade(config, REVISION_BEFORE_EQUIPMENT_CATEGORIES)
+    _seed_legacy_equipment(database_path)
+    command.upgrade(config, REVISION_EQUIPMENT_CATEGORIES)
+
+    engine = create_engine(f"sqlite:///{database_path}")
+    try:
+        with engine.begin() as connection:
+            connection.execute(text("ALTER TABLE equipment ADD COLUMN category VARCHAR(80)"))
+            connection.execute(
+                text(
+                    "UPDATE equipment SET category = ("
+                    "SELECT ec.name FROM equipment_categories ec WHERE ec.id = equipment.category_id)"
+                )
+            )
+    finally:
+        engine.dispose()
+    _unstamp_revision(database_path, REVISION_BEFORE_EQUIPMENT_CATEGORIES)
+
+    command.upgrade(config, "head")
+
+    engine = create_engine(f"sqlite:///{database_path}")
+    try:
+        inspector = inspect(engine)
+        columns = {column["name"] for column in inspector.get_columns("equipment")}
+        assert "category" not in columns
+        assert "category_id" in columns
+        with engine.connect() as connection:
+            assert connection.execute(
+                text("SELECT name, COUNT(*) FROM equipment_categories GROUP BY name ORDER BY name")
+            ).all() == [("Bomba", 1), ("Compresor", 1)]
+            assert connection.execute(
+                text("SELECT version_num FROM alembic_version")
+            ).scalar_one() == HEAD_REVISION
+    finally:
+        engine.dispose()
+
+    _assert_schema_matches_clean_upgrade(monkeypatch, tmp_path, database_path)

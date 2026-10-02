@@ -42,6 +42,48 @@ def _skipped(db: Session, company_id: int, order: WorkOrder, event: WorkOrderEve
     )
 
 
+def plan_for_event(
+    db: Session,
+    company: Company,
+    order: WorkOrder,
+    event: WorkOrderEvent | None = None,
+    status: WorkOrderStatus | None = None,
+    previous_status: WorkOrderStatus | None = None,
+    overrides: dict | None = None,
+) -> list[dict]:
+    """Que avisos se harian, sin escribir nada. Es lo que muestra el modal de confirmacion.
+
+    Que exista una unica funcion que decide es lo que hace que lo que el usuario ve antes
+    de confirmar sea exactamente lo que se va a mandar. Si el modal calculara por su cuenta,
+    tarde o tempranoiria a discrepar de lo que se envia.
+    """
+    target = status or (db.get(WorkOrderStatus, order.status_id) if order.status_id else None)
+    if target is None or not target.notifications_active:
+        return []
+    if not (target.notify_whatsapp or target.notify_email):
+        return []
+    overrides = overrides or {}
+    context = build_context(db, company, order, target, previous_status)
+    plan: list[dict] = []
+
+    for channel, enabled in ((WHATSAPP, target.notify_whatsapp), (EMAIL, target.notify_email)):
+        if not enabled:
+            continue
+        # WhatsApp usa el whatsapp del cliente y, si no tiene, el telefono.
+        recipient = (context.get("telefono") or "").strip() if channel == WHATSAPP else (context.get("email_cliente") or "").strip()
+        own = overrides.get(channel) or {}
+        body = own.get("body") or render(target.notification_template, context)
+        subject = own.get("subject") or (render(target.notification_email_subject, context) if target.notification_email_subject else None)
+        if channel == WHATSAPP:
+            subject = None
+        item = {"channel": channel, "recipient": recipient, "subject": subject, "body": body, "skipped": False, "reason": None}
+        if not recipient:
+            item["skipped"] = True
+            item["reason"] = "El cliente no tiene telefono ni WhatsApp" if channel == WHATSAPP else "El cliente no tiene email"
+        plan.append(item)
+    return plan
+
+
 def enqueue_for_event(
     db: Session,
     company: Company,
@@ -49,6 +91,7 @@ def enqueue_for_event(
     event: WorkOrderEvent,
     status: WorkOrderStatus | None = None,
     previous_status: WorkOrderStatus | None = None,
+    overrides: dict | None = None,
 ) -> list[WorkOrderNotification]:
     """Encola los avisos que el estado de destino pide.
 
@@ -57,57 +100,39 @@ def enqueue_for_event(
 
     La idempotencia no se implementa aca: la garantiza el unique
     (company_id, work_order_event_id, channel). Reencolar el mismo evento choca contra la
-    base, que es la forma de estuviera que no dependa de que nadie se acuerde de chequear.
+    base, que es mas de fiarse de que nadie se acuerde de chequear.
     """
     if not event.id:
         db.flush()
-    target = status or (db.get(WorkOrderStatus, order.status_id) if order.status_id else None)
-    if target is None or not target.notifications_active:
-        return []
-    if not (target.notify_whatsapp or target.notify_email):
-        return []
-
-    context = build_context(db, company, order, target, previous_status)
     created: list[WorkOrderNotification] = []
-
-    if target.notify_whatsapp:
-        phone = (context.get("telefono") or "").strip()
-        if not phone:
-            _skipped(db, company.id, order, event, WHATSAPP, "El cliente no tiene telefono ni WhatsApp")
-        else:
-            created.append(
+    for item in plan_for_event(db, company, order, event, status, previous_status, overrides):
+        if item["skipped"]:
+            # No se envia por falta de dato, pero queda registrado por que.
+            db.add(
                 WorkOrderNotification(
                     company_id=company.id,
                     work_order_id=order.id,
                     work_order_event_id=event.id,
-                    channel=WHATSAPP,
-                    recipient=phone,
-                    subject=None,
-                    body=render(target.notification_template, context),
-                    status=PENDING,
+                    channel=item["channel"],
+                    recipient="",
+                    body="",
+                    status=SKIPPED,
+                    error=item["reason"][:500],
                 )
             )
-
-    if target.notify_email:
-        address = (context.get("email_cliente") or "").strip()
-        if not address:
-            _skipped(db, company.id, order, event, EMAIL, "El cliente no tiene email")
-        else:
-            created.append(
-                WorkOrderNotification(
-                    company_id=company.id,
-                    work_order_id=order.id,
-                    work_order_event_id=event.id,
-                    channel=EMAIL,
-                    recipient=address,
-                    subject=render(target.notification_email_subject, context) if target.notification_email_subject else None,
-                    body=render(target.notification_template, context),
-                    status=PENDING,
-                )
-            )
-
-    for row in created:
+            continue
+        row = WorkOrderNotification(
+            company_id=company.id,
+            work_order_id=order.id,
+            work_order_event_id=event.id,
+            channel=item["channel"],
+            recipient=item["recipient"],
+            subject=item["subject"],
+            body=item["body"],
+            status=PENDING,
+        )
         db.add(row)
+        created.append(row)
     db.flush()
     return created
 

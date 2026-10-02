@@ -9,7 +9,7 @@ from app.models.customer import Customer,Equipment,EquipmentCategory
 from app.models.user import User
 from app.models.work_order import WorkOrder,WorkOrderCounter,WorkOrderEvent,WorkOrderNotification,WorkOrderStatus
 from app.services import credentials
-from app.services.notifications.enqueue import dispatch,enqueue_for_event
+from app.services.notifications.enqueue import dispatch,enqueue_for_event,plan_for_event
 
 router=APIRouter()
 
@@ -19,9 +19,15 @@ class StatusInput(BaseModel):
 class StatusRead(StatusInput):
     id:int
     model_config={"from_attributes":True}
+class NotificationOverride(BaseModel):
+    body:str|None=Field(default=None,max_length=4000)
+    subject:str|None=Field(default=None,max_length=200)
+
 class StatusChange(BaseModel):
     status_id:int
     note:str|None=Field(default=None,max_length=1000)
+    # Mensaje editado en el modal de confirmacion, por canal.
+    notification_overrides:dict[str,NotificationOverride]|None=None
 
 # Un mismo flag puede estar activo en un solo estado por empresa. _move_status busca
 # "el" estado destino de un marker, asi que si dos estados lo tuieran la transicion
@@ -229,6 +235,45 @@ def update_expected_delivery(work_order_id:int,payload:ExpectedDeliveryInput,com
     db.add(WorkOrderEvent(company_id=company_id,work_order_id=row.id,event_type="EXPECTED_DELIVERY_CHANGE",status=row.status,detail=f"Entrega prevista cambiada de {old} a {new}.",user_id=actor.id))
     db.commit();db.refresh(row);return _read(db,row)
 
+class NotificationPreviewItem(BaseModel):
+    channel:str
+    recipient:str
+    subject:str|None
+    body:str
+    skipped:bool
+    reason:str|None
+
+class NotificationOverride(BaseModel):
+    body:str|None=Field(default=None,max_length=4000)
+    subject:str|None=Field(default=None,max_length=200)
+
+class NotificationPreview(BaseModel):
+    items:list[NotificationPreviewItem]
+    would_notify:bool
+
+class NotificationPreviewInput(BaseModel):
+    status_id:int
+    overrides:dict[str,NotificationOverride]|None=None
+
+@router.post("/{work_order_id}/notification-preview",response_model=NotificationPreview)
+def preview_notifications(work_order_id:int,payload:NotificationPreviewInput,
+                          company_id:int=Depends(get_current_company_id),
+                          _actor:User=Depends(require_permission("work_orders.view")),db:Session=Depends(get_db)):
+    """Que avisos se harian al pasar a ese estado. No escribe nada.
+
+    Es lo que se muestra en el modal antes de confirmar: el usuario ve a quien y que
+    mensaje exacto va a salir, sin tener que confiar en que el backend hace lo mismo.
+    """
+    row=_row(db,company_id,work_order_id)
+    target=db.query(WorkOrderStatus).filter_by(id=payload.status_id,company_id=company_id,active=True).first()
+    if not target: raise HTTPException(422,"El estado no pertenece a esta empresa o está inactivo.")
+    company=db.get(Company,company_id)
+    if company is None: raise HTTPException(404,"Empresa no encontrada.")
+    previous=db.get(WorkOrderStatus,row.status_id) if row.status_id else None
+    plan=plan_for_event(db,company,row,None,status=target,previous_status=previous,overrides={k:v.model_dump() for k,v in (payload.overrides or {}).items()})
+    items=[NotificationPreviewItem(**i) for i in plan]
+    return {"items":items,"would_notify":any(not i.skipped for i in items)}
+
 class NotificationRead(BaseModel):
     id:int
     channel:str
@@ -300,7 +345,8 @@ def change_status(work_order_id:int,payload:StatusChange,company_id:int=Depends(
     if company is not None:
         try:
             with db.begin_nested():
-                queued=enqueue_for_event(db,company,row,event,status=target,previous_status=previous)
+                overrides={k:v.model_dump() for k,v in (payload.notification_overrides or {}).items()}
+                queued=enqueue_for_event(db,company,row,event,status=target,previous_status=previous,overrides=overrides)
         except Exception:
             queued=[]
     db.commit();db.refresh(row)

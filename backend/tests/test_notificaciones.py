@@ -412,3 +412,58 @@ def test_guardar_desde_la_pantalla_persiste_los_avisos(client, db_session):
     assert releido["notification_email_subject"] == "Tu OT {{numero_ot}}"
     # Y no se perdieron los flags que ya venian puestos.
     assert releido["marks_completed"] is True, "el guardado de avisos perdio los flags del estado"
+
+
+def test_preview_muestra_a_quien_y_que_sin_enviar(client, db_session, senders):
+    """El modal de confirmacion muestra exactamente lo que se va a mandar.
+
+    Y el preview no escribe nada: es una consulta.
+    """
+    company, _, customer, equipment = setup(db_session, "notif-preview")
+    headers = login(client, "ot.notif-preview@example.com", company.id)
+    _set_contact(db_session, company, whatsapp="5493764000000", email="cliente@example.com")
+    senders["install"]()
+    status_id = _configure(client, headers, "Listo para retirar", notify_whatsapp=True, notify_email=True,
+                           notification_template="Hola {{cliente}}, tu OT {{numero_ot}} esta: {{estado}}.")
+    ot = client.post("/api/v1/work-orders", headers=headers, json={"customer_id": customer.id, "equipment_id": equipment.id, "reported_fault": "Falla"}).json()
+
+    antes = db_session.query(WorkOrderNotification).count()
+    prev = client.post(f"/api/v1/work-orders/{ot['id']}/notification-preview", headers=headers, json={"status_id": status_id}).json()
+    assert prev["would_notify"] is True
+    assert db_session.query(WorkOrderNotification).count() == antes, "el preview escribio filas"
+    canales = {i["channel"]: i for i in prev["items"]}
+    assert set(canales) == {WHATSAPP, EMAIL}
+    assert canales[WHATSAPP]["recipient"] == "5493764000000"
+    assert canales[EMAIL]["recipient"] == "cliente@example.com"
+    # El mensaje viene renderizado, con los datos de ESA OT.
+    assert "Cliente notif-preview" in canales[WHATSAPP]["body"]
+    assert "Listo para retirar" in canales[WHATSAPP]["body"]
+    # Y avisa cuando un canal no se puede enviar, sin inventarse el motivo.
+    _set_contact(db_session, company, whatsapp=None, phone=None, email=None)
+    prev2 = client.post(f"/api/v1/work-orders/{ot['id']}/notification-preview", headers=headers, json={"status_id": status_id}).json()
+    assert prev2["would_notify"] is False
+    assert all(i["skipped"] for i in prev2["items"])
+    assert "telefono" in next(i for i in prev2["items"] if i["channel"] == WHATSAPP)["reason"]
+
+
+def test_el_mensaje_editado_en_el_modal_es_el_que_se_manda(client, db_session, senders):
+    company, _, customer, equipment = setup(db_session, "notif-override")
+    headers = login(client, "ot.notif-override@example.com", company.id)
+    _set_contact(db_session, company, whatsapp="5493764000000")
+    senders["install"]()
+    status_id = _configure(client, headers, "Avisar", notify_whatsapp=True, notification_template="Plantilla original")
+    ot = client.post("/api/v1/work-orders", headers=headers, json={"customer_id": customer.id, "equipment_id": equipment.id, "reported_fault": "F"}).json()
+
+    # El preview con la edicion devuelve el texto editado...
+    prev = client.post(f"/api/v1/work-orders/{ot['id']}/notification-preview", headers=headers, json={
+        "status_id": status_id, "overrides": {WHATSAPP: {"body": "Mensaje editado a mano"}},
+    }).json()
+    assert prev["items"][0]["body"] == "Mensaje edited"[:0] + "Mensaje editado a mano"
+
+    # ...y al confirmar es exactamente ese el que queda en la cola.
+    changed = client.post(f"/api/v1/work-orders/{ot['id']}/status", headers=headers, json={
+        "status_id": status_id, "notification_overrides": {WHATSAPP: {"body": "Mensaje editado a mano"}},
+    })
+    assert changed.status_code == 200, changed.text
+    fila = db_session.query(WorkOrderNotification).one()
+    assert fila.body == "Mensaje editado a mano", fila.body

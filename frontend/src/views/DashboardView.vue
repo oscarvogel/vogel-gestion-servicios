@@ -50,6 +50,7 @@ interface CompanyDashboard {
   };
   aging: { "0_2": number; "3_7": number; "8_15": number; "16_plus": number };
   trend: Array<{ label: string; received: number; finished: number }>;
+  today: { date: string; received: number; completed: number; delivered: number };
   avg_resolution_days: number | null;
   attention: { older_than_15_days: number; awaiting_quote_approval: number; waiting_parts: number; ready_to_deliver: number };
   statuses: Array<{ id: number; name: string; color: string; count: number; is_final: boolean; marks_delivered: boolean }>;
@@ -71,6 +72,24 @@ function formatShortDate(value: string | null) {
 const maxStatus = computed(() => Math.max(1, ...(companyData.value?.statuses.map(s => s.count) ?? [1])));
 const maxTrend = computed(() => Math.max(1, ...(companyData.value?.trend.flatMap(w => [w.received, w.finished]) ?? [1])));
 const agingItems = computed(() => { const a=companyData.value?.aging; return a ? [{label:"0–2 días",value:a["0_2"]},{label:"3–7 días",value:a["3_7"]},{label:"8–15 días",value:a["8_15"]},{label:"+15 días",value:a["16_plus"]}] : []; });
+
+// El backend manda la fecha ya expresada en el día de la empresa, así que se arma
+// "dd/mm/aaaa" a mano: parsearla como Date la correría un día en los husos al este.
+function formatDayLabel(iso: string) {
+  const [y, m, d] = (iso || "").split("-");
+  return y && m && d ? `${d}/${m}/${y}` : "";
+}
+const today = computed(() => companyData.value?.today ?? null);
+const todayLabel = computed(() => (today.value ? formatDayLabel(today.value.date) : ""));
+const todayItems = computed(() => {
+  const t = today.value;
+  if (!t) return [];
+  return [
+    { key: "received", label: "Ingresadas", value: t.received },
+    { key: "completed", label: "Terminadas", value: t.completed },
+    { key: "delivered", label: "Entregadas", value: t.delivered },
+  ];
+});
 
 const firstName = computed(() => {
   const name = session.me?.full_name?.trim();
@@ -213,6 +232,18 @@ const greeting = computed(() => {
               <span class="kpi__label">Listas</span><strong>{{ companyData.summary.completed }}</strong><small>Para entregar</small>
             </RouterLink>
           </div>
+          <section v-if="canViewOrders && today" class="today-strip" aria-label="Actividad del día">
+            <div class="today-strip__head">
+              <small>Actividad de hoy</small>
+              <strong>{{ todayLabel }}</strong>
+            </div>
+            <div class="today-strip__stats">
+              <div v-for="item in todayItems" :key="item.key" class="today-stat" :class="'today-stat--' + item.key">
+                <span>{{ item.label }}</span>
+                <strong>{{ item.value }}</strong>
+              </div>
+            </div>
+          </section>
           <article v-if="canViewOrders" class="analytics-card recent-orders" aria-label="Últimas órdenes de trabajo">
             <div class="analytics-title">
               <div><small>Accesos directos</small><h3>Últimas órdenes de trabajo</h3></div>
@@ -294,6 +325,17 @@ const greeting = computed(() => {
 .recent-item__main small { color:var(--text-muted,#8290a5); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .recent-item__meta { display:flex; align-items:center; gap:10px; }
 .recent-item__chevron { color:var(--text-muted,#8290a5); font-size:20px; }
+.today-strip{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:12px 18px;border:1px solid var(--border,#263a57);border-radius:16px;background:var(--surface,#15243e)}
+.today-strip__head{display:flex;flex-direction:column;gap:2px}
+.today-strip__head small{color:var(--text-muted,#8290a5);font-size:11px;text-transform:uppercase;letter-spacing:.08em}
+.today-strip__head strong{font-size:15px}
+.today-strip__stats{display:flex;gap:10px;flex-wrap:wrap}
+.today-stat{display:flex;align-items:baseline;gap:8px;padding:6px 12px;border:1px solid var(--border,#263a57);border-radius:99px}
+.today-stat span{font-size:12px;color:var(--text-muted,#8290a5)}
+.today-stat strong{font-size:18px}
+.today-stat--received strong{color:#3b82f6}
+.today-stat--completed strong{color:#22c55e}
+.today-stat--delivered strong{color:#8b5cf6}
 .analytics-grid{display:grid;grid-template-columns:2fr 1fr;gap:14px}.analytics-card{border:1px solid var(--border,#263a57);border-radius:18px;background:var(--surface,#15243e);padding:18px;min-width:0}.analytics-title{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:16px}.analytics-title small{color:var(--text-muted,#8290a5);font-size:11px;text-transform:uppercase;letter-spacing:.08em}.analytics-title h3{margin:3px 0 0;font-size:16px}.analytics-title>strong{font-size:20px;white-space:nowrap}.analytics-title>strong small{display:block;text-align:right;text-transform:none;letter-spacing:0}.trend-chart{height:170px;display:flex;gap:8px;border-bottom:1px solid var(--border,#263a57)}.trend-week{flex:1;display:flex;flex-direction:column;justify-content:flex-end;min-width:0}.trend-bars{height:145px;display:flex;align-items:flex-end;justify-content:center;gap:3px}.bar{width:min(14px,40%);min-height:2px;border-radius:5px 5px 0 0;display:block}.received{background:#3b82f6}.finished{background:#22c55e}.trend-week>span{font-size:10px;color:var(--text-muted,#8290a5);text-align:center;height:20px;padding-top:5px}.legend{display:flex;gap:16px;margin-top:10px;font-size:11px;color:var(--text-muted,#8290a5)}.legend span{display:flex;align-items:center;gap:5px}.dot{width:7px;height:7px;border-radius:50%}.metric-bars{display:flex;flex-direction:column;gap:12px}.metric-row{display:grid;grid-template-columns:minmax(90px,140px) 1fr 28px;align-items:center;gap:10px;font-size:12px}.metric-row>div{height:8px;background:rgba(148,163,184,.12);border-radius:99px;overflow:hidden}.metric-row i{display:block;height:100%;background:#3b82f6;border-radius:99px}.metric-row strong{text-align:right}.attention-list{display:flex;flex-direction:column;gap:9px}.attention-list div{display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--border,#263a57);font-size:12px}.attention-list div:last-child{border-bottom:0}.attention-list strong{font-size:16px}
 @media (max-width:760px) {
   .operations__heading { align-items:flex-end; }
@@ -307,6 +349,10 @@ const greeting = computed(() => {
   .kpi { min-height:104px; padding:14px; border-radius:15px; }
   .kpi strong { font-size:30px; }
   .kpi__label { font-size:12px; }
+  .today-strip { padding:12px 14px; border-radius:15px; gap:10px; }
+  .today-strip__stats { width:100%; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
+  .today-stat { flex-direction:column; align-items:flex-start; gap:2px; border-radius:12px; padding:8px 10px; }
+  .today-stat span { font-size:11px; }
   .status-strip { display:grid; grid-template-columns:1fr 1fr; }
   .status-strip__item { border-radius:12px; min-width:0; }
 }

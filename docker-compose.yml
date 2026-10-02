@@ -20,7 +20,13 @@ services:
       db: {condition: service_healthy}
     ports: ["8000:8000"]
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      args:
+        # Mismo origen: el front llama a /api/v1 y nginx lo proxea al backend.
+        VITE_API_URL: ${VITE_API_URL:-/api/v1}
+        # Base del backend sin trailing slash, horneada en nginx.conf en build.
+        BACKEND_INTERNAL_URL: ${BACKEND_INTERNAL_URL:-http://backend:8000}
     depends_on: [backend]
     ports: ["5173:80"]
 volumes:

@@ -1,13 +1,29 @@
 <script setup lang="ts">
 
+import {onMounted,ref} from "vue";
 import {useSessionStore} from "../stores/session";
 import {useThemeStore} from "../stores/theme";
+import {useToastStore} from "../stores/toasts";
+import {apiGet,apiPatch,getApiErrorMessage} from "../lib/api";
 
-const session=useSessionStore(),theme=useThemeStore();
+const session=useSessionStore(),theme=useThemeStore(),toast=useToastStore();
+const notif=ref({whatsapp_instance_id:"",notification_sender_name:"",notification_sender_email:""});
+const canManage=session.hasPermission("work_orders.manage");
+async function loadNotif(){try{notif.value=await apiGet("/work-orders/notification-settings")}catch(_){}}
+async function saveNotif(){try{notif.value=await apiPatch("/work-orders/notification-settings",notif.value);toast.push("Configuracion de avisos guardada","success")}catch(e){toast.push(getApiErrorMessage(e),"error")}}
+onMounted(async()=>{if(canManage)await loadNotif()});
 </script>
 
 <template>
 <div class="settings-stack">
+  <div v-if="canManage" class="card" style="margin-bottom:16px">
+    <h2 style="margin:0 0 6px;font-size:20px">Avisos al cliente</h2>
+    <p class="text-secondary">Que instancia de WhatsApp y que remitente usa esta empresa. La API key y el SMTP son de la plataforma: no se guardan credenciales por empresa.</p>
+    <div class="field" style="margin-top:14px"><label>Instancia de WhatsApp</label><input v-model="notif.whatsapp_instance_id" placeholder="ej: ceramica"></div>
+    <div class="field"><label>Nombre del remitente</label><input v-model="notif.notification_sender_name" placeholder="Vogel Consultoria"></div>
+    <div class="field"><label>Email del remitente</label><input v-model="notif.notification_sender_email" type="email" placeholder="taller@empresa.com"></div>
+    <button class="btn btn--primary" style="margin-top:10px" @click="saveNotif">Guardar</button>
+  </div>
   <div class="card">
     <h2 style="margin:0 0 6px;font-size:20px">Apariencia</h2>
     <p class="text-secondary">Tema por defecto: oscuro. Persistido en este navegador.</p>

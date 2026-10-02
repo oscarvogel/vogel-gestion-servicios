@@ -148,6 +148,36 @@ def create_order(payload:WorkOrderInput,company_id:int=Depends(get_current_compa
     except Exception:
         db.rollback();raise
 
+class NotificationSettingsInput(BaseModel):
+    whatsapp_instance_id:str|None=Field(default=None,max_length=80)
+    notification_sender_name:str|None=Field(default=None,max_length=120)
+    notification_sender_email:str|None=Field(default=None,max_length=255)
+
+@router.get("/notification-settings")
+def get_notification_settings(company_id:int=Depends(get_current_company_id),_actor:User=Depends(require_permission("work_orders.manage")),db:Session=Depends(get_db)):
+    """Que instancia de la gateway y que remitente usa esta empresa.
+
+    Se expone aparte del PATCH de empresa porque ese pide superadmin, y esto es
+    configuracion de la propia empresa. La API key y el SMTP siguen siendo de
+    plataforma: acá no hay ninguna credencial.
+    """
+    company=db.get(Company,company_id)
+    return {"whatsapp_instance_id":company.whatsapp_instance_id if company else None,
+            "notification_sender_name":company.notification_sender_name if company else None,
+            "notification_sender_email":company.notification_sender_email if company else None,
+            "company_id":company_id}
+
+@router.patch("/notification-settings")
+def update_notification_settings(payload:NotificationSettingsInput,company_id:int=Depends(get_current_company_id),_actor:User=Depends(require_permission("work_orders.manage")),db:Session=Depends(get_db)):
+    company=db.get(Company,company_id)
+    if not company: raise HTTPException(404,"Empresa no encontrada.")
+    for k,v in payload.model_dump(exclude_unset=True).items(): setattr(company,k,v)
+    db.commit();db.refresh(company)
+    return {"whatsapp_instance_id":company.whatsapp_instance_id,
+            "notification_sender_name":company.notification_sender_name,
+            "notification_sender_email":company.notification_sender_email,
+            "company_id":company_id}
+
 @router.get("/{work_order_id}",response_model=WorkOrderRead)
 def get_order(work_order_id:int,company_id:int=Depends(get_current_company_id),_actor:User=Depends(require_permission("work_orders.view")),db:Session=Depends(get_db)):
     return _read(db,_row(db,company_id,work_order_id))

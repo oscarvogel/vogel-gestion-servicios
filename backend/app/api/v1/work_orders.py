@@ -4,14 +4,17 @@ from pydantic import BaseModel,Field
 from sqlalchemy import func,or_,text
 from sqlalchemy.orm import Session
 from app.api.dependencies import get_current_company_id,get_db,require_permission
+from app.models.company import Company
 from app.models.customer import Customer,Equipment,EquipmentCategory
 from app.models.user import User
-from app.models.work_order import WorkOrder,WorkOrderCounter,WorkOrderEvent,WorkOrderStatus
+from app.models.work_order import WorkOrder,WorkOrderCounter,WorkOrderEvent,WorkOrderNotification,WorkOrderStatus
+from app.services.notifications.enqueue import dispatch,enqueue_for_event
 
 router=APIRouter()
 
 class StatusInput(BaseModel):
     name:str=Field(min_length=1,max_length=60);color:str=Field(pattern=r"^#[0-9A-Fa-f]{6}$");sort_order:int=0;active:bool=True;is_initial:bool=False;is_final:bool=False;marks_quoted:bool=False;marks_awaiting_quote_approval:bool=False;marks_repair:bool=False;marks_waiting_parts:bool=False;marks_completed:bool=False;marks_delivered:bool=False
+    notify_whatsapp:bool=False;notify_email:bool=False;notifications_active:bool=True;notification_template:str|None=Field(default=None,max_length=4000);notification_email_subject:str|None=Field(default=None,max_length=200)
 class StatusRead(StatusInput):
     id:int
     model_config={"from_attributes":True}
@@ -176,6 +179,42 @@ def update_expected_delivery(work_order_id:int,payload:ExpectedDeliveryInput,com
     db.add(WorkOrderEvent(company_id=company_id,work_order_id=row.id,event_type="EXPECTED_DELIVERY_CHANGE",status=row.status,detail=f"Entrega prevista cambiada de {old} a {new}.",user_id=actor.id))
     db.commit();db.refresh(row);return _read(db,row)
 
+class NotificationRead(BaseModel):
+    id:int
+    channel:str
+    recipient:str
+    subject:str|None
+    body:str
+    status:str
+    attempts:int
+    error:str|None
+    provider_message_id:str|None
+    created_at:datetime
+    sent_at:datetime|None
+
+class NotificationList(BaseModel):
+    items:list[NotificationRead]
+    total:int
+
+@router.get("/{work_order_id}/notifications",response_model=NotificationList)
+def list_notifications(work_order_id:int,company_id:int=Depends(get_current_company_id),_actor:User=Depends(require_permission("work_orders.view")),db:Session=Depends(get_db)):
+    """Auditoria de avisos de la OT: canal, destinatario, estado, error e intentos.
+
+    El filtro por empresa va primero y la OT se valida contra el mismo tenant, asi que
+    una empresa no puede leer los avisos de otra ni de una OT ajena.
+    """
+    row=_row(db,company_id,work_order_id)
+    rows=(db.query(WorkOrderNotification)
+          .filter(WorkOrderNotification.company_id==company_id,WorkOrderNotification.work_order_id==row.id)
+          .order_by(WorkOrderNotification.id.desc()).all())
+    return {"items":[NotificationRead(id=n.id,channel=n.channel,recipient=n.recipient,subject=n.subject,body=n.body,status=n.status,attempts=n.attempts,error=n.error,provider_message_id=n.provider_message_id,created_at=n.created_at,sent_at=n.sent_at) for n in rows],"total":len(rows)}
+
+@router.get("/notifications/variables")
+def notification_variables(_actor:User=Depends(require_permission("work_orders.view"))):
+    """Variables disponibles para las plantillas, para documentar la pantalla de config."""
+    from app.services.notifications.templates import TEMPLATE_VARIABLES
+    return {"variables":TEMPLATE_VARIABLES,"example":"Hola {{cliente}}, tu orden de trabajo N° {{numero_ot}} pasó a {{estado}}."}
+
 @router.post("/{work_order_id}/status",response_model=WorkOrderRead)
 def change_status(work_order_id:int,payload:StatusChange,company_id:int=Depends(get_current_company_id),actor:User=Depends(require_permission("work_orders.manage")),db:Session=Depends(get_db)):
     row=_row(db,company_id,work_order_id)
@@ -199,5 +238,26 @@ def change_status(work_order_id:int,payload:StatusChange,company_id:int=Depends(
         detail+=" "+" ".join(lifecycle)
     if payload.note and payload.note.strip():
         detail+=f" Observación: {payload.note.strip()}"
-    db.add(WorkOrderEvent(company_id=company_id,work_order_id=row.id,event_type="STATUS_CHANGE",status=row.status,detail=detail,user_id=actor.id))
-    db.commit();db.refresh(row);return _read(db,row)
+    event=WorkOrderEvent(company_id=company_id,work_order_id=row.id,event_type="STATUS_CHANGE",status=row.status,detail=detail,user_id=actor.id)
+    db.add(event)
+    db.flush()
+    # El aviso al cliente se encola en un savepoint: si encolar falla, se revierte solo
+    # el encolado y el cambio de estado sigue intacto. El commit de abajo guarda estado,
+    # evento y cola juntos, asi que si el proceso muere no se pierde nada. El envio va
+    # despues del commit y jamas puede hacer fallar el request.
+    queued=[]
+    company=db.get(Company,company_id)
+    if company is not None:
+        try:
+            with db.begin_nested():
+                queued=enqueue_for_event(db,company,row,event,status=target,previous_status=previous)
+        except Exception:
+            queued=[]
+    db.commit();db.refresh(row)
+    if queued:
+        try:
+            dispatch(db,[n.id for n in queued])
+        except Exception:
+            # La fila queda PENDING o FAILED y la toma el drenaje.
+            pass
+    return _read(db,row)

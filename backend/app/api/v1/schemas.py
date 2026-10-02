@@ -78,6 +78,11 @@ class CompanyBase(BaseModel):
     notes: str | None = Field(default=None, max_length=500)
     timezone: str | None = Field(default=None, max_length=64)
     locale: str | None = Field(default=None, max_length=16)
+    # Avisos al cliente: que instancia de la gateway y que remitente usa esta empresa.
+    # La autenticacion (API key y SMTP) es de plataforma, no se guarda por tenant.
+    whatsapp_instance_id: str | None = Field(default=None, max_length=80)
+    notification_sender_name: str | None = Field(default=None, max_length=120)
+    notification_sender_email: EmailStr | None = None
 
 
 class CompanyCreate(CompanyBase):
@@ -98,6 +103,11 @@ class CompanyUpdate(BaseModel):
     notes: str | None = Field(default=None, max_length=500)
     timezone: str | None = Field(default=None, max_length=64)
     locale: str | None = Field(default=None, max_length=16)
+    # Avisos al cliente: que instancia de la gateway y que remitente usa esta empresa.
+    # La autenticacion (API key y SMTP) es de plataforma, no se guarda por tenant.
+    whatsapp_instance_id: str | None = Field(default=None, max_length=80)
+    notification_sender_name: str | None = Field(default=None, max_length=120)
+    notification_sender_email: EmailStr | None = None
 
 
 class CompanyRead(CompanyBase):

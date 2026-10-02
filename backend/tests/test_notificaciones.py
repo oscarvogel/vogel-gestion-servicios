@@ -353,3 +353,33 @@ def test_status_config_is_readable_after_saving(client, db_session, senders):
     assert saved["notify_email"] is False
     assert saved["notification_template"] == "Hola {{cliente}}"
     assert saved["notification_email_subject"] == "Tu OT {{numero_ot}}"
+
+
+def test_company_can_configure_its_instance_and_sender_without_superadmin(client, db_session):
+    """La instancia y el remitente son de la empresa, no de la plataforma.
+
+    El PATCH de empresa pide superadmin; esto lo configura la propia empresa con su
+    permiso, porque son sus numeros de salida. Y sigue sin haber credencial por tenant.
+    """
+    company, _, _, _ = setup(db_session, "notif-settings")
+    headers = login(client, "ot.notif-settings@example.com", company.id)
+    vacio = client.get("/api/v1/work-orders/notification-settings", headers=headers).json()
+    assert vacio["whatsapp_instance_id"] is None
+    guardado = client.patch("/api/v1/work-orders/notification-settings", headers=headers, json={
+        "whatsapp_instance_id": "ceramica",
+        "notification_sender_name": "Taller Ceramica",
+        "notification_sender_email": "taller@ceramica.example.com",
+    })
+    assert guardado.status_code == 200, guardado.text
+    assert guardado.json()["whatsapp_instance_id"] == "ceramica"
+    leido = client.get("/api/v1/work-orders/notification-settings", headers=headers).json()
+    assert leido["notification_sender_name"] == "Taller Ceramica"
+    # Update parcial: mandar un solo campo no borra los demas.
+    client.patch("/api/v1/work-orders/notification-settings", headers=headers, json={
+        "whatsapp_instance_id": "otro",
+    })
+    assert client.get("/api/v1/work-orders/notification-settings", headers=headers).json()["notification_sender_name"] == "Taller Ceramica"
+    # Otra empresa no lee ni escribe estos datos.
+    otra, _, _, _ = setup(db_session, "notif-settings-b")
+    h2 = login(client, "ot.notif-settings-b@example.com", otra.id)
+    assert client.get("/api/v1/work-orders/notification-settings", headers=h2).json()["whatsapp_instance_id"] is None

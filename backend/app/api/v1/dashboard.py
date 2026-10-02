@@ -16,6 +16,8 @@ from app.models.work_order import WorkOrder, WorkOrderStatus
 router = APIRouter()
 
 FALLBACK_TIMEZONE = "America/Argentina/Cordoba"
+# Días que una OT abierta puede permanecer antes de entrar en "requieren atención".
+AGING_DAYS = 15
 
 
 def _utcnow() -> datetime:
@@ -71,6 +73,7 @@ def company_dashboard(
             status.marks_quoted,
             status.marks_awaiting_quote_approval,
             status.marks_repair,
+            status.marks_waiting_parts,
             status.marks_completed,
             status.marks_delivered,
             func.count(WorkOrder.id).label("count"),
@@ -84,7 +87,7 @@ def company_dashboard(
             status.id, status.name, status.color, status.sort_order,
             status.is_initial, status.is_final, status.marks_quoted,
             status.marks_awaiting_quote_approval, status.marks_repair,
-            status.marks_completed, status.marks_delivered,
+            status.marks_waiting_parts, status.marks_completed, status.marks_delivered,
         )
         .order_by(status.sort_order, status.name)
         .all()
@@ -121,7 +124,7 @@ def company_dashboard(
         days = max(0, (now - order.received_at).days)
         if days <= 2: aging["0_2"] += 1
         elif days <= 7: aging["3_7"] += 1
-        elif days <= 15: aging["8_15"] += 1
+        elif days <= AGING_DAYS: aging["8_15"] += 1
         else: aging["16_plus"] += 1
 
     week_start = (local_today - timedelta(days=local_today.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
@@ -164,12 +167,38 @@ def company_dashboard(
         "delivered": _count_in_day(WorkOrder.delivered_at),
     }
 
-    attention = {
-        "older_than_15_days": aging["16_plus"],
-        "awaiting_quote_approval": awaiting_quote,
-        "waiting_parts": sum(int(r.count) for r in rows if "repuesto" in r.name.lower()),
-        "ready_to_deliver": completed,
-    }
+    # Cada categoría lleva su propio destino para que el frontend no tenga que reconstruir
+    # la regla ni conocer los estados de la empresa. Los conteos salen de los flags
+    # semánticos, nunca del nombre del estado: una empresa que llame al estado "Esperando
+    # componente" tiene que ver el mismo número que una que lo llame "Esperando repuesto".
+    def _statuses_with(flag: str) -> list[int]:
+        return [int(r.id) for r in rows if getattr(r, flag)]
+
+    attention = [
+        {
+            "key": "awaiting_quote_approval",
+            "count": awaiting_quote,
+            "status_ids": _statuses_with("marks_awaiting_quote_approval"),
+        },
+        {
+            "key": "waiting_parts",
+            "count": sum(int(r.count) for r in rows if r.marks_waiting_parts),
+            "status_ids": _statuses_with("marks_waiting_parts"),
+        },
+        {
+            "key": "ready_to_deliver",
+            "count": completed,
+            "status_ids": [int(r.id) for r in rows if r.marks_completed and not r.marks_delivered],
+        },
+        {
+            "key": "older_than_15_days",
+            "count": aging["16_plus"],
+            # date_to es inclusivo en el listado (received_at < date_to + 1 día), así que
+            # el borde va un día antes para que el link no muestre un día de más.
+            "date_to": (local_today - timedelta(days=AGING_DAYS + 1)).date().isoformat(),
+            "open_only": True,
+        },
+    ]
 
     recent_orders = (
         db.query(WorkOrder)

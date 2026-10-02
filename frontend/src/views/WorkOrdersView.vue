@@ -16,6 +16,7 @@ interface ExecutionItem{id:number;item_type:"PART"|"LABOR";description:string;qu
 interface FinalTest{id:number;passed:boolean;notes:string|null;tested_at:string}
 const toast=useToastStore(),session=useSessionStore(),orders=ref<Order[]>([]),total=ref(0),search=ref(""),customers=ref<Customer[]>([]),equipment=ref<Equipment[]>([]),selected=ref<Order|null>(null),events=ref<Event[]>([]),statuses=ref<OtStatus[]>([]),showReception=ref(false),showStatuses=ref(false);
 const page=ref(1),pageSize=ref(25),statusIds=ref<number[]>([]),customerFilter=ref(""),dateFrom=ref(""),dateTo=ref(""),showFilters=ref(false);
+const openOnly=ref(false);
 const totalPages=computed(()=>Math.max(1,Math.ceil(total.value/pageSize.value))),firstResult=computed(()=>total.value?((page.value-1)*pageSize.value)+1:0),lastResult=computed(()=>Math.min(page.value*pageSize.value,total.value));
 const form=ref({customer_id:0,equipment_id:0,reported_fault:"",physical_condition:"",accessories:"",notes:""});
 const companyTimezone=ref("America/Argentina/Cordoba");
@@ -43,7 +44,7 @@ interface EquipmentCategory{id:number;name:string;active:boolean}
 const showQuickEquipment=ref(false),categoryQuery=ref(""),categories=ref<EquipmentCategory[]>([]),categoryOpen=ref(false);
 const quickEquipment=ref({category_id:0,brand:"",model:"",serial_number:"",description:"",notes:""});
 async function loadStatuses(){statuses.value=await apiGet<OtStatus[]>("/work-orders/statuses")}
-async function load(){try{const r=await apiGet<{items:Order[];total:number;page:number;page_size:number}>("/work-orders",{params:{search:search.value||undefined,status_id:statusIds.value.length?statusIds.value:undefined,customer:customerFilter.value||undefined,date_from:dateFrom.value||undefined,date_to:dateTo.value||undefined,page:page.value,page_size:pageSize.value}});orders.value=r.items;total.value=r.total;if(page.value>totalPages.value){page.value=totalPages.value;return load()}}catch(e){toast.push(getApiErrorMessage(e,"No se pudieron cargar las órdenes"),"error")}}
+async function load(){try{const r=await apiGet<{items:Order[];total:number;page:number;page_size:number}>("/work-orders",{params:{search:search.value||undefined,status_id:statusIds.value.length?statusIds.value:undefined,customer:customerFilter.value||undefined,date_from:dateFrom.value||undefined,date_to:dateTo.value||undefined,open_only:openOnly.value?true:undefined,page:page.value,page_size:pageSize.value}});orders.value=r.items;total.value=r.total;if(page.value>totalPages.value){page.value=totalPages.value;return load()}}catch(e){toast.push(getApiErrorMessage(e,"No se pudieron cargar las órdenes"),"error")}}
 function filtersChanged(){page.value=1;load()}
 function applyFilters(){page.value=1;load()}
 function clearFilters(){statusIds.value=[];customerFilter.value="";dateFrom.value="";dateTo.value="";page.value=1;load()}
@@ -103,8 +104,29 @@ async function handleDeepLinks(){
     router.replace({path:route.path,query:{...route.query,open:undefined,openId:undefined,id:undefined,new:undefined,action:undefined}});
   }
 }
-onMounted(async()=>{await Promise.all([load(),loadStatuses(),loadCompanyTimezone(),loadFeatureParams()]);await handleDeepLinks()});
+// Aplica los filtros que llegan por URL. El dashboard los manda al linkear una alerta,
+// asi que sin esto el link abre el listado completo y no la seccion que dice.
+function applyFilterQuery(){
+  const q=route.query as Record<string,unknown>;
+  const ids=q.status_id===undefined?[]:(Array.isArray(q.status_id)?q.status_id:[q.status_id])
+    .map(v=>Number(String(v)))
+    .filter(v=>Number.isInteger(v)&&v>0);
+  if(ids.length) statusIds.value=ids;
+  if(typeof q.date_from==="string") dateFrom.value=q.date_from;
+  if(typeof q.date_to==="string") dateTo.value=q.date_to;
+  if(q.open_only!==undefined) openOnly.value=q.open_only==="true"||q.open_only==="1";
+  if(ids.length||q.date_to||q.open_only!==undefined) showFilters.value=true;
+}
+
+onMounted(async()=>{
+  applyFilterQuery();
+  await Promise.all([load(),loadStatuses(),loadCompanyTimezone(),loadFeatureParams()]);
+  await handleDeepLinks();
+});
 watch(()=>route.query.open,async(v)=>{if(v)await handleDeepLinks()});
+watch(()=>[route.query.status_id,route.query.date_to,route.query.open_only],async()=>{
+  applyFilterQuery();page.value=1;await load();
+});
 </script>
 <template>
 <div v-if="!selected" class="card page-header"><div><h2 style="margin:0">Órdenes de trabajo</h2><p class="text-secondary" style="margin:4px 0 0">{{total}} órdenes en esta empresa</p></div><div class="toolbar"><input v-model="search" class="toolbar__search" placeholder="N° OT, cliente, teléfono, equipo o serie" @input="searchChanged"><RouterLink v-if="session.hasPermission('work_orders.manage')" class="btn btn--ghost" to="/app/work-orders/import">Importar trabajos</RouterLink><button class="btn btn--primary desktop-primary-action" @click="newReception">+ Nueva recepción</button></div><button class="mobile-fab" aria-label="Nueva recepción" @click="newReception">+<span>Recepción</span></button></div>

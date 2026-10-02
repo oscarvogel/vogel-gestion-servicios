@@ -4,7 +4,7 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, inspect, text
 
-HEAD_REVISION = "20260929_0013"
+HEAD_REVISION = "20261002_0014"
 REVISION_BEFORE_EQUIPMENT_CATEGORIES = "20260925_0003"
 REVISION_EQUIPMENT_CATEGORIES = "20260925_0004"
 
@@ -137,7 +137,7 @@ def test_alembic_upgrade_head_creates_foundation(monkeypatch):
         with engine.connect() as connection:
             assert (
                 connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-                == "20260929_0013"
+                == HEAD_REVISION
             )
     finally:
         if engine is not None:

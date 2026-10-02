@@ -268,9 +268,12 @@ def test_work_order_list_filters_by_received_date_range(client,db_session):
 
 CORDOBA=ZoneInfo("America/Argentina/Cordoba")
 
-def _utc(day,hour,minute=0):
+def _utc_at(month,day,hour,minute=0):
     """Instante naive en UTC a partir de la hora local de la empresa, como guarda la base."""
-    return datetime(2026,10,day,hour,minute,tzinfo=CORDOBA).astimezone(timezone.utc).replace(tzinfo=None)
+    return datetime(2026,month,day,hour,minute,tzinfo=CORDOBA).astimezone(timezone.utc).replace(tzinfo=None)
+
+def _utc(day,hour,minute=0):
+    return _utc_at(10,day,hour,minute)
 
 def _make_order(client,db,headers,customer,equipment,received_at,completed_at=None,delivered_at=None):
     created=client.post("/api/v1/work-orders",headers=headers,json={"customer_id":customer.id,"equipment_id":equipment.id,"reported_fault":"Falla reportada"})
@@ -363,3 +366,142 @@ def test_dashboard_today_survives_a_broken_company_timezone(client,db_session,mo
     response=client.get("/api/v1/dashboard/company",headers=h)
     assert response.status_code==200,response.text
     assert response.json()["today"]=={"date":"2026-10-02","received":1,"completed":0,"delivered":0}
+
+
+def _attention(body,key):
+    return next(item for item in body["attention"] if item["key"]==key)
+
+
+def _follow_link(client,headers,item):
+    """Lleva el destino que devuelve el dashboard al listado, como haria el link."""
+    params={}
+    for status_id in item.get("status_ids") or []: params.setdefault("status_id",[]).append(status_id)
+    if "date_to" in item: params["date_to"]=item["date_to"]
+    if item.get("open_only"): params["open_only"]="true"
+    response=client.get("/api/v1/work-orders",headers=headers,params=params)
+    assert response.status_code==200,response.text
+    return response.json()
+
+
+def _add_status(client,headers,name,sort_order,flag,color="#F59E0B"):
+    """Crea un estado con su flag semantico. El setup base no trae todos los pasos."""
+    created=client.post("/api/v1/work-orders/statuses",headers=headers,json={"name":name,"color":color,"sort_order":sort_order,"active":True,flag:True})
+    assert created.status_code==201,created.text
+    return created.json()["id"]
+
+
+def _move(client,headers,row,status_id):
+    changed=client.post(f"/api/v1/work-orders/{row.id}/status",headers=headers,json={"status_id":status_id})
+    assert changed.status_code==200,changed.text
+
+
+def test_attention_links_land_on_exactly_the_orders_they_count(client,db_session,monkeypatch):
+    """El criterio que manda: seguir el link tiene que dar el mismo total que el contador.
+
+    Si el contador dice 4 y el link abre 37, la seccion esta mintiendo.
+    """
+    company,_,customer,equipment=setup(db_session,"attn-link")
+    h=login(client,"ot.attn-link@example.com",company.id)
+    monkeypatch.setattr(dashboard_module,"_utcnow",lambda:datetime(2026,10,2,23,0,tzinfo=timezone.utc))
+    base={s["name"]:s["id"] for s in client.get("/api/v1/work-orders/statuses",headers=h).json()}
+    esperando_repuesto=_add_status(client,h,"Esperando repuesto",45,"marks_waiting_parts")
+    esperando_aprobacion=_add_status(client,h,"Esperando aprobacion del cliente",46,"marks_awaiting_quote_approval",color="#8B5CF6")
+
+    # Una OT por categoria, mas ruido que NO debe entrar en ninguna.
+    _move(client,h,_make_order(client,db_session,h,customer,equipment,_utc(2,9)),esperando_repuesto)
+    _move(client,h,_make_order(client,db_session,h,customer,equipment,_utc(2,9)),esperando_aprobacion)
+    _move(client,h,_make_order(client,db_session,h,customer,equipment,_utc(2,9)),base["Listo"])
+    # Vieja y abierta: solo esta entra en la alerta de antiguedad.
+    _move(client,h,_make_order(client,db_session,h,customer,equipment,_utc_at(9,10,10)),base["En diagnostico"] if "En diagnostico" in base else base["En diagnóstico"])
+    # Vieja pero entregada: no es "abierta", no puede aparecer en ninguna alerta.
+    _move(client,h,_make_order(client,db_session,h,customer,equipment,_utc_at(9,10,10)),base["Entregado"])
+    # Nueva y entregada: tampoco es "abierta".
+    _move(client,h,_make_order(client,db_session,h,customer,equipment,_utc(2,9)),base["Entregado"])
+
+    body=client.get("/api/v1/dashboard/company",headers=h).json()
+    counts={item["key"]:item["count"] for item in body["attention"]}
+    assert counts=={"awaiting_quote_approval":1,"waiting_parts":1,"ready_to_deliver":1,"older_than_15_days":1},counts
+    for key,count in counts.items():
+        item=_attention(body,key)
+        listed=_follow_link(client,h,item)
+        assert listed["total"]==count,f"{key}: contador {count} pero el link abre {listed['total']} ({item})"
+
+
+def test_attention_resolves_waiting_parts_by_flag_not_by_status_name(client,db_session):
+    """El nombre del estado no puede decidir el contador. Era lo que pasaba antes.
+
+    El nombre elegido ni siquiera contiene la palabra que se buscaba antes, asi que el
+    test no puede pasar por la misma regla accidentalmente.
+    """
+    company,_,customer,equipment=setup(db_session,"attn-flag")
+    h=login(client,"ot.attn-flag@example.com",company.id)
+    created=client.post("/api/v1/work-orders",headers=h,json={"customer_id":customer.id,"equipment_id":equipment.id,"reported_fault":"Falla"})
+    assert created.status_code==201,created.text
+    nuevo=client.post("/api/v1/work-orders/statuses",headers=h,json={"name":"A la espera de material","color":"#F59E0B","sort_order":50,"active":True,"marks_waiting_parts":True})
+    assert nuevo.status_code==201,nuevo.text
+    assert client.post(f"/api/v1/work-orders/{created.json()['id']}/status",headers=h,json={"status_id":nuevo.json()["id"]}).status_code==200
+    count=_attention(client.get("/api/v1/dashboard/company",headers=h).json(),"waiting_parts")["count"]
+    assert count==1,count
+
+
+def test_open_only_filter_excludes_final_and_delivered_orders(client,db_session):
+    company,_,customer,equipment=setup(db_session,"open-only")
+    h=login(client,"ot.open-only@example.com",company.id)
+    base={s["name"]:s["id"] for s in client.get("/api/v1/work-orders/statuses",headers=h).json()}
+    abiertas=[_make_order(client,db_session,h,customer,equipment,_utc(2,9)) for _ in range(3)]
+    cerrada=_make_order(client,db_session,h,customer,equipment,_utc(2,9))
+    _move(client,h,cerrada,base["Entregado"])
+    listed=client.get("/api/v1/work-orders",headers=h,params={"open_only":"true","page_size":100}).json()
+    encontrados={o["id"] for o in listed["items"]}
+    assert len(abiertas)==3
+    assert cerrada.id not in encontrados
+    assert listed["total"]==3,listed["total"]
+    # Sin el filtro siguen estando todas: el filtro agrega, no oculta.
+    assert client.get("/api/v1/work-orders",headers=h,params={"page_size":100}).json()["total"]==4
+
+
+def test_patch_status_keeps_flags_that_the_caller_did_not_send(client,db_session):
+    """Regresión del editor de estados que vive dentro de la pantalla de OT.
+
+    Ese editor manda solo siete campos. Con el PATCH anterior los flags ausentes llegaban
+    como False y se borraban, rompiendo en silencio las transiciones que buscan el estado
+    destino por flag (el presupuesto deja de mover la OT) y los conteos del dashboard.
+    """
+    company,_,customer,equipment=setup(db_session,"attn-patch")
+    h=login(client,"ot.attn-patch@example.com",company.id)
+    objetivo=_add_status(client,h,"Con presupuesto emitido",35,"marks_quoted",color="#8B5CF6")
+    antes={s["name"]:{k:v for k,v in s.items() if k.startswith("marks_")} for s in client.get("/api/v1/work-orders/statuses",headers=h).json()}
+    assert antes["Con presupuesto emitido"]["marks_quoted"] is True
+    # Exactamente el payload que manda WorkOrdersView.saveStatus.
+    partial={"name":"Con presupuesto emitido","color":"#8B5CF6","sort_order":35,"active":True,
+             "is_initial":False,"is_final":False,"marks_completed":False,"marks_delivered":False}
+    changed=client.patch(f"/api/v1/work-orders/statuses/{objetivo}",headers=h,json=partial)
+    assert changed.status_code==200,changed.text
+    despues=client.get("/api/v1/work-orders/statuses",headers=h).json()
+    assert next(s for s in despues if s["id"]==objetivo)["marks_quoted"] is True
+    for s in despues: assert {k:v for k,v in s.items() if k.startswith("marks_")}==antes[s["name"]],s["name"]
+
+
+def test_a_flag_belongs_to_a_single_status_per_company_and_stays_within_the_tenant(client,db_session):
+    """Un flag activo en dos estados deja a _move_status sin saber a cual saltar."""
+    company,_,customer,equipment=setup(db_session,"attn-excl")
+    h=login(client,"ot.attn-excl@example.com",company.id)
+    primero=_add_status(client,h,"Esperando repuesto",60,"marks_waiting_parts")
+    estados={s["name"]:s for s in client.get("/api/v1/work-orders/statuses",headers=h).json()}
+    assert estados["Esperando repuesto"]["marks_waiting_parts"] is True
+    # El alta de un segundo estado con el mismo flag le saca el flag al primero.
+    segundo=_add_status(client,h,"A la espera de material",61,"marks_waiting_parts",color="#0EA5E9")
+    estados={s["name"]:s for s in client.get("/api/v1/work-orders/statuses",headers=h).json()}
+    assert estados["A la espera de material"]["marks_waiting_parts"] is True
+    assert estados["Esperando repuesto"]["marks_waiting_parts"] is False
+    # Y el PATCH hace lo mismo, para cuando se corrige un estado ya cargado.
+    client.patch(f"/api/v1/work-orders/statuses/{segundo}",headers=h,json={"name":"A la espera de material","color":"#0EA5E9","sort_order":61,"active":True,"marks_waiting_parts":False,"marks_repair":True})
+    estados={s["name"]:s for s in client.get("/api/v1/work-orders/statuses",headers=h).json()}
+    assert estados["A la espera de material"]["marks_waiting_parts"] is False
+    assert estados["A la espera de material"]["marks_repair"] is True
+    # Ninguna empresa toca los estados de la otra.
+    otra,_,_,_=setup(db_session,"attn-excl-b")
+    h2=login(client,"ot.attn-excl-b@example.com",otra.id)
+    ajena=_add_status(client,h2,"Material propio",61,"marks_waiting_parts")
+    assert next(s for s in client.get("/api/v1/work-orders/statuses",headers=h2).json() if s["id"]==ajena)["marks_waiting_parts"] is True
+    assert next(s for s in client.get("/api/v1/work-orders/statuses",headers=h).json() if s["id"]==primero)["marks_waiting_parts"] is False

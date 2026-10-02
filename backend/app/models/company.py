@@ -19,6 +19,11 @@ class Company(Base):
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     timezone: Mapped[str] = mapped_column(String(64), default="America/Argentina/Cordoba", nullable=False)
     locale: Mapped[str] = mapped_column(String(16), default="es-AR", nullable=False)
+    # Instancia de la gateway de WhatsApp que corresponde a esta empresa. La autenticacion
+    # (API key) es de plataforma: aca no se guarda ninguna credencial por tenant.
+    whatsapp_instance_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    notification_sender_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    notification_sender_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
 

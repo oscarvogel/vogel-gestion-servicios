@@ -20,6 +20,13 @@ class WorkOrderStatus(Base):
     marks_waiting_parts: Mapped[bool] = mapped_column(nullable=False,default=False)
     marks_completed: Mapped[bool] = mapped_column(nullable=False,default=False)
     marks_delivered: Mapped[bool] = mapped_column(nullable=False,default=False)
+    # Configuracion de aviso al cliente para este estado. La empresa decide su operatoria:
+    # no se hardcodea ningun nombre de estado como disparador.
+    notify_whatsapp: Mapped[bool] = mapped_column(nullable=False,default=False)
+    notify_email: Mapped[bool] = mapped_column(nullable=False,default=False)
+    notifications_active: Mapped[bool] = mapped_column(nullable=False,default=True)
+    notification_template: Mapped[str | None] = mapped_column(Text,nullable=True)
+    notification_email_subject: Mapped[str | None] = mapped_column(String(200),nullable=True)
 
 class WorkOrderCounter(Base):
     __tablename__ = "work_order_counters"
@@ -58,6 +65,39 @@ class WorkOrderEvent(Base):
     detail: Mapped[str | None] = mapped_column(Text)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"),nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime,server_default=func.now(),nullable=False)
+
+class WorkOrderNotification(Base):
+    """Cola de salida y auditoria de los avisos al cliente.
+
+    Vive en la misma transaccion que el cambio de estado, asi que un fallo del proveedor
+    no puede revertir la OT. El unico (company_id, work_order_event_id, channel) es la
+    idempotencia: reprocesar el mismo evento no genera un segundo envio.
+    """
+
+    __tablename__ = "work_order_notifications"
+    __table_args__ = (
+        UniqueConstraint("company_id", "work_order_event_id", "channel", name="uq_wo_notif_event_channel"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"), index=True)
+    work_order_id: Mapped[int] = mapped_column(ForeignKey("work_orders.id", ondelete="CASCADE"), index=True)
+    work_order_event_id: Mapped[int] = mapped_column(ForeignKey("work_order_events.id", ondelete="CASCADE"), nullable=False)
+    channel: Mapped[str] = mapped_column(String(20), nullable=False)
+    recipient: Mapped[str] = mapped_column(String(255), nullable=False)
+    subject: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    # PENDING: en la cola, sin entregar a la gateway. QUEUED: la gateway lo acepto (202),
+    # que NO es lo mismo que entregado. SENT: entregado. FAILED: error del proveedor o de
+    # la gateway. SKIPPED: no se envio por falta del dato de contacto, con el motivo.
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="PENDING", index=True)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    error: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    provider_message_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
+
 
 class WorkOrderEvidence(Base):
     __tablename__ = "work_order_evidence"

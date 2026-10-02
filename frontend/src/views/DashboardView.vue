@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { onMounted, ref, computed } from "vue";
 import { useSessionStore } from "../stores/session";
 import { apiGet } from "../lib/api";

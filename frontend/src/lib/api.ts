@@ -123,6 +123,10 @@ export async function apiPatch<T>(path: string, body?: unknown, config?: AxiosRe
   const res = await api.patch<T>(path, body, config);
   return res.data;
 }
+export async function apiDelete<T>(path: string, config?: AxiosRequestConfig): Promise<T> {
+  const res = await api.delete<T>(path, config);
+  return res.data;
+}
 
 export function setToken(token: string | null, refresh?: string | null) {
   if (token === null) {

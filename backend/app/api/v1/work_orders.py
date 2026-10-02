@@ -22,6 +22,9 @@ class StatusRead(StatusInput):
 class NotificationOverride(BaseModel):
     body:str|None=Field(default=None,max_length=4000)
     subject:str|None=Field(default=None,max_length=200)
+    # El numero o email se puede corregir en el modal: el cargado a veces no es
+    # al que hay que avisar.
+    recipient:str|None=Field(default=None,max_length=255)
 
 class StatusChange(BaseModel):
     status_id:int
@@ -242,10 +245,6 @@ class NotificationPreviewItem(BaseModel):
     body:str
     skipped:bool
     reason:str|None
-
-class NotificationOverride(BaseModel):
-    body:str|None=Field(default=None,max_length=4000)
-    subject:str|None=Field(default=None,max_length=200)
 
 class NotificationPreview(BaseModel):
     items:list[NotificationPreviewItem]

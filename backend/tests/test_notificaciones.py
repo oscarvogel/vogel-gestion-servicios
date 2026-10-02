@@ -142,7 +142,7 @@ def test_missing_contact_is_recorded_as_skipped_with_the_reason(client, db_sessi
     rows = db_session.query(WorkOrderNotification).all()
     assert len(rows) == 2, rows
     assert all(r.status == SKIPPED for r in rows), [(r.channel, r.status) for r in rows]
-    assert "telefono" in next(r for r in rows if r.channel == WHATSAPP).error
+    assert "numero de destino" in next(r for r in rows if r.channel == WHATSAPP).error
     assert "email" in next(r for r in rows if r.channel == EMAIL).error
     # No se intentó enviar a nadie.
     assert senders[EMAIL].calls == [] and senders[WHATSAPP].calls == []
@@ -443,7 +443,7 @@ def test_preview_muestra_a_quien_y_que_sin_enviar(client, db_session, senders):
     prev2 = client.post(f"/api/v1/work-orders/{ot['id']}/notification-preview", headers=headers, json={"status_id": status_id}).json()
     assert prev2["would_notify"] is False
     assert all(i["skipped"] for i in prev2["items"])
-    assert "telefono" in next(i for i in prev2["items"] if i["channel"] == WHATSAPP)["reason"]
+    assert "numero de destino" in next(i for i in prev2["items"] if i["channel"] == WHATSAPP)["reason"]
 
 
 def test_el_mensaje_editado_en_el_modal_es_el_que_se_manda(client, db_session, senders):
@@ -467,3 +467,51 @@ def test_el_mensaje_editado_en_el_modal_es_el_que_se_manda(client, db_session, s
     assert changed.status_code == 200, changed.text
     fila = db_session.query(WorkOrderNotification).one()
     assert fila.body == "Mensaje editado a mano", fila.body
+
+
+def test_se_puede_corregir_el_numero_antes_de_enviar(client, db_session, senders):
+    """El numero cargado no siempre es al que hay que avisar."""
+    company, _, customer, equipment = setup(db_session, "notif-numero")
+    headers = login(client, "ot.notif-numero@example.com", company.id)
+    _set_contact(db_session, company, whatsapp="5493764000000")
+    senders["install"]()
+    status_id = _configure(client, headers, "Avisar", notify_whatsapp=True, notification_template="Hola {{cliente}}")
+    ot = client.post("/api/v1/work-orders", headers=headers, json={"customer_id": customer.id, "equipment_id": equipment.id, "reported_fault": "F"}).json()
+
+    # El preview propone el de la ficha...
+    prev = client.post(f"/api/v1/work-orders/{ot['id']}/notification-preview", headers=headers, json={"status_id": status_id}).json()
+    assert prev["items"][0]["recipient"] == "5493764000000"
+    # ...y acepta uno distinto.
+    prev2 = client.post(f"/api/v1/work-orders/{ot['id']}/notification-preview", headers=headers, json={
+        "status_id": status_id, "overrides": {WHATSAPP: {"recipient": "5493764999999"}},
+    }).json()
+    assert prev2["items"][0]["recipient"] == "5493764999999"
+
+    # Y al confirmar, a ese numero le llega y no al de la ficha.
+    client.post(f"/api/v1/work-orders/{ot['id']}/status", headers=headers, json={
+        "status_id": status_id, "notification_overrides": {WHATSAPP: {"recipient": "5493764999999"}},
+    })
+    fila = db_session.query(WorkOrderNotification).one()
+    assert fila.recipient == "5493764999999", fila.recipient
+
+
+def test_corregir_el_numero_resuelve_un_cliente_sin_whatsapp(client, db_session, senders):
+    """Si el cliente no tiene nada cargado, se puede completar el destino a mano."""
+    company, _, customer, equipment = setup(db_session, "notif-numero2")
+    headers = login(client, "ot.notif-numero2@example.com", company.id)
+    _set_contact(db_session, company, whatsapp=None, phone=None, email=None)
+    senders["install"]()
+    status_id = _configure(client, headers, "Avisar", notify_whatsapp=True, notification_template="Hola {{cliente}}")
+    ot = client.post("/api/v1/work-orders", headers=headers, json={"customer_id": customer.id, "equipment_id": equipment.id, "reported_fault": "F"}).json()
+
+    sin_numero = client.post(f"/api/v1/work-orders/{ot['id']}/notification-preview", headers=headers, json={"status_id": status_id}).json()
+    assert sin_numero["would_notify"] is False
+    con_numero = client.post(f"/api/v1/work-orders/{ot['id']}/notification-preview", headers=headers, json={
+        "status_id": status_id, "overrides": {WHATSAPP: {"recipient": "5493764000000"}},
+    }).json()
+    assert con_numero["would_notify"] is True
+    client.post(f"/api/v1/work-orders/{ot['id']}/status", headers=headers, json={
+        "status_id": status_id, "notification_overrides": {WHATSAPP: {"recipient": "5493764000000"}},
+    })
+    fila = db_session.query(WorkOrderNotification).one()
+    assert fila.recipient == "5493764000000" and fila.status != SKIPPED

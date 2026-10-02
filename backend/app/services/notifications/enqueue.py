@@ -76,10 +76,14 @@ def plan_for_event(
         subject = own.get("subject") or (render(target.notification_email_subject, context) if target.notification_email_subject else None)
         if channel == WHATSAPP:
             subject = None
+        edited = (own.get("recipient") or "").strip()
+        # Destinatario editado a mano: manda sobre el de la ficha del cliente.
+        if edited:
+            recipient = edited
         item = {"channel": channel, "recipient": recipient, "subject": subject, "body": body, "skipped": False, "reason": None}
         if not recipient:
             item["skipped"] = True
-            item["reason"] = "El cliente no tiene telefono ni WhatsApp" if channel == WHATSAPP else "El cliente no tiene email"
+            item["reason"] = "No hay numero de destino: el cliente no tiene y no se completo uno" if channel == WHATSAPP else "No hay email de destino: el cliente no tiene y no se completo uno"
         plan.append(item)
     return plan
 

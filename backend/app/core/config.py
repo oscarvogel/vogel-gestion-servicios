@@ -40,6 +40,16 @@ class Settings(BaseSettings):
     # revisión manual. El drenaje nunca reintenta en caliente sin límite.
     notification_max_attempts: int = 5
 
+    # --- Archivos de equipo (#43) ---
+    # El dominio habla con una interfaz de storage; aca se elige el backend. La
+    # implementacion por defecto es el sistema de archivos sobre un volumen persistente,
+    # igual que la multimedia de la gateway de WhatsApp. Un backend desconocido falla
+    # en vez de caer al disco en silencio.
+    storage_backend: str = "filesystem"
+    storage_local_root: str = "./data/equipment-documents"
+    # Tope de tamaño por archivo, en MB. Se valida antes de leer, no despues.
+    storage_max_file_mb: int = 25
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @property

@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
 import Modal from "../components/Modal.vue";
-import { apiGet, apiPatch, apiPost, getApiErrorMessage } from "../lib/api";
+import { apiDelete, apiGet, apiPatch, apiPost, getApiErrorMessage } from "../lib/api";
+import { useSessionStore } from "../stores/session";
 import { useToastStore } from "../stores/toasts";
 
 interface Customer { id:number; name:string; customer_type:"PERSON"|"COMPANY"; document:string|null; phone:string|null; whatsapp:string|null; email:string|null; address:string|null; notes:string|null; active:boolean }
 interface EquipmentCategory { id:number; name:string; active:boolean }
 interface Equipment { id:number; customer_id:number; category_id:number; category_name:string; brand:string|null; model:string|null; serial_number:string|null; description:string|null; notes:string|null; active:boolean }
-const toast=useToastStore(); const items=ref<Customer[]>([]); const total=ref(0); const search=ref(""); const loading=ref(false);
+const toast=useToastStore(),session=useSessionStore(); const items=ref<Customer[]>([]); const total=ref(0); const search=ref(""); const loading=ref(false);
 const showCustomer=ref(false); const editing=ref<Customer|null>(null); const selected=ref<Customer|null>(null); const equipment=ref<Equipment[]>([]); const showEquipment=ref(false);
 const form=ref({customer_type:"PERSON",name:"",document:"",phone:"",whatsapp:"",email:"",address:"",notes:""});
 const eq=ref({category_id:0,brand:"",model:"",serial_number:"",description:"",notes:""});
@@ -17,6 +18,24 @@ async function load(){loading.value=true;try{const r=await apiGet<{items:Custome
 function newCustomer(){editing.value=null;form.value={customer_type:"PERSON",name:"",document:"",phone:"",whatsapp:"",email:"",address:"",notes:""};showCustomer.value=true}
 function editCustomer(c:Customer){editing.value=c;form.value={customer_type:c.customer_type,name:c.name,document:c.document||"",phone:c.phone||"",whatsapp:c.whatsapp||"",email:c.email||"",address:c.address||"",notes:c.notes||""};showCustomer.value=true}
 async function saveCustomer(){try{const payload={...form.value,email:form.value.email||null,document:form.value.document||null,phone:form.value.phone||null,whatsapp:form.value.whatsapp||null,address:form.value.address||null,notes:form.value.notes||null};if(editing.value)await apiPatch("/customers/"+editing.value.id,payload);else await apiPost("/customers",payload);showCustomer.value=false;toast.push("Cliente guardado","success");await load()}catch(e){toast.push(getApiErrorMessage(e),"error")}}
+interface EquipmentDocument{id:number;equipment_id:number;work_order_id:number|null;original_filename:string;mime_type:string;size_bytes:number;size_mb:number;description:string|null;uploaded_by_user_id:number;created_at:string;is_previewable:boolean}
+const documents=ref<EquipmentDocument[]>([]),documentsFor=ref<number|null>(null),uploading=ref(false),uploadError=ref("");
+const canManageEquipment=session.hasPermission("equipment.manage");
+function formatBytes(n:number){return n<1048576?Math.max(1,Math.round(n/1024))+" KB":(n/1048576).toFixed(1)+" MB"}
+function formatDocDate(v:string){const d=new Date(/[zZ]|[+-]\d\d:\d\d$/.test(v)?v:v+"Z");return Number.isNaN(d.getTime())?"—":d.toLocaleDateString("es-AR",{day:"2-digit",month:"2-digit",year:"2-digit"})}
+async function loadDocuments(equipmentId:number){documentsFor.value=equipmentId;try{documents.value=(await apiGet<{items:EquipmentDocument[]}>(`/equipment/${equipmentId}/documents`)).items}catch(_){documents.value=[]}}
+async function toggleDocuments(equipmentId:number){if(documentsFor.value===equipmentId){documentsFor.value=null;return}await loadDocuments(equipmentId)}
+async function uploadDocument(equipmentId:number,event:Event){const input=event.target as HTMLInputElement;const file=input.files?.[0];if(!file)return
+  uploading.value=true;uploadError.value=""
+  try{const body=new FormData();body.append("file",file);await apiPost(`/equipment/${equipmentId}/documents`,body)
+    await loadDocuments(equipmentId);toast.push("Archivo cargado","success")}
+  catch(e){uploadError.value=getApiErrorMessage(e,"No se pudo cargar el archivo");toast.push(uploadError.value,"error")}
+  finally{uploading.value=false;input.value=""}}
+function downloadDocument(id:number,name:string){const a=document.createElement("a");a.href=`/api/v1/documents/${id}/download`;a.download=name;document.body.appendChild(a);a.click();a.remove()}
+async function deleteDocument(doc:EquipmentDocument){if(!window.confirm(`Dar de baja "${doc.original_filename}"?`))return
+  try{await apiDelete(`/documents/${doc.id}`);toast.push("Archivo dado de baja","success");if(documentsFor.value)await loadDocuments(documentsFor.value)}
+  catch(e){toast.push(getApiErrorMessage(e),"error")}}
+async function saveDescription(doc:EquipmentDocument,value:string){try{await apiPatch(`/documents/${doc.id}`,{description:value||null});toast.push("Descripción guardada","success")}catch(e){toast.push(getApiErrorMessage(e),"error")}}
 async function openCustomer(c:Customer){selected.value=c;equipment.value=await apiGet<Equipment[]>("/customers/"+c.id+"/equipment");window.scrollTo({top:0,behavior:"smooth"})}
 function closeCustomer(){selected.value=null;equipment.value=[];window.scrollTo({top:0,behavior:"smooth"})}
 function newEquipment(){eq.value={category_id:0,brand:"",model:"",serial_number:"",description:"",notes:""};categoryQuery.value="";categories.value=[];showEquipment.value=true}
@@ -46,7 +65,7 @@ onMounted(load);
     <button type="button" class="btn btn--ghost customer-detail-back" @click="closeCustomer">← Volver a clientes</button>
     <div class="card customer-equipment-card">
       <div class="flex flex--between"><div><p class="card__title">Equipos de {{ selected.name }}</p><p class="text-secondary">Cada equipo pertenece sólo a esta empresa.</p></div><button class="btn btn--primary" @click="newEquipment">+ Agregar equipo</button></div>
-      <table v-if="equipment.length" class="table table--cards-mobile"><thead><tr><th>Tipo</th><th>Marca / modelo</th><th>Serie</th><th>Descripción</th></tr></thead><tbody><tr v-for="equipmentItem in equipment" :key="equipmentItem.id"><td data-label="Tipo">{{equipmentItem.category_name}}</td><td data-label="Marca / modelo">{{[equipmentItem.brand,equipmentItem.model].filter(Boolean).join(' ')||'—'}}</td><td data-label="Serie">{{equipmentItem.serial_number||'—'}}</td><td data-label="Descripción">{{equipmentItem.description||'—'}}</td></tr></tbody></table>
+      <table v-if="equipment.length" class="table table--cards-mobile"><thead><tr><th>Tipo</th><th>Marca / modelo</th><th>Serie</th><th>Descripción</th><th>Documentos</th></tr></thead><tbody><tr v-for="equipmentItem in equipment" :key="equipmentItem.id"><td data-label="Tipo">{{equipmentItem.category_name}}</td><td data-label="Marca / modelo">{{[equipmentItem.brand,equipmentItem.model].filter(Boolean).join(' ')||'—'}}</td><td data-label="Serie">{{equipmentItem.serial_number||'—'}}</td><td data-label="Descripción">{{equipmentItem.description||'—'}}</td><td data-label="Documentos"><button type="button" class="btn btn--ghost btn--sm" @click="toggleDocuments(equipmentItem.id)">Documentos ({{ (documentsFor===equipmentItem.id?documents.length:0) }})</button><div v-if="documentsFor===equipmentItem.id" class="doc-panel"><div v-for="d in documents" :key="d.id" class="doc-item"><div class="doc-item__main"><strong>{{ d.original_filename }}</strong><small class="text-muted">{{ d.mime_type }} · {{ formatBytes(d.size_bytes) }} · {{ formatDocDate(d.created_at) }}<template v-if="d.work_order_id"> · de una OT</template></small><input v-if="canManageEquipment" class="doc-item__desc" :value="d.description||''" placeholder="Nota (opcional)" @change="saveDescription(d,($event.target as HTMLInputElement).value)"></div><div class="doc-item__actions"><a class="btn btn--ghost btn--sm" :href="`/api/v1/documents/${d.id}/download`" :download="d.original_filename">Ver</a><button v-if="canManageEquipment" class="btn btn--ghost btn--sm" @click="deleteDocument(d)">Dar de baja</button></div></div><p v-if="!documents.length" class="text-muted doc-empty">Todavía no hay archivos de este equipo.</p><label v-if="canManageEquipment" class="btn btn--primary btn--sm doc-upload"><input type="file" hidden :disabled="uploading" @change="uploadDocument(equipmentItem.id,$event)">{{ uploading?"Subiendo…":"+ Cargar archivo" }}</label><p v-if="uploadError" class="doc-error">{{ uploadError }}</p></div></td></tr></tbody></table>
       <div v-else class="empty-state">Este cliente todavía no tiene equipos cargados.</div>
     </div>
   </div>
@@ -79,4 +98,14 @@ onMounted(load);
 .customer-equipment-card>.flex .btn{width:100%}
 .customer-equipment-card .table--cards-mobile{margin-top:14px}
 }
+
+.doc-panel{margin-top:10px;display:flex;flex-direction:column;gap:10px}
+.doc-item{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:10px;border:1px solid var(--border,#263a57);border-radius:12px}
+.doc-item__main{display:flex;flex-direction:column;gap:4px;min-width:0}
+.doc-item__main strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.doc-item__actions{display:flex;gap:8px;flex:none}
+.doc-item__desc{margin-top:4px;font-size:12px;padding:6px 8px;border:1px solid var(--border,#263a57);border-radius:8px;background:var(--color-surface);color:var(--color-text-primary);width:100%}
+.doc-upload{align-self:flex-start;cursor:pointer}
+.doc-empty{margin:0;font-size:12px}
+.doc-error{margin:0;font-size:12px;color:#ef4444}
 </style>

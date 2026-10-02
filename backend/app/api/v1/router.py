@@ -1,6 +1,18 @@
 from fastapi import APIRouter
 
-from app.api.v1 import auth, companies, company_parameters, customers, dashboard, roles, users, work_orders, work_order_quotes, work_order_imports
+from app.api.v1 import (
+    auth,
+    companies,
+    company_parameters,
+    customers,
+    dashboard,
+    equipment_documents,
+    roles,
+    users,
+    work_orders,
+    work_order_imports,
+    work_order_quotes,
+)
 
 router = APIRouter()
 router.include_router(auth.router, prefix="/auth", tags=["auth"])
@@ -10,6 +22,7 @@ router.include_router(users.router, prefix="/users", tags=["users"])
 router.include_router(roles.router, prefix="/roles", tags=["roles"])
 router.include_router(dashboard.router, prefix="/dashboard", tags=["dashboard"])
 router.include_router(customers.router, prefix="/customers", tags=["customers"])
+router.include_router(equipment_documents.router, prefix="", tags=["equipment-documents"])
 router.include_router(work_orders.router, prefix="/work-orders", tags=["work-orders"])
 router.include_router(work_order_quotes.router, prefix="/work-orders", tags=["work-order-quotes"])
 router.include_router(work_order_imports.router, prefix="/work-orders/import", tags=["work-order-imports"])

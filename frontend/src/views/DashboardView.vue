@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { onMounted, ref, computed } from "vue";
 import { useSessionStore } from "../stores/session";
 import { apiGet } from "../lib/api";
@@ -51,8 +51,14 @@ interface CompanyDashboard {
   aging: { "0_2": number; "3_7": number; "8_15": number; "16_plus": number };
   trend: Array<{ label: string; received: number; finished: number }>;
   today: { date: string; received: number; completed: number; delivered: number };
+  attention: Array<{
+    key: string;
+    count: number;
+    status_ids?: number[];
+    date_to?: string;
+    open_only?: boolean;
+  }>;
   avg_resolution_days: number | null;
-  attention: { older_than_15_days: number; awaiting_quote_approval: number; waiting_parts: number; ready_to_deliver: number };
   statuses: Array<{ id: number; name: string; color: string; count: number; is_final: boolean; marks_delivered: boolean }>;
   recent_work_orders: RecentWorkOrder[];
   can_create_work_orders: boolean;
@@ -79,6 +85,30 @@ function formatDayLabel(iso: string) {
   const [y, m, d] = (iso || "").split("-");
   return y && m && d ? `${d}/${m}/${y}` : "";
 }
+// El backend resuelve qué cuenta en cada categoría y trae su destino; acá solo se decide
+// cómo se nombra y a dónde apunta el link. La regla de estados no se reimplementa en el
+// frontend, porque cada empresa tiene su propio flujo.
+const ATTENTION_LABELS: Record<string, string> = {
+  awaiting_quote_approval: "Presupuestos esperando respuesta",
+  waiting_parts: "OT frenadas por repuesto",
+  ready_to_deliver: "Listas para entregar",
+  older_than_15_days: "Abiertas hace más de 15 días",
+};
+const attentionItems = computed(() =>
+  (companyData.value?.attention ?? []).map((item) => ({
+    ...item,
+    label: ATTENTION_LABELS[item.key] ?? item.key,
+    to: {
+      path: "/app/work-orders",
+      query: {
+        ...(item.status_ids?.length ? { status_id: item.status_ids.map(String) } : {}),
+        ...(item.date_to ? { date_to: item.date_to } : {}),
+        ...(item.open_only ? { open_only: "true" } : {}),
+      },
+    },
+  })),
+);
+const attentionTotal = computed(() => attentionItems.value.reduce((sum, item) => sum + item.count, 0));
 const today = computed(() => companyData.value?.today ?? null);
 const todayLabel = computed(() => (today.value ? formatDayLabel(today.value.date) : ""));
 const todayItems = computed(() => {
@@ -232,6 +262,20 @@ const greeting = computed(() => {
               <span class="kpi__label">Listas</span><strong>{{ companyData.summary.completed }}</strong><small>Para entregar</small>
             </RouterLink>
           </div>
+          <section v-if="canViewOrders && attentionItems.length" class="attention-strip" aria-label="Requieren atención">
+            <div class="attention-strip__head">
+              <small>Requieren atención</small>
+              <strong v-if="attentionTotal">{{ attentionTotal }} {{ attentionTotal === 1 ? "orden pendiente" : "órdenes pendientes" }}</strong>
+            </div>
+            <div v-if="attentionTotal" class="attention-strip__items">
+              <RouterLink v-for="item in attentionItems" :key="item.key" class="attention-item" :to="item.to">
+                <span class="attention-item__label">{{ item.label }}</span>
+                <strong class="attention-item__count">{{ item.count }}</strong>
+                <span class="attention-item__chevron" aria-hidden="true">›</span>
+              </RouterLink>
+            </div>
+            <p v-else class="attention-strip__empty">Nada pendiente: no hay órdenes esperando una acción.</p>
+          </section>
           <section v-if="canViewOrders && today" class="today-strip" aria-label="Actividad del día">
             <div class="today-strip__head">
               <small>Actividad de hoy</small>
@@ -280,8 +324,8 @@ const greeting = computed(() => {
               <div class="legend"><span><i class="dot received"></i>Ingresadas</span><span><i class="dot finished"></i>Terminadas</span></div>
             </article>
             <article class="analytics-card"><div class="analytics-title"><div><small>OT abiertas</small><h3>Antigüedad</h3></div></div><div class="metric-bars"><div v-for="item in agingItems" :key="item.label" class="metric-row"><span>{{ item.label }}</span><div><i :style="{width:(item.value/Math.max(1,companyData.summary.open)*100)+'%'}"></i></div><strong>{{ item.value }}</strong></div></div></article>
-            <article class="analytics-card analytics-card--wide"><div class="analytics-title"><div><small>Distribución actual</small><h3>OT por estado</h3></div></div><div class="metric-bars"><div v-for="status in companyData.statuses" :key="status.id" class="metric-row"><span>{{ status.name }}</span><div><i :style="{width:(status.count/maxStatus*100)+'%',backgroundColor:status.color}"></i></div><strong>{{ status.count }}</strong></div></div></article>
-            <article class="analytics-card"><div class="analytics-title"><div><small>Prioridades</small><h3>Requieren atención</h3></div></div><div class="attention-list"><div><span>Más de 15 días abiertas</span><strong>{{ companyData.attention.older_than_15_days }}</strong></div><div><span>Esperando aprobación</span><strong>{{ companyData.attention.awaiting_quote_approval }}</strong></div><div><span>Esperando repuesto</span><strong>{{ companyData.attention.waiting_parts }}</strong></div><div><span>Listas para entregar</span><strong>{{ companyData.attention.ready_to_deliver }}</strong></div></div></article>
+            <article class="analytics-card analytics-card--wide analytics-card--full"><div class="analytics-title"><div><small>Distribución actual</small><h3>OT por estado</h3></div></div><div class="metric-bars"><div v-for="status in companyData.statuses" :key="status.id" class="metric-row"><span>{{ status.name }}</span><div><i :style="{width:(status.count/maxStatus*100)+'%',backgroundColor:status.color}"></i></div><strong>{{ status.count }}</strong></div></div></article>
+
           </div>
           <div class="status-strip" v-if="companyData.statuses.length">
             <div class="status-strip__item" v-for="status in companyData.statuses" :key="status.id">
@@ -325,6 +369,20 @@ const greeting = computed(() => {
 .recent-item__main small { color:var(--text-muted,#8290a5); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .recent-item__meta { display:flex; align-items:center; gap:10px; }
 .recent-item__chevron { color:var(--text-muted,#8290a5); font-size:20px; }
+.attention-strip{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:12px 18px;border:1px solid var(--border,#263a57);border-radius:16px;background:var(--surface,#15243e)}
+.attention-strip__head{display:flex;flex-direction:column;gap:2px;flex:none}
+.attention-strip__head small{color:var(--text-muted,#8290a5);font-size:11px;text-transform:uppercase;letter-spacing:.08em}
+.attention-strip__head strong{font-size:15px}
+.attention-strip__items{display:flex;gap:10px;flex-wrap:wrap}
+.attention-strip__empty{margin:0;font-size:13px;color:var(--text-muted,#8290a5)}
+.attention-item{display:flex;align-items:center;gap:10px;padding:6px 10px 6px 12px;border:1px solid var(--border,#263a57);border-radius:99px;text-decoration:none;color:inherit;transition:border-color .15s ease,transform .15s ease}
+.attention-item:hover{border-color:#f59e0b;transform:translateY(-1px)}
+.attention-item__label{font-size:12px}
+.attention-item__count{font-size:18px;color:#f59e0b}
+.attention-item__chevron{color:var(--text-muted,#8290a5);font-size:18px;line-height:1}
+/* La grilla analítica queda con tres tarjetas: la de distribución ocupa el ancho completo
+   para no dejar un hueco en la columna angosta. */
+.analytics-card--full{grid-column:1/-1}
 .today-strip{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:12px 18px;border:1px solid var(--border,#263a57);border-radius:16px;background:var(--surface,#15243e)}
 .today-strip__head{display:flex;flex-direction:column;gap:2px}
 .today-strip__head small{color:var(--text-muted,#8290a5);font-size:11px;text-transform:uppercase;letter-spacing:.08em}
@@ -349,6 +407,9 @@ const greeting = computed(() => {
   .kpi { min-height:104px; padding:14px; border-radius:15px; }
   .kpi strong { font-size:30px; }
   .kpi__label { font-size:12px; }
+  .attention-strip { padding:12px 14px; border-radius:15px; gap:10px; }
+  .attention-strip__items { width:100%; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+  .attention-item { justify-content:space-between; border-radius:12px; padding:10px 12px; }
   .today-strip { padding:12px 14px; border-radius:15px; gap:10px; }
   .today-strip__stats { width:100%; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
   .today-stat { flex-direction:column; align-items:flex-start; gap:2px; border-radius:12px; padding:8px 10px; }

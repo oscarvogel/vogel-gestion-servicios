@@ -1,7 +1,7 @@
 from datetime import date,datetime,time,timedelta,timezone
 from fastapi import APIRouter,Depends,HTTPException,Query,status
 from pydantic import BaseModel,Field
-from sqlalchemy import or_,text
+from sqlalchemy import func,or_,text
 from sqlalchemy.orm import Session
 from app.api.dependencies import get_current_company_id,get_db,require_permission
 from app.models.customer import Customer,Equipment,EquipmentCategory
@@ -11,13 +11,18 @@ from app.models.work_order import WorkOrder,WorkOrderCounter,WorkOrderEvent,Work
 router=APIRouter()
 
 class StatusInput(BaseModel):
-    name:str=Field(min_length=1,max_length=60);color:str=Field(pattern=r"^#[0-9A-Fa-f]{6}$");sort_order:int=0;active:bool=True;is_initial:bool=False;is_final:bool=False;marks_quoted:bool=False;marks_awaiting_quote_approval:bool=False;marks_repair:bool=False;marks_completed:bool=False;marks_delivered:bool=False
+    name:str=Field(min_length=1,max_length=60);color:str=Field(pattern=r"^#[0-9A-Fa-f]{6}$");sort_order:int=0;active:bool=True;is_initial:bool=False;is_final:bool=False;marks_quoted:bool=False;marks_awaiting_quote_approval:bool=False;marks_repair:bool=False;marks_waiting_parts:bool=False;marks_completed:bool=False;marks_delivered:bool=False
 class StatusRead(StatusInput):
     id:int
     model_config={"from_attributes":True}
 class StatusChange(BaseModel):
     status_id:int
     note:str|None=Field(default=None,max_length=1000)
+
+# Un mismo flag puede estar activo en un solo estado por empresa. _move_status busca
+# "el" estado destino de un marker, asi que si dos estados lo tuieran la transicion
+# automatica dejaria de saber a cual saltar.
+EXCLUSIVE_STATUS_FLAGS=("marks_quoted","marks_awaiting_quote_approval","marks_repair","marks_waiting_parts","marks_completed","marks_delivered")
 
 @router.get("/statuses",response_model=list[StatusRead])
 def list_statuses(company_id:int=Depends(get_current_company_id),_actor:User=Depends(require_permission("work_orders.view")),db:Session=Depends(get_db)):
@@ -27,6 +32,10 @@ def list_statuses(company_id:int=Depends(get_current_company_id),_actor:User=Dep
 def create_status(payload:StatusInput,company_id:int=Depends(get_current_company_id),_actor:User=Depends(require_permission("work_orders.manage")),db:Session=Depends(get_db)):
     if db.query(WorkOrderStatus).filter(WorkOrderStatus.company_id==company_id,WorkOrderStatus.name.ilike(payload.name.strip())).first(): raise HTTPException(409,"Ya existe un estado con ese nombre.")
     if payload.is_initial: db.query(WorkOrderStatus).filter_by(company_id=company_id).update({"is_initial":False})
+    # El flag se limpia tambien al alta: si no, crear un segundo estado con
+    # marks_waiting_parts dejaba dos destinos y _move_status elegia por sort_order.
+    for flag in EXCLUSIVE_STATUS_FLAGS:
+        if getattr(payload,flag): db.query(WorkOrderStatus).filter(WorkOrderStatus.company_id==company_id).update({flag:False})
     row=WorkOrderStatus(company_id=company_id,**payload.model_dump());row.name=row.name.strip();db.add(row);db.commit();db.refresh(row);return row
 
 @router.patch("/statuses/{status_id}",response_model=StatusRead)
@@ -34,12 +43,12 @@ def update_status(status_id:int,payload:StatusInput,company_id:int=Depends(get_c
     row=db.query(WorkOrderStatus).filter_by(id=status_id,company_id=company_id).first()
     if not row: raise HTTPException(404,"Estado no encontrado.")
     if payload.is_initial: db.query(WorkOrderStatus).filter(WorkOrderStatus.company_id==company_id,WorkOrderStatus.id!=row.id).update({"is_initial":False})
-    if payload.marks_quoted: db.query(WorkOrderStatus).filter(WorkOrderStatus.company_id==company_id,WorkOrderStatus.id!=row.id).update({"marks_quoted":False})
-    if payload.marks_awaiting_quote_approval: db.query(WorkOrderStatus).filter(WorkOrderStatus.company_id==company_id,WorkOrderStatus.id!=row.id).update({"marks_awaiting_quote_approval":False})
-    if payload.marks_repair: db.query(WorkOrderStatus).filter(WorkOrderStatus.company_id==company_id,WorkOrderStatus.id!=row.id).update({"marks_repair":False})
-    if payload.marks_completed: db.query(WorkOrderStatus).filter(WorkOrderStatus.company_id==company_id,WorkOrderStatus.id!=row.id).update({"marks_completed":False})
-    if payload.marks_delivered: db.query(WorkOrderStatus).filter(WorkOrderStatus.company_id==company_id,WorkOrderStatus.id!=row.id).update({"marks_delivered":False})
-    for k,v in payload.model_dump().items(): setattr(row,k,v.strip() if k=="name" else v)
+    for flag in EXCLUSIVE_STATUS_FLAGS:
+        if getattr(payload,flag): db.query(WorkOrderStatus).filter(WorkOrderStatus.company_id==company_id,WorkOrderStatus.id!=row.id).update({flag:False})
+    # exclude_unset: el editor de estados dentro de la pantalla de OT manda solo algunos
+    # campos. Sin esto los flags ausentes llegaban como False y se borraban en silencio,
+    # rompiendo las transiciones automaticas que buscan el estado destino por flag.
+    for k,v in payload.model_dump(exclude_unset=True).items(): setattr(row,k,v.strip() if k=="name" else v)
     db.commit();db.refresh(row);return row
 
 class ExpectedDeliveryInput(BaseModel):
@@ -98,6 +107,7 @@ def _next_number(db:Session,company_id:int)->int:
 
 @router.get("",response_model=WorkOrderList)
 def list_orders(search:str|None=None,status_id:list[int]|None=Query(None),customer:str|None=None,date_from:date|None=None,date_to:date|None=None,
+                open_only:bool=False,
                 page:int=Query(1,ge=1),page_size:int=Query(25,ge=1,le=100),company_id:int=Depends(get_current_company_id),
                 _actor:User=Depends(require_permission("work_orders.view")),db:Session=Depends(get_db)):
     q=db.query(WorkOrder).join(Customer,Customer.id==WorkOrder.customer_id).join(Equipment,Equipment.id==WorkOrder.equipment_id).filter(WorkOrder.company_id==company_id)
@@ -110,6 +120,12 @@ def list_orders(search:str|None=None,status_id:list[int]|None=Query(None),custom
         like=f"%{customer.strip()}%";q=q.filter(or_(Customer.name.ilike(like),Customer.document.ilike(like),Customer.phone.ilike(like),Customer.whatsapp.ilike(like)))
     if date_from: q=q.filter(WorkOrder.received_at>=datetime.combine(date_from,time.min))
     if date_to: q=q.filter(WorkOrder.received_at<datetime.combine(date_to+timedelta(days=1),time.min))
+    if open_only:
+        # Misma regla semantica que usa el dashboard: una OT abierta no esta en un estado
+        # final ni en uno que marque entrega. El coalesce cubre las OTs sin estado.
+        q=q.outerjoin(WorkOrderStatus,WorkOrder.status_id==WorkOrderStatus.id).filter(
+            func.coalesce(WorkOrderStatus.is_final,False).is_(False),
+            func.coalesce(WorkOrderStatus.marks_delivered,False).is_(False))
     total=q.count();rows=q.order_by(WorkOrder.received_at.desc(),WorkOrder.id.desc()).offset((page-1)*page_size).limit(page_size).all()
     return {"items":[_read(db,r) for r in rows],"total":total,"page":page,"page_size":page_size}
 

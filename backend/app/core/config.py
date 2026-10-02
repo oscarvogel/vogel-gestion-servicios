@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     whatsapp_timeout_seconds: float = 15.0
     whatsapp_source_app: str = "vogel-gestion"
 
+    # Clave maestra para cifrar las credenciales por empresa (API key de la gateway).
+    # Sin esta variable NO se guardan credenciales: se prefiere fallar a guardar en claro.
+    credentials_encryption_key: str | None = None
+
     smtp_host: str | None = None
     smtp_port: int = 587
     smtp_user: str | None = None

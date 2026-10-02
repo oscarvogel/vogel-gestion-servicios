@@ -3,11 +3,12 @@ from fastapi import APIRouter,Depends,HTTPException,Query,status
 from pydantic import BaseModel,Field
 from sqlalchemy import func,or_,text
 from sqlalchemy.orm import Session
-from app.api.dependencies import get_current_company_id,get_db,require_permission
+from app.api.dependencies import get_current_company_id,get_db,require_company_admin_or_superadmin,require_permission
 from app.models.company import Company
 from app.models.customer import Customer,Equipment,EquipmentCategory
 from app.models.user import User
 from app.models.work_order import WorkOrder,WorkOrderCounter,WorkOrderEvent,WorkOrderNotification,WorkOrderStatus
+from app.services import credentials
 from app.services.notifications.enqueue import dispatch,enqueue_for_event
 
 router=APIRouter()
@@ -152,9 +153,13 @@ class NotificationSettingsInput(BaseModel):
     whatsapp_instance_id:str|None=Field(default=None,max_length=80)
     notification_sender_name:str|None=Field(default=None,max_length=120)
     notification_sender_email:str|None=Field(default=None,max_length=255)
+    # Credencial de solo escritura: se manda para guardarla y nunca se devuelve.
+    whatsapp_api_key:str|None=Field(default=None,max_length=400)
+    whatsapp_api_key_clear:bool=False
+    whatsapp_use_platform_key:bool|None=None
 
 @router.get("/notification-settings")
-def get_notification_settings(company_id:int=Depends(get_current_company_id),_actor:User=Depends(require_permission("work_orders.manage")),db:Session=Depends(get_db)):
+def get_notification_settings(company_id:int=Depends(get_current_company_id),_actor:User=Depends(require_company_admin_or_superadmin),db:Session=Depends(get_db)):
     """Que instancia de la gateway y que remitente usa esta empresa.
 
     Se expone aparte del PATCH de empresa porque ese pide superadmin, y esto es
@@ -163,19 +168,34 @@ def get_notification_settings(company_id:int=Depends(get_current_company_id),_ac
     """
     company=db.get(Company,company_id)
     return {"whatsapp_instance_id":company.whatsapp_instance_id if company else None,
+            "whatsapp_api_key_configured":bool(company.whatsapp_api_key_encrypted) if company else False,
+            "whatsapp_use_platform_key":bool(company.whatsapp_use_platform_key) if company else False,
             "notification_sender_name":company.notification_sender_name if company else None,
             "notification_sender_email":company.notification_sender_email if company else None,
             "company_id":company_id}
 
 @router.patch("/notification-settings")
-def update_notification_settings(payload:NotificationSettingsInput,company_id:int=Depends(get_current_company_id),_actor:User=Depends(require_permission("work_orders.manage")),db:Session=Depends(get_db)):
+def update_notification_settings(payload:NotificationSettingsInput,company_id:int=Depends(get_current_company_id),
+                                   _actor:User=Depends(require_company_admin_or_superadmin),db:Session=Depends(get_db)):
     company=db.get(Company,company_id)
     if not company: raise HTTPException(404,"Empresa no encontrada.")
-    for k,v in payload.model_dump(exclude_unset=True).items(): setattr(company,k,v)
+    data=payload.model_dump(exclude_unset=True)
+    # La API key nunca pasa a la base en claro y nunca se devuelve.
+    if data.pop("whatsapp_api_key_clear",False):
+        company.whatsapp_api_key_encrypted=None
+    key=data.pop("whatsapp_api_key",None)
+    if key is not None and str(key).strip():
+        try:
+            company.whatsapp_api_key_encrypted=credentials.encrypt(str(key))
+        except credentials.CredentialError as exc:
+            raise HTTPException(503,str(exc))
+    for k,v in data.items(): setattr(company,k,v)
     db.commit();db.refresh(company)
     return {"whatsapp_instance_id":company.whatsapp_instance_id,
             "notification_sender_name":company.notification_sender_name,
             "notification_sender_email":company.notification_sender_email,
+            "whatsapp_api_key_configured":bool(company.whatsapp_api_key_encrypted),
+            "whatsapp_use_platform_key":bool(company.whatsapp_use_platform_key),
             "company_id":company_id}
 
 @router.get("/{work_order_id}",response_model=WorkOrderRead)

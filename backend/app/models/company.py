@@ -24,6 +24,10 @@ class Company(Base):
     whatsapp_instance_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
     notification_sender_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     notification_sender_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Credencial de la gateway, cifrada con Fernet. Nunca se devuelve por la API.
+    whatsapp_api_key_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Opt-in explicito a la key/instancia de plataforma, para talleres sin WhatsApp propio.
+    whatsapp_use_platform_key: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
 

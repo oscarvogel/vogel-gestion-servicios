@@ -7,10 +7,10 @@ import {useToastStore} from "../stores/toasts";
 import {apiGet,apiPatch,getApiErrorMessage} from "../lib/api";
 
 const session=useSessionStore(),theme=useThemeStore(),toast=useToastStore();
-const notif=ref({whatsapp_instance_id:"",notification_sender_name:"",notification_sender_email:""});
+const notif=ref({whatsapp_instance_id:"",notification_sender_name:"",notification_sender_email:"",whatsapp_api_key:"",whatsapp_api_key_configured:false,whatsapp_use_platform_key:false});
 const canManage=session.hasPermission("work_orders.manage");
 async function loadNotif(){try{notif.value=await apiGet("/work-orders/notification-settings")}catch(_){}}
-async function saveNotif(){try{notif.value=await apiPatch("/work-orders/notification-settings",notif.value);toast.push("Configuracion de avisos guardada","success")}catch(e){toast.push(getApiErrorMessage(e),"error")}}
+async function saveNotif(){try{const payload={...notif.value};const key=payload.whatsapp_api_key;delete payload.whatsapp_api_key_configured;if(!key?.trim()){delete payload.whatsapp_api_key}notif.value=await apiPatch("/work-orders/notification-settings",payload);notif.value.whatsapp_api_key="";toast.push("Configuracion de avisos guardada","success")}catch(e){toast.push(getApiErrorMessage(e),"error")}}
 onMounted(async()=>{if(canManage)await loadNotif()});
 </script>
 
@@ -22,6 +22,11 @@ onMounted(async()=>{if(canManage)await loadNotif()});
     <div class="field" style="margin-top:14px"><label>Instancia de WhatsApp</label><input v-model="notif.whatsapp_instance_id" placeholder="ej: ceramica"></div>
     <div class="field"><label>Nombre del remitente</label><input v-model="notif.notification_sender_name" placeholder="Vogel Consultoria"></div>
     <div class="field"><label>Email del remitente</label><input v-model="notif.notification_sender_email" type="email" placeholder="taller@empresa.com"></div>
+    <div class="field"><label>API key de la gateway de WhatsApp</label>
+      <input v-model="notif.whatsapp_api_key" type="password" autocomplete="new-password" :placeholder="notif.whatsapp_api_key_configured ? 'Cargada. Escribí para reemplazarla.' : 'No cargada'">
+      <small class="text-muted">Se guarda cifrada y no se vuelve a mostrar. Es la key de SU empresa: sus clientes reciben los avisos desde su numero.</small></div>
+    <label class="check" style="margin:10px 0 4px"><input v-model="notif.whatsapp_use_platform_key" type="checkbox"> Usar la linea y la key de Vogel en vez de las propias</label>
+    <small v-if="notif.whatsapp_api_key" class="text-muted">Guardando: la key nueva va a reemplazar la anterior.</small>
     <button class="btn btn--primary" style="margin-top:10px" @click="saveNotif">Guardar</button>
   </div>
   <div class="card">

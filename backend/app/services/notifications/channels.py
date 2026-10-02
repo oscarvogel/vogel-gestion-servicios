@@ -40,7 +40,33 @@ def _sender_for(company: Company) -> tuple[str, str | None]:
 
 
 def _instance_for(company: Company) -> str | None:
-    return company.whatsapp_instance_id or settings.whatsapp_default_instance
+    """Instancia de la gateway. La de la empresa; la de plataforma solo con opt-in."""
+    if company.whatsapp_instance_id:
+        return company.whatsapp_instance_id
+    if company.whatsapp_use_platform_key:
+        return settings.whatsapp_default_instance
+    return None
+
+
+def _whatsapp_key_for(company: Company) -> tuple[str | None, str | None]:
+    """Devuelve (api_key, motivo_del_fallo).
+
+    La key de la empresa manda siempre. La de plataforma solo si la empresa lo pidio
+    explicitamente: sin ese opt-in, una empresa sin key propia falla en vez de mandar
+    desde el numero de otro, que es lo que el cliente recibiria sin entender de quien es.
+    """
+    from app.services import credentials
+
+    if company.whatsapp_api_key_encrypted:
+        try:
+            return credentials.decrypt(company.whatsapp_api_key_encrypted), None
+        except credentials.CredentialError as exc:
+            return None, str(exc)[:500]
+    if company.whatsapp_use_platform_key and settings.whatsapp_api_key:
+        return settings.whatsapp_api_key, None
+    if company.whatsapp_use_platform_key:
+        return None, "Usa la linea de Vogel pero la plataforma no tiene WHATSAPP_API_KEY"
+    return None, "La empresa no tiene API key de WhatsApp configurada"
 
 
 class EmailSender:
@@ -88,11 +114,12 @@ class WhatsAppSender:
     channel = WHATSAPP
 
     def send(self, db, notification: WorkOrderNotification, company: Company) -> SendResult:
-        if not settings.whatsapp_api_key:
-            return SendResult(ok=False, error="Gateway de WhatsApp sin configurar (WHATSAPP_API_KEY)")
+        api_key, motivo = _whatsapp_key_for(company)
+        if not api_key:
+            return SendResult(ok=False, error=motivo or "Sin API key de WhatsApp para la empresa")
         instance = _instance_for(company)
         if not instance:
-            return SendResult(ok=False, error="Sin instancia de WhatsApp para la empresa")
+            return SendResult(ok=False, error="La empresa no tiene instancia de WhatsApp configurada")
         phone = (notification.recipient or "").strip()
         if not phone:
             return SendResult(ok=False, error="Sin numero de WhatsApp del cliente")
@@ -114,7 +141,7 @@ class WhatsAppSender:
             response = httpx.post(
                 url,
                 json=payload,
-                headers={"x-api-key": settings.whatsapp_api_key},
+                headers={"x-api-key": api_key},
                 timeout=settings.whatsapp_timeout_seconds,
             )
         except Exception as exc:  # noqa: BLE001

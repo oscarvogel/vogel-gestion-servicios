@@ -20,24 +20,29 @@
   Origen del frontend, sin barra final. Ej: https://servicios.vogelconsultoria.com.ar
 
 .PARAMETER Expected
-  Texto que debe aparecer dentro del bundle servido. Sin este parámetro solo se
-  comprueban los puntos 3 y 4.
+  Texto que debe aparecer dentro del bundle servido, por ejemplo una clase CSS
+  ("attention-strip") o una etiqueta de la pantalla. Sin este parámetro solo se
+  comprueban los puntos 3 y 4. Funciona con acentos: el bundle se decodifica
+  como UTF-8 explícitamente. Aun así, si podés elegir un marcador ASCII es
+  más robusto ante cambios de codificación.
 
 .PARAMETER Wait
   Reintentar hasta que pase o venza el timeout, en vez de fallar en el primer intento.
 
 .EXAMPLE
-  .\scripts\verify-deploy.ps1 -Url https://servicios.vogelconsultoria.com.ar -Expected "Actividad de hoy" -Wait
+  .\scripts\verify-deploy.ps1 -Url https://servicios.vogelconsultoria.com.ar -Expected "Requieren atención" -Wait
 #>
 param(
   [Parameter(Mandatory = $true)][string]$Url,
   [string]$Expected = '',
-  [int]$TimeoutSeconds = 0,
+  [switch]$Wait,
+  [int]$TimeoutSeconds = 600,
   [int]$RetrySeconds = 20
 )
 
 $ErrorActionPreference = 'Continue'
 $Url = $Url.TrimEnd('/')
+if (-not $Wait -and $TimeoutSeconds -gt 0) { $TimeoutSeconds = 0 }
 $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
 $intentos = 0
 $fallos = @()
@@ -54,7 +59,17 @@ do {
     $js = [regex]::Match($html, 'src="([^"]+\.js)"').Groups[1].Value
     if (-not $js) { $fallos += 'el HTML no entrega un bundle .js' }
     else {
-      $bundle = (Invoke-WebRequest "$Url$js" -UseBasicParsing -TimeoutSec 45 -ErrorAction Stop).Content
+      # Ojo: Invoke-WebRequest decodifica el cuerpo con la codificacion que crea
+      # conveniente y un .js servido sin charset llega como Latin-1, asi que las
+      # tildes del bundle quedan como dos caracteres y cualquier busqueda con texto
+      # acentuado da FALSO NEGATIVO. Se baja a disco y se lee como UTF-8.
+      $tmp = Join-Path ([IO.Path]::GetTempPath()) ("vgs-bundle-" + [IO.Path]::GetRandomFileName() + ".js")
+      try {
+        Invoke-WebRequest "$Url$js" -UseBasicParsing -TimeoutSec 60 -OutFile $tmp -ErrorAction Stop
+        $bundle = [IO.File]::ReadAllText($tmp, [Text.Encoding]::UTF8)
+      } finally {
+        if (Test-Path $tmp) { Remove-Item $tmp -Force -ErrorAction SilentlyContinue }
+      }
       if ($Expected) {
         $tiene = $bundle -match [regex]::Escape($Expected)
         if (-not $tiene) { $fallos += "el bundle no contiene '$Expected'" }

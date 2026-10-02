@@ -177,6 +177,21 @@ después de un deploy porque el contenedor reinicia y contesta a medias:
 Cambiá `-Expected` por el texto que quieras ver en el bundle del issue. Sale con código 0
 si todo pasa y 1 con el detalle si no, así que sirve como paso de un pipeline.
 
+### Trampa 3: buscar texto con tilde en el bundle da falso negativo
+
+`Invoke-WebRequest` decodifica el cuerpo con la codificación que le parece conveniente, y
+un `.js` servido sin `charset` llega como Latin-1. Las tildes del bundle quedan como dos
+caracteres, así que buscar `"Requieren atención"` no matchea nunca y el script reporta
+**deploy fallido con el deploy ya hecho**.
+
+Por eso el script baja el bundle a disco y lo lee como UTF-8 explícito. Aun así, si podés
+elegir un marcador sin acentos es más robusto: por ejemplo la clase CSS `attention-strip`
+en vez de un texto de pantalla.
+
+Este falso negativo se confundió con un deploy lento y estuvo a punto de provocar una
+retroalimentación innecesaria. Cuando el loop no converge, **verificá el marcador antes de
+concluir que el deploy falló**.
+
 ## Desplegar a mano
 
 ```powershell

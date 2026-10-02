@@ -14,9 +14,32 @@ Las dos están probadas: una de ellas dejó producción caída el 2026-10-02.
 | production-backend | `mdp32brgexzlvdux7sgbllir` | `main` | 8000 |
 | staging-db (MySQL) | `diamcot1wyytezyasugd5biv` | — | 3306 |
 
-Las cuatro apps usan la red Docker `coolify` y **auto-deploy está prendido**: cualquier
-merge a `main` redespliega staging y producción sin intervención. Asumilo antes de
-mergear, no después.
+Las cuatro apps usan la red Docker `coolify`.
+
+**Auto-deploy no es igual en los dos ambientes, y la diferencia es deliberada:**
+
+| Ambiente | Despliegue |
+|---|---|
+| producción | **automático**: cualquier merge a `main` redespliega frontend y backend |
+| staging | **manual**, a pedido. No mergear a `main` con el firme de que esto se actualizó solo |
+
+Staging es el ambiente donde se prueba antes de dejar que producción se mueva sola. Un
+merge llega igual a `main`, pero **staging queda en la versión anterior hasta que se lo
+despierte a mano**. Asumirlo antes de mergear: si vas a validar en staging, el deploy es un
+paso explícito, no una consecuencia del merge.
+
+### Variables duplicadas
+
+`POST /applications/{uuid}/envs` no deduplica por clave (ver más abajo). Hoy hay duplicados
+en dos apps, ambos con el mismo valor, así que el build no se rompe, pero conviene
+borrar la sobra:
+
+- `production-frontend`: `BACKEND_INTERNAL_URL` dos veces.
+- `staging-backend`: todas las variables (`DATABASE_URL`, `JWT_SECRET`, `CORS_ORIGINS`,
+  `STAGING_*_PASSWORD`) dos veces.
+
+Cuando las dos copias tienen el **mismo** valor es inofensivo. Con valores distintos es una
+bomba: no sabés cuál gana el build.
 
 ---
 
@@ -73,15 +96,20 @@ El alias sobrevive a los deploys; el nombre del contenedor no.
 
 ---
 
-## Activar same-origin (eliminar CORS)
+## Same-origin: staging ya, producción no
 
-Hoy los dos ambientes siguen en **cross-origin**: `VITE_API_URL` es absoluta y el
-browser llama a `api.servicios.vogelconsultoria.com.ar` con otro origen. Funciona, pero
-obliga a mantener `CORS_ORIGINS` sincronizado con cada dominio nuevo.
+Estado real verificado el 2026-10-02 mirando el bundle que se sirve, no la variable:
 
-El código que hace el cambio ya está mergeado (`frontend/nginx.conf`, commit `22f8ca0`)
-y el proxy **ya está probado en los dos ambientes**. Para activarlo alcanza con **una
-sola variable**:
+| Ambiente | `VITE_API_URL` horneada | Modo |
+|---|---|---|
+| staging | `/api/v1` | same-origin |
+| producción | `https://api.servicios.vogelconsultoria.com.ar/api/v1` | cross-origin |
+
+Staging ya está migrado. **Producción sigue en cross-origin**: el browser llama a
+`api.servicios.vogelconsultoria.com.ar` con otro origen. Funciona, pero obliga a mantener
+`CORS_ORIGINS` sincronizado con cada dominio nuevo.
+
+Para activar en producción alcanza con **una sola variable**:
 
 ```bash
 # frontend de produccion
@@ -92,6 +120,16 @@ POST  /api/v1/deploy?uuid=xfupzj8gdjij23bhvzsmzwd3
 
 Sin tocar `BACKEND_INTERNAL_URL`: ya apunta al alias. No hace falta redesplegar el
 backend, y el frontend queda con la API en su mismo origen.
+
+### Ojo al verificar el modo
+
+Comprobarlo con `grep '/api/v1'` sobre el bundle **da falso positivo**: la URL absoluta
+también contiene ese texto. Hay que buscar la URL absoluta:
+
+```bash
+curl -s https://servicios.vogelconsultoria.com.ar/ | grep -oE 'src="[^"]+\.js"'
+# bajar ese .js y buscar 'https://api\.' -> cross-origin; ausente -> same-origin
+```
 
 ### Revertir
 
@@ -122,6 +160,43 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST $FRONT/api/v1/auth/login \
 ```
 
 Esa segunda prueba es la que evitó el corte, y la que omití en producción.
+
+### Script: `scripts/verify-deploy.ps1`
+
+Lo mismo automatizado, más el modo de API y con reintentos, que es lo que hace falta
+después de un deploy porque el contenedor reinicia y contesta a medias:
+
+```powershell
+# una sola vez
+.\scripts\verify-deploy.ps1 -Url https://servicios.vogelconsultoria.com.ar -Expected "Actividad de hoy"
+
+# esperando a que un deploy termine de servir (no falla al primer intento)
+.\scripts\verify-deploy.ps1 -Url https://gestion-vogel.186.5.245.12.sslip.io -Expected "Actividad de hoy" -Wait -TimeoutSeconds 600
+```
+
+Cambiá `-Expected` por el texto que quieras ver en el bundle del issue. Sale con código 0
+si todo pasa y 1 con el detalle si no, así que sirve como paso de un pipeline.
+
+## Desplegar a mano
+
+```powershell
+$tok = (Get-Content "$env:USERPROFILE\.coolify-token" -Raw).Trim()
+$h   = @{ Authorization = "Bearer $tok" }
+$api = "https://coolify.vogelconsultoria.com.ar"
+
+# Trampa 1: desanclar antes de un deploy manual
+$a = Invoke-RestMethod "$api/api/v1/applications/<uuid>" -Headers $h
+if ($a.git_commit_sha -ne 'HEAD') {
+  Invoke-RestMethod -Method Patch -Uri "$api/api/v1/applications/<uuid>" -Headers $h `
+    -ContentType 'application/json' -Body (@{ git_commit_sha = 'HEAD' } | ConvertTo-Json)
+}
+
+Invoke-RestMethod -Method Post -Uri "$api/api/v1/deploy?uuid=<uuid>&force=true" -Headers $h
+```
+
+El token vive en `%USERPROFILE%\.coolify-token` (un archivo, una línea, 51 caracteres).
+El panel no responde en ningún puerto conocido de `186.5.245.12`: se entra por
+`https://coolify.vogelconsultoria.com.ar`.
 
 ---
 

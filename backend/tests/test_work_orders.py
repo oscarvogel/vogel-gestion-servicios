@@ -1,9 +1,13 @@
+from datetime import datetime,timezone
+from zoneinfo import ZoneInfo
+
+from app.api.v1 import dashboard as dashboard_module
 from app.core.security import hash_password
 from app.models.company import Company
 from app.models.customer import Customer,Equipment,EquipmentCategory
 from app.models.role import CompanyUserRole,Permission,Role,role_permissions
 from app.models.user import CompanyUser,User
-from app.models.work_order import WorkOrderStatus
+from app.models.work_order import WorkOrder,WorkOrderStatus
 
 def setup(db,suffix):
     company=Company(name=f"OT {suffix}",slug=f"ot-{suffix}");db.add(company);db.flush()
@@ -260,3 +264,102 @@ def test_work_order_list_filters_by_received_date_range(client,db_session):
     assert future.status_code==200 and future.json()["total"]==0
     past=client.get("/api/v1/work-orders",headers=h,params={"date_to":(date.today()-2*day).isoformat()})
     assert past.status_code==200 and past.json()["total"]==0
+
+
+CORDOBA=ZoneInfo("America/Argentina/Cordoba")
+
+def _utc(day,hour,minute=0):
+    """Instante naive en UTC a partir de la hora local de la empresa, como guarda la base."""
+    return datetime(2026,10,day,hour,minute,tzinfo=CORDOBA).astimezone(timezone.utc).replace(tzinfo=None)
+
+def _make_order(client,db,headers,customer,equipment,received_at,completed_at=None,delivered_at=None):
+    created=client.post("/api/v1/work-orders",headers=headers,json={"customer_id":customer.id,"equipment_id":equipment.id,"reported_fault":"Falla reportada"})
+    assert created.status_code==201,created.text
+    row=db.get(WorkOrder,created.json()["id"])
+    row.received_at=received_at
+    if completed_at is not None: row.completed_at=completed_at
+    if delivered_at is not None: row.delivered_at=delivered_at
+    db.commit()
+    return row
+
+
+def test_dashboard_today_uses_the_company_day_not_the_utc_day(client,db_session,monkeypatch):
+    """El corte del día es la medianoche local de la empresa, no la del servidor.
+
+    Las ventanas quedan desfasadas 3 horas, así que hay órdenes dentro de una y no de
+    la otra. Los conteos correctos son 3, 1 y 2; tomar el día UTC daría 2, 2 y 1: los
+    tres números cambian, y los tres tests fallan con la implementación en UTC.
+    """
+    company,_,customer,equipment=setup(db_session,"today-tz")
+    h=login(client,"ot.today-tz@example.com",company.id)
+    # 2026-10-02T23:00Z == 2026-10-02 20:00 hora de Córdoba.
+    monkeypatch.setattr(dashboard_module,"_utcnow",lambda:datetime(2026,10,2,23,0,tzinfo=timezone.utc))
+
+    # Ingresadas: dos de la tarde/madrugada del 2 que solo existen en la ventana local
+    # (22:00 y 23:00 ya son UTC del 3) y una que solo existe en la UTC (22:00 del 1).
+    _make_order(client,db_session,h,customer,equipment,_utc(2,10))
+    _make_order(client,db_session,h,customer,equipment,_utc(2,22))
+    _make_order(client,db_session,h,customer,equipment,_utc(2,23))
+    _make_order(client,db_session,h,customer,equipment,_utc(1,22))
+    # Terminadas: una dentro del día local y otra que solo cae en el día UTC.
+    # Las dos llegaron ayer, que es lo normal para una OT que hoy se termina.
+    _make_order(client,db_session,h,customer,equipment,_utc(1,10),completed_at=_utc(2,16))
+    _make_order(client,db_session,h,customer,equipment,_utc(1,15),completed_at=_utc(1,22,30))
+    # Entregadas: una a la tarde y otra a la noche del 2, ya en UTC del 3.
+    _make_order(client,db_session,h,customer,equipment,_utc(1,9),delivered_at=_utc(2,18))
+    _make_order(client,db_session,h,customer,equipment,_utc(1,9),delivered_at=_utc(2,22,30))
+
+    body=client.get("/api/v1/dashboard/company",headers=h).json()["today"]
+    assert body["date"]=="2026-10-02",body
+    assert body["received"]==3,body
+    assert body["completed"]==1,body
+    assert body["delivered"]==2,body
+
+
+def test_dashboard_today_counts_only_the_active_company(client,db_session,monkeypatch):
+    monkeypatch.setattr(dashboard_module,"_utcnow",lambda:datetime(2026,10,2,23,0,tzinfo=timezone.utc))
+    a,_,ca,ea=setup(db_session,"today-iso-a");b,_,cb,eb=setup(db_session,"today-iso-b")
+    ha=login(client,"ot.today-iso-a@example.com",a.id);hb=login(client,"ot.today-iso-b@example.com",b.id)
+    _make_order(client,db_session,ha,ca,ea,_utc(2,10),completed_at=_utc(2,16),delivered_at=_utc(2,18))
+    _make_order(client,db_session,ha,ca,ea,_utc(2,11))
+    _make_order(client,db_session,hb,cb,eb,_utc(2,12),completed_at=_utc(2,17),delivered_at=_utc(2,19))
+    _make_order(client,db_session,hb,cb,eb,_utc(2,13),completed_at=_utc(2,18))
+
+    own=client.get("/api/v1/dashboard/company",headers=ha).json()["today"]
+    assert own=={"date":"2026-10-02","received":2,"completed":1,"delivered":1},own
+    other=client.get("/api/v1/dashboard/company",headers=hb).json()["today"]
+    assert other=={"date":"2026-10-02","received":2,"completed":2,"delivered":1},other
+
+
+def test_dashboard_today_follows_the_real_status_flow(client,db_session):
+    """Sin congelar el reloj: las fechas que estampa el flujo tienen que contar hoy."""
+    company,_,customer,equipment=setup(db_session,"today-flow")
+    h=login(client,"ot.today-flow@example.com",company.id)
+    created=client.post("/api/v1/work-orders",headers=h,json={"customer_id":customer.id,"equipment_id":equipment.id,"reported_fault":"No enciende"})
+    assert created.status_code==201,created.text
+    statuses=client.get("/api/v1/work-orders/statuses",headers=h).json()
+    today=client.get("/api/v1/dashboard/company",headers=h).json()["today"]
+    assert today["received"]==1 and today["completed"]==0 and today["delivered"]==0,today
+
+    listo=next(s for s in statuses if s["marks_completed"])
+    assert client.post(f"/api/v1/work-orders/{created.json()['id']}/status",headers=h,json={"status_id":listo["id"]}).status_code==200
+    today=client.get("/api/v1/dashboard/company",headers=h).json()["today"]
+    assert today["completed"]==1 and today["delivered"]==0,today
+
+    entregado=next(s for s in statuses if s["marks_delivered"])
+    assert client.post(f"/api/v1/work-orders/{created.json()['id']}/status",headers=h,json={"status_id":entregado["id"]}).status_code==200
+    today=client.get("/api/v1/dashboard/company",headers=h).json()["today"]
+    assert today["completed"]==1 and today["delivered"]==1,today
+
+
+def test_dashboard_today_survives_a_broken_company_timezone(client,db_session,monkeypatch):
+    """Una zona horaria inválida no puede romper el dashboard: cae a la de Córdoba."""
+    company,_,customer,equipment=setup(db_session,"today-badtz")
+    company.timezone="Marte/Olympus_Mons"
+    db_session.commit()
+    h=login(client,"ot.today-badtz@example.com",company.id)
+    monkeypatch.setattr(dashboard_module,"_utcnow",lambda:datetime(2026,10,2,23,0,tzinfo=timezone.utc))
+    _make_order(client,db_session,h,customer,equipment,_utc(2,22))
+    response=client.get("/api/v1/dashboard/company",headers=h)
+    assert response.status_code==200,response.text
+    assert response.json()["today"]=={"date":"2026-10-02","received":1,"completed":0,"delivered":0}

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import case, func
 from sqlalchemy.orm import Session
@@ -13,6 +14,38 @@ from app.models.user import CompanyUser, User
 from app.models.work_order import WorkOrder, WorkOrderStatus
 
 router = APIRouter()
+
+FALLBACK_TIMEZONE = "America/Argentina/Cordoba"
+
+
+def _utcnow() -> datetime:
+    """Reloj inyectable para que los tests fijen el instante y no dependan del reloj."""
+    return datetime.now(timezone.utc)
+
+
+def _company_zone(company: Company | None) -> ZoneInfo:
+    """Zona horaria de la empresa, cayendo a la de Córdoba si el dato no es usable."""
+    name = (getattr(company, "timezone", None) or "").strip() or FALLBACK_TIMEZONE
+    try:
+        return ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError):
+        return ZoneInfo(FALLBACK_TIMEZONE)
+
+
+def _to_utc_naive(value: datetime) -> datetime:
+    """Naive en UTC, que es como la base guarda las fechas del flujo."""
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def _day_window(zone: ZoneInfo, now_utc: datetime) -> tuple[datetime, datetime]:
+    """Ventana [start, end) del día calendario local de la empresa que contiene now_utc.
+
+    Los dos bordes son medianoche local convertidos por separado, así que un cambio
+    de horario de verano da una ventana de 23 o 25 horas y no una de 24 mal corrida.
+    """
+    local = now_utc.astimezone(zone)
+    local_start = local.replace(hour=0, minute=0, second=0, microsecond=0)
+    return _to_utc_naive(local_start), _to_utc_naive(local_start + timedelta(days=1))
 
 
 @router.get("/company")
@@ -65,7 +98,14 @@ def company_dashboard(
     awaiting_quote = sum(int(r.count) for r in rows if r.marks_awaiting_quote_approval)
     quoted = sum(int(r.count) for r in rows if r.marks_quoted)
 
-    now = datetime.now()
+    # "Hoy" y los cortes de semana se calculan en la zona horaria de la empresa: las
+    # fechas del flujo están guardadas en UTC naive y comparar contra la hora del
+    # servidor correría el corte del día y de la semana.
+    zone = _company_zone(db.get(Company, company_id))
+    now_utc = _utcnow()
+    now = _to_utc_naive(now_utc)
+    day_start, day_end = _day_window(zone, now_utc)
+    local_today = now_utc.astimezone(zone)
     open_orders = (
         db.query(WorkOrder.received_at)
         .outerjoin(status, WorkOrder.status_id == status.id)
@@ -84,11 +124,12 @@ def company_dashboard(
         elif days <= 15: aging["8_15"] += 1
         else: aging["16_plus"] += 1
 
-    week_start = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+    week_start = (local_today - timedelta(days=local_today.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
     trend = []
     for offset in range(7, -1, -1):
-        start = week_start - timedelta(weeks=offset)
-        end = start + timedelta(weeks=1)
+        local_start = week_start - timedelta(weeks=offset)
+        start = _to_utc_naive(local_start)
+        end = _to_utc_naive(local_start + timedelta(weeks=1))
         received = db.query(func.count(WorkOrder.id)).filter(
             WorkOrder.company_id == company_id, WorkOrder.received_at >= start, WorkOrder.received_at < end,
         ).scalar() or 0
@@ -96,7 +137,7 @@ def company_dashboard(
             WorkOrder.company_id == company_id, WorkOrder.completed_at.isnot(None),
             WorkOrder.completed_at >= start, WorkOrder.completed_at < end,
         ).scalar() or 0
-        trend.append({"label": start.strftime("%d/%m"), "received": int(received), "finished": int(finished)})
+        trend.append({"label": local_start.strftime("%d/%m"), "received": int(received), "finished": int(finished)})
 
     resolution_days = [
         (completed_at - received_at).total_seconds() / 86400
@@ -105,6 +146,24 @@ def company_dashboard(
         if completed_at >= received_at
     ]
     avg_resolution_days = round(sum(resolution_days) / len(resolution_days), 1) if resolution_days else None
+
+    def _count_in_day(column) -> int:
+        # Comparar contra la ventana excluye los NULL, así que una OT sin fecha de
+        # finalización o entrega no cuenta como terminada ni entregada hoy.
+        return int(
+            db.query(func.count(WorkOrder.id))
+            .filter(WorkOrder.company_id == company_id, column >= day_start, column < day_end)
+            .scalar()
+            or 0
+        )
+
+    today = {
+        "date": local_today.date().isoformat(),
+        "received": _count_in_day(WorkOrder.received_at),
+        "completed": _count_in_day(WorkOrder.completed_at),
+        "delivered": _count_in_day(WorkOrder.delivered_at),
+    }
+
     attention = {
         "older_than_15_days": aging["16_plus"],
         "awaiting_quote_approval": awaiting_quote,
@@ -159,6 +218,7 @@ def company_dashboard(
         },
         "aging": aging,
         "trend": trend,
+        "today": today,
         "avg_resolution_days": avg_resolution_days,
         "attention": attention,
         "recent_work_orders": recent_work_orders,

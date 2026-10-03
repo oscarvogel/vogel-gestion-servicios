@@ -4,9 +4,10 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, inspect, text
 
-HEAD_REVISION = "20261003_0019"
+HEAD_REVISION = "20261003_0020"
 REVISION_BEFORE_EQUIPMENT_CATEGORIES = "20260925_0003"
 REVISION_EQUIPMENT_CATEGORIES = "20260925_0004"
+REVISION_BEFORE_ADMIN_BACKFILL = "20261003_0019"
 
 
 def _alembic_config(database_path: Path) -> Config:
@@ -76,6 +77,42 @@ def _unstamp_revision(database_path: Path, revision: str) -> None:
             connection.execute(
                 text("UPDATE alembic_version SET version_num = :revision"), {"revision": revision}
             )
+    finally:
+        engine.dispose()
+
+
+def _seed_admin_con_permisos_de_0003_y_0005(database_path: Path) -> None:
+    """Una empresa con su Administrador en el estado en que lo dejaron esas migraciones.
+
+    Es el estado real de producción: el rol existe, tiene los seis permisos que 0003 y 0005
+    le dieron a los Administradores de ese momento, y no tiene los del núcleo. Nadie
+    lo completó después, porque al arrancar no se completa nada.
+    """
+    engine = create_engine(f"sqlite:///{database_path}")
+    try:
+        with engine.begin() as connection:
+            connection.execute(text("INSERT INTO companies (id, name) VALUES (1, 'Traid Walter')"))
+            connection.execute(
+                text(
+                    "INSERT INTO roles (id, company_id, name, is_system, active)"
+                    " VALUES (1, 1, 'Administrador', 0, 1)"
+                )
+            )
+            for code in (
+                "customers.view",
+                "customers.manage",
+                "equipment.view",
+                "equipment.manage",
+                "work_orders.view",
+                "work_orders.manage",
+            ):
+                pid = connection.execute(
+                    text("SELECT id FROM permissions WHERE code = :code"), {"code": code}
+                ).scalar()
+                connection.execute(
+                    text("INSERT INTO role_permissions (role_id, permission_id) VALUES (1, :pid)"),
+                    {"pid": pid},
+                )
     finally:
         engine.dispose()
 
@@ -219,6 +256,80 @@ def test_migrations_insert_every_permission_in_the_code_catalog(monkeypatch, tmp
         "estos permisos del catalogo de codigo no los inserta ninguna migracion, "
         f"asi que require_permission() devuelve 403 en un ambiente real: {faltan}"
     )
+
+
+def test_migration_0020_completa_los_permisos_del_administrador_incompleto(
+    monkeypatch, tmp_path
+):
+    """Un Administrador de empresa no puede quedar con la mitad de los permisos.
+
+    Este test arma el estado que se encontró en producción: un Administrador con los permisos
+    que las migraciones 0003 y 0005 le dieron en su momento, y sin los del núcleo. En
+    `Traid Walter` eso son 7 permisos de 18, o sea que el administrador de la empresa no
+    puede administrar usuarios ni ver roles.
+
+    Lo que fija la migración 0020 es que el Administrador de empresa termine con **todo** el
+    catálogo, que es lo que `_grant_all_company_permissions` ya le da al Administrador de
+    cada empresa nueva. Si este test falla, o el backfill no corrió, o a algún rol le
+    faltaron permisos.
+    """
+    from app.core.permissions import permission_codes
+
+    database_path = tmp_path / "admin-a-medias.sqlite3"
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{database_path}")
+    config = _alembic_config(database_path)
+
+    # Estado previo a la 0020, con el Administrador como lo dejó la historia.
+    command.upgrade(config, REVISION_BEFORE_ADMIN_BACKFILL)
+    _seed_admin_con_permisos_de_0003_y_0005(database_path)
+
+    engine = create_engine(f"sqlite:///{database_path}")
+    try:
+        with engine.connect() as connection:
+            antes = sorted(
+                r[0]
+                for r in connection.execute(
+                    text(
+                        "SELECT p.code from role_permissions rp"
+                        " join permissions p on p.id = rp.permission_id"
+                        " where rp.role_id = 1"
+                    )
+                ).fetchall()
+            )
+    finally:
+        engine.dispose()
+    assert "users.manage" not in antes, "el seed deberia reproducir el rol incompleto"
+    assert "users.create" not in antes, "el seed deberia reproducir el rol incompleto"
+
+    command.upgrade(config, "head")
+
+    engine = create_engine(f"sqlite:///{database_path}")
+    try:
+        with engine.connect() as connection:
+            despues = sorted(
+                r[0]
+                for r in connection.execute(
+                    text(
+                        "SELECT p.code from role_permissions rp"
+                        " join permissions p on p.id = rp.permission_id"
+                        " where rp.role_id = 1"
+                    )
+                ).fetchall()
+            )
+            revision = connection.execute(
+                text("SELECT version_num FROM alembic_version")
+            ).scalar_one()
+    finally:
+        engine.dispose()
+
+    # Primero los permisos, que es lo que importa: si la 0020 no corrio, este assert tiene que
+    # ser el que falla y decir que permisos faltan, no el de la revision de abajo.
+    faltan = sorted(set(permission_codes()) - set(despues))
+    assert not faltan, (
+        "el Administrador de empresa quedo sin estos permisos del catalogo, o sea que el "
+        f"admin de la empresa no puede usarlos: {faltan}"
+    )
+    assert revision == HEAD_REVISION
 
 
 def test_migration_0004_does_not_duplicate_categories_when_column_survives(monkeypatch, tmp_path):

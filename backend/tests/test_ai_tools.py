@@ -250,7 +250,7 @@ def test_el_modelo_pide_la_herramienta_y_el_resultado_vuelve_al_modelo(client, d
     assert cuerpo["ok"] is True
     # La respuesta final es texto, y el modelo recibio de verdad el resultado.
     assert cuerpo["text"] == "Respuesta de prueba del proveedor simulado."
-    assert cuerpo["tool_calls"] == [{"name": "buscar_cliente", "ok": True, "error": None}]
+    assert cuerpo["tool_calls"] == [{"name": "buscar_cliente", "ok": True, "error": None, "repetida": False}]
     # El segundo complete() llevo el mensaje de la herramienta con el dato adentro.
     ultimo = provider.calls[-1]
     mensaje_tool = [m for m in ultimo if m.role == ROLE_TOOL]

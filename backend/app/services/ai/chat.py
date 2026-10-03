@@ -12,6 +12,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app.services.ai.answer import construir_ficha, estados_de_la_empresa, sanear
 from app.services.ai.entitlement import (
     is_enabled,
     monthly_quota_usd,
@@ -59,6 +60,13 @@ class AiOutcome:
     # Herramientas que se ejecutaron en esta conversacion, en orden, con su motivo si
     # fallaron. La UI los puede mostrar y el operador puede ver que se leyo algo de su base.
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
+    # Los datos, armados por el servidor. Es la fuente autoritativa de la respuesta.
+    ficha: dict[str, Any] = field(default_factory=dict)
+    # Si se pidió usar herramientas y el modelo no consultó ninguna. Sin esto, una respuesta
+    # sin ficha parece igual que una con ficha, y el operador no tiene cómo distinguirla.
+    consulto: bool = False
+    # True cuando el texto del modelo tenía datos y se reemplazó por la frase neutra.
+    texto_saneado: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -71,6 +79,9 @@ class AiOutcome:
             "detail": self.detail,
             "usage": self.usage,
             "tool_calls": self.tool_calls,
+            "ficha": self.ficha,
+            "consulto": self.consulto,
+            "texto_saneado": self.texto_saneado,
         }
 
 
@@ -167,7 +178,31 @@ def _conversar(
     venir vacia: es preferible una respuesta incompleta a un request colgado.
     """
     ejecutadas: list[dict[str, Any]] = []
+    resultados_herramientas: list[tuple[str, Any]] = []
     ultima: LlmResponse | None = None
+    estados: set[str] = set()
+    # El modelo puede pedir la misma herramienta con los mismos argumentos varias vueltas
+    # seguidas. Se responde con el resultado ya calculado en vez de volver a pegarle a la
+    # base: sale mas barato y, sobre todo, la ficha no se llena de copias del mismo bloque.
+    ya_calculado: dict[str, Any] = {}
+    if contexto is not None:
+        estados = estados_de_la_empresa(db, company_id)
+
+    def _salir(respuesta: LlmResponse) -> AiOutcome:
+        """Arma la respuesta final: ficha del servidor y texto del modelo ya saneado."""
+        ficha = construir_ficha(resultados_herramientas)
+        texto, saneado = sanear(respuesta.text, estados)
+        return AiOutcome(
+            ok=True,
+            status=DISPONIBLE,
+            text=texto,
+            provider=respuesta.provider,
+            model=respuesta.model,
+            tool_calls=ejecutadas,
+            ficha=ficha.as_dict(),
+            consulto=bool(ejecutadas),
+            texto_saneado=saneado,
+        )
 
     for _vuelta in range(MAX_VUELTAS_HERRAMIENTAS):
         try:
@@ -204,14 +239,7 @@ def _conversar(
         if not respuesta.wants_tools or contexto is None:
             record(db, company_id, respuesta.provider, respuesta.model, operation,
                    user_id=user_id, response=respuesta, status=OK)
-            return AiOutcome(
-                ok=True,
-                status=DISPONIBLE,
-                text=respuesta.text,
-                provider=respuesta.provider,
-                model=respuesta.model,
-                tool_calls=ejecutadas,
-            )
+            return _salir(respuesta)
 
         # El pedido de herramientas se registra por separado, con su propia operacion: el
         # gasto de una vuelta que todavia no termino tiene que poder atribuirse.
@@ -227,10 +255,21 @@ def _conversar(
         ]
 
         for llamada in respuesta.tool_calls:
-            resultado = ejecutar(llamada.name, llamada.arguments, contexto)
+            clave = llamada.name + "\x00" + llamada.arguments_json
+            repetida = clave in ya_calculado
+            if repetida:
+                resultado = ya_calculado[clave]
+            else:
+                resultado = ejecutar(llamada.name, llamada.arguments, contexto)
+                ya_calculado[clave] = resultado
             ejecutadas.append(
-                {"name": llamada.name, "ok": resultado.ok, "error": resultado.error_code}
+                {"name": llamada.name, "ok": resultado.ok, "error": resultado.error_code,
+                 "repetida": repetida}
             )
+            # Solo entra en la ficha la primera vez: si se repite, la ficha mostraria el
+            # mismo bloque dos veces.
+            if not repetida and resultado.ok and resultado.data is not None:
+                resultados_herramientas.append((llamada.name, resultado.data))
             # Cada herramienta queda registrada por separado: el acumulado tiene que poder
             # atribuir el gasto a la herramienta y no solo a la conversacion.
             record(
@@ -249,11 +288,14 @@ def _conversar(
 
     # Se agoto el tope de vueltas. Se devuelve lo que haya, que puede ser una respuesta sin
     # texto si el modelo solo vino pidiendo herramientas.
+    if ultima is not None:
+        return _salir(ultima)
     return AiOutcome(
         ok=True,
         status=DISPONIBLE,
-        text=ultima.text if ultima else "",
-        provider=ultima.provider if ultima else provider.name,
-        model=ultima.model if ultima else provider.model_id(),
+        provider=provider.name,
+        model=provider.model_id(),
         tool_calls=ejecutadas,
+        ficha=construir_ficha(resultados_herramientas).as_dict(),
+        consulto=bool(ejecutadas),
     )

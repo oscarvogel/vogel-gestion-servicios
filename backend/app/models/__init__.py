@@ -1,3 +1,4 @@
+from app.models.ai_usage import AiUsage
 from app.models.company import Company, CompanyParameter, ParameterDefinition
 from app.models.customer import Customer, Equipment, EquipmentCategory
 from app.models.equipment_document import EquipmentDocument
@@ -8,7 +9,7 @@ from app.models.work_order_quote import WorkOrderDiagnosis, WorkOrderQuote, Work
 from app.models.work_order_import import WorkOrderImportBatch, WorkOrderImportRow
 
 __all__ = [
-    "Company", "CompanyParameter", "ParameterDefinition", "Customer", "Equipment", "EquipmentCategory",
+    "AiUsage", "Company", "CompanyParameter", "ParameterDefinition", "Customer", "Equipment", "EquipmentCategory",
     "EquipmentDocument", "CompanyUser", "CompanyUserRole", "Permission", "Role", "User", "role_permissions",
     "WorkOrder", "WorkOrderCounter", "WorkOrderEvent", "WorkOrderEvidence", "WorkOrderStatus",
     "WorkOrderDiagnosis", "WorkOrderQuote", "WorkOrderQuoteItem", "WorkOrderImportBatch", "WorkOrderImportRow",

@@ -50,6 +50,22 @@ class Settings(BaseSettings):
     # Tope de tamaño por archivo, en MB. Se valida antes de leer, no despues.
     storage_max_file_mb: int = 25
 
+    # --- Modulo IA (#44) ---
+    # La API key vive solo en el backend. Sin ella el sistema sigue andando: la IA
+    # queda 'no disponible' y el resto de la app no se enteran.
+    ai_provider: str = "minimax"
+    minimax_api_key: str | None = None
+    minimax_base_url: str = "https://api.minimax.io/v1"
+    # El nombre del modelo es case-sensitive en MiniMax: MiniMax-M3, con las dos M.
+    minimax_model: str = "MiniMax-M3"
+    ai_timeout_seconds: float = 30.0
+    ai_max_tokens: int = 1024
+    ai_fallback_model: str = "simulado"
+    # Precios por millon de tokens, para estimar el costo del adicional. Es estimacion:
+    # el precio real es el de la factura del proveedor.
+    ai_price_input_per_million_usd: float = 0.30
+    ai_price_output_per_million_usd: float = 1.20
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @property

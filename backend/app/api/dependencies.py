@@ -118,6 +118,23 @@ def user_has_permission(db: Session, user: User, company_id: int, permission_cod
     return permission_code in _user_permissions_for_company(db, user.id, company_id)
 
 
+def effective_permissions(db: Session, user: User, company_id: int) -> frozenset[str]:
+    """Los permisos que el usuario tiene **de hecho** en esa empresa.
+
+    Es el mismo calculo que hace `require_permission`, pero devuelve el conjunto entero en vez
+    de responder una pregunta de si/no. Lo necesita el modulo de IA, que tiene que saber que
+    herramientas puede ofrecerle al modelo: ofrecerle una que va a negarse es hacer perder
+    un turno al operador.
+
+    SuperAdmin tiene todo el catalogo, igual que pasa en `require_permission`.
+    """
+    from app.core.permissions import permission_codes
+
+    if user.is_superadmin:
+        return frozenset(permission_codes())
+    return frozenset(_user_permissions_for_company(db, user.id, company_id))
+
+
 def require_permission(permission_code: str):
     """Dependencia que valida membresía + permiso a nivel empresa.
 

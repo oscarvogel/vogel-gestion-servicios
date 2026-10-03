@@ -8,6 +8,7 @@ import IconCompanies from "./IconCompanies.vue";
 import IconUsers from "./IconUsers.vue";
 import IconRoles from "./IconRoles.vue";
 import IconSettings from "./IconSettings.vue";
+import IconAssistant from "./IconAssistant.vue";
 
 defineProps<{ open?: boolean }>();
 const emit = defineEmits<{ (e: "close"): void }>();
@@ -86,6 +87,15 @@ const links = computed<NavLink[]>(() => {
       to: "/app/work-order-statuses",
       icon: IconSettings,
       visible: session.activeCompany !== null && (platform || session.activeCompany?.is_admin === true),
+    },
+    {
+      id: "assistant",
+      label: "Asistente",
+      to: "/app/assistant",
+      icon: IconAssistant,
+      // Solo se ve con el permiso del modulo. Sin el, la ruta tambien responde 403, pero
+      // mejor que el enlace ni exista.
+      visible: session.activeCompany !== null && session.hasPermission("ai.use"),
     },
     {
       id: "settings",

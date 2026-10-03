@@ -96,6 +96,56 @@ El alias sobrevive a los deploys; el nombre del contenedor no.
 
 ---
 
+## Trampa 3: una variable duplicada con otro valor es una bomba de reloj
+
+En producción había **dos `JWT_SECRET`**, mismo nombre y **valores distintos** (96 caracteres
+cada uno). Coolify deduplica al armar el contenedor y gana el primero, así que la aplicación
+funcionaba y ningún síntoma lo delataba.
+
+El problema es qué pasa el día que ese primero se borra, se reordena o lo edita alguien: **el
+secreto cambia en silencio y mueren todas las sesiones y todos los tokens emitidos**, sin error
+visible en el arranque.
+
+Cómo se limpia sin romper nada:
+
+1. Leer el valor **vivo** del contenedor, no del panel:
+   ```bash
+   docker inspect <contenedor> --format '{{range .Config.Env}}{{println .}}{{end}}' | grep '^JWT_SECRET='
+   ```
+2. Borrar la otra copia: `DELETE /applications/{uuid}/envs/{env_uuid}`.
+3. Redesplegar y **volver a leer `docker inspect`**: si el secreto vivo cambió, se revierte.
+
+En staging había dos `JWT_SECRET` pero **con el mismo valor**: duplicado inofensivo, aunque
+también se limpió.
+
+Y una observación que conviene tener a mano: casi todas las variables de estos backends están
+marcadas `is_buildtime=true`. Para una credencial eso no es menor — el valor queda horneado en
+la imagen. Las dos que importan (`CREDENTIALS_ENCRYPTION_KEY` y `MINIMAX_API_KEY`) están
+como **runtime**, una sola copia, verificado.
+
+---
+
+## Trampa 4: un filtro sobre un campo que no existe devuelve vacío, no error
+
+La API de Coolify no valida los nombres de campo en un filtro: si preguntás por uno que no
+existe, devuelve **lista vacía sinNINGún error**, y eso se lee como "la variable no está".
+
+Pasó dos veces el mismo día, con dos campos distintos:
+
+| Lo que se buscó | Campo real | Cómo se lee mal |
+|---|---|---|
+| `$envs \| Where-Object { $_.name -eq 'MINIMAX_API_KEY' }` | `key` | "0 copias, no está cargada" |
+| `$deps \| Where-Object { $_.application_uuid -eq $u }` | `application_name` | "nada en cola, deploy terminado" |
+
+La segunda dejó dos deploys **en `queued` durante 10 minutos** creyendo que ya habían
+terminado.
+
+La forma de no caer: cuando el resultado de un filtro sea "no hay nada", confirmar una vez que
+el campo existe. Si un objeto viene con el nombre vacío o con la forma distinta de lo esperado,
+eso es la señal.
+
+---
+
 ## Same-origin: staging ya, producción no
 
 Estado real verificado el 2026-10-02 mirando el bundle que se sirve, no la variable:
@@ -234,3 +284,17 @@ El panel no responde en ningún puerto conocido de `186.5.245.12`: se entra por
   `DELETE /applications/{uuid}/envs/{env_uuid}`. Duplicados con valores distintos son
   una bomba: no sabés cuál gana el build.
 - Para borrar: el `env_uuid` va en el path, no como query param.
+- **`PATCH /applications/{uuid}/envs/{env_uuid}` no existe en la v4.3.23** (404). No se
+  puede corregir una variable en el sitio: ni cambiarle el valor ni sacarle el
+  `is_buildtime`. La única vía es **borrarla y crearla de nuevo**. Por eso, si algo está
+  mal, **capturá el valor antes de borrar**: si el POST posterior falla, la variable
+  desaparece y no se recupera de los contenedores (la variable no está en
+  `docker inspect`; solo estaría horneada en la imagen, y las imágenes viejas ya no están).
+- El listado de deployments usa `application_name` y `application_id`. **No existe
+  `application_uuid`** (ver Trampa 4).
+- Los deploys se **encolan por servidor**: si otra app del mismo servidor está
+  desplegando, el tuyo queda `queued` sin avanzar y sin error. `queued` durante diez
+  minutos no es un deploy trabado: es cola. Los logs del deployment te dicen si el tuyo
+  está girando.
+- Un deploy disparado por la API puede tardar bastante si el build usa nixpacks: la
+  primera parte descarga el store de Nix y sola se come varios minutos.

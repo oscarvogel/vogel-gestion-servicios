@@ -32,6 +32,7 @@ PERMISSIONS: tuple[PermissionDef, ...] = (
     PermissionDef("equipment.manage", "equipment", "Crear y editar equipos"),
     PermissionDef("work_orders.view", "work_orders", "Ver órdenes de trabajo"),
     PermissionDef("work_orders.manage", "work_orders", "Crear y gestionar órdenes de trabajo"),
+    PermissionDef("ai.use", "inteligencia artificial", "Usar el asistente IA"),
 )
 
 

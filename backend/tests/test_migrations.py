@@ -4,7 +4,7 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, inspect, text
 
-HEAD_REVISION = "20261002_0017"
+HEAD_REVISION = "20261002_0018"
 REVISION_BEFORE_EQUIPMENT_CATEGORIES = "20260925_0003"
 REVISION_EQUIPMENT_CATEGORIES = "20260925_0004"
 

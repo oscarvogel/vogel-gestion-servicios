@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.api.v1 import (
+    ai,
     auth,
     companies,
     company_parameters,
@@ -15,6 +16,7 @@ from app.api.v1 import (
 )
 
 router = APIRouter()
+router.include_router(ai.router, prefix="", tags=["ai"])
 router.include_router(auth.router, prefix="/auth", tags=["auth"])
 router.include_router(companies.router, prefix="/companies", tags=["companies"])
 router.include_router(company_parameters.router, prefix="/company-parameters", tags=["company-parameters"])

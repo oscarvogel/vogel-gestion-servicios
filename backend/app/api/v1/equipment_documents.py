@@ -193,6 +193,23 @@ def upload_document(
     return _read(row)
 
 
+@router.get("/work-orders/{work_order_id}/documents", response_model=DocumentList)
+def list_order_documents(work_order_id:int,include_deleted:bool=False,
+                         company_id:int=Depends(get_current_company_id),
+                         _actor:User=Depends(require_permission("work_orders.view")),db:Session=Depends(get_db)):
+    """Documentos adjuntos a esta orden. Un documento con work_order_id null cuelga
+    solo del equipo y no aparece aca: no se genero en el contexto de esta orden."""
+    order=db.query(WorkOrder).filter_by(id=work_order_id,company_id=company_id).first()
+    if order is None: raise HTTPException(404,"Orden de trabajo no encontrada.")
+    query=db.query(EquipmentDocument).filter(
+        EquipmentDocument.company_id==company_id,
+        EquipmentDocument.work_order_id==order.id,
+    )
+    if not include_deleted: query=query.filter(EquipmentDocument.deleted_at.is_(None))
+    rows=query.order_by(EquipmentDocument.created_at.desc(),EquipmentDocument.id.desc()).all()
+    return {"items":[_read(r) for r in rows],"total":len(rows)}
+
+
 @router.get("/documents/{document_id}/download")
 def download_document(
     document_id: int,

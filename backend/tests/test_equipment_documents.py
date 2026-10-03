@@ -243,3 +243,43 @@ def test_editar_la_descripcion(client, db_session, storage_temporal):
     r = client.patch(f"/api/v1/documents/{doc_id}", headers=headers, json={"description": "Ajustado"})
     assert r.status_code == 200
     assert r.json()["description"] == "Ajustado"
+
+
+def test_documentos_de_la_orden_solo_los_adjuntados_a_ella(client, db_session, storage_temporal):
+    company, user, customer, equipment = setup(db_session, "doc-otdocs")
+    headers = login(client, "ot.doc-otdocs@example.com", company.id)
+    ot = client.post("/api/v1/work-orders", headers=headers, json={
+        "customer_id": customer.id, "equipment_id": equipment.id, "reported_fault": "F"}).json()
+
+    # Del equipo solamente: no aparece en la orden, porque no se genero ahi.
+    _subir(client, headers, equipment.id, nombre="del-equipo.jpg")
+    assert client.get(f"/api/v1/work-orders/{ot['id']}/documents", headers=headers).json()["total"] == 0
+
+    # Adjunto a la orden: si aparece, y con el work_order_id puesto.
+    adjunto = _subir(client, headers, equipment.id, nombre="de-la-orden.jpg", work_order_id=ot["id"]).json()
+    assert adjunto["work_order_id"] == ot["id"]
+    listado = client.get(f"/api/v1/work-orders/{ot['id']}/documents", headers=headers).json()
+    assert listado["total"] == 1
+    assert listado["items"][0]["original_filename"] == "de-la-orden.jpg"
+
+    # Y el equipo los muestra a los dos.
+    assert client.get(f"/api/v1/equipment/{equipment.id}/documents", headers=headers).json()["total"] == 2
+    # Filtrando por orden tambien desde el equipo.
+    filtrado = client.get(f"/api/v1/equipment/{equipment.id}/documents?work_order_id={ot['id']}", headers=headers).json()
+    assert filtrado["total"] == 1
+
+
+def test_documentos_de_otra_orden_no_se_ven(client, db_session, storage_temporal):
+    company, user, customer, equipment = setup(db_session, "doc-otdocs2")
+    headers = login(client, "ot.doc-otdocs2@example.com", company.id)
+    a = client.post("/api/v1/work-orders", headers=headers, json={
+        "customer_id": customer.id, "equipment_id": equipment.id, "reported_fault": "A"}).json()
+    b = client.post("/api/v1/work-orders", headers=headers, json={
+        "customer_id": customer.id, "equipment_id": equipment.id, "reported_fault": "B"}).json()
+    _subir(client, headers, equipment.id, nombre="de-a.jpg", work_order_id=a["id"])
+    assert client.get(f"/api/v1/work-orders/{b['id']}/documents", headers=headers).json()["total"] == 0
+    assert client.get(f"/api/v1/work-orders/{a['id']}/documents", headers=headers).json()["total"] == 1
+
+    otra, _, _, _ = setup(db_session, "doc-otdocs2-b")
+    h2 = login(client, "ot.doc-otdocs2-b@example.com", otra.id)
+    assert client.get(f"/api/v1/work-orders/{a['id']}/documents", headers=h2).status_code == 404

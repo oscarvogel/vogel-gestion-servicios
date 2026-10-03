@@ -4,7 +4,7 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, inspect, text
 
-HEAD_REVISION = "20261002_0018"
+HEAD_REVISION = "20261003_0019"
 REVISION_BEFORE_EQUIPMENT_CATEGORIES = "20260925_0003"
 REVISION_EQUIPMENT_CATEGORIES = "20260925_0004"
 
@@ -188,6 +188,37 @@ def test_migration_0004_resumes_when_revision_was_not_stamped(monkeypatch, tmp_p
         engine.dispose()
 
     _assert_schema_matches_clean_upgrade(monkeypatch, tmp_path, database_path)
+
+
+def test_migrations_insert_every_permission_in_the_code_catalog(monkeypatch, tmp_path):
+    """Todo permiso del catalogo de codigo tiene que existir despues de migrar.
+
+    Este es el test que faltaba. Los fixtures de `conftest.py` arman los permisos desde
+    `app/core/permissions.py`, no desde las migraciones, asi que un permiso agregado al
+    catalogo y olvidado en la migracion pasaba los 137 tests y en un ambiente desplegado
+    daba 403 en todos los endpoints que lo exigen. Paso con `ai.use`: la 0018 creo la tabla
+    de uso y los parametros, pero no inserto el permiso.
+    """
+    from app.core.permissions import permission_codes
+
+    database_path = tmp_path / "catalogo-vs-migraciones.sqlite3"
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{database_path}")
+    command.upgrade(_alembic_config(database_path), "head")
+
+    engine = create_engine(f"sqlite:///{database_path}")
+    try:
+        with engine.connect() as connection:
+            en_la_base = set(
+                connection.execute(text("SELECT code FROM permissions")).scalars().all()
+            )
+    finally:
+        engine.dispose()
+
+    faltan = sorted(set(permission_codes()) - en_la_base)
+    assert not faltan, (
+        "estos permisos del catalogo de codigo no los inserta ninguna migracion, "
+        f"asi que require_permission() devuelve 403 en un ambiente real: {faltan}"
+    )
 
 
 def test_migration_0004_does_not_duplicate_categories_when_column_survives(monkeypatch, tmp_path):

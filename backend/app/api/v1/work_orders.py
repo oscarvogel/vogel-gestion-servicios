@@ -9,6 +9,7 @@ from app.models.customer import Customer,Equipment,EquipmentCategory
 from app.models.user import User
 from app.models.work_order import WorkOrder,WorkOrderCounter,WorkOrderEvent,WorkOrderNotification,WorkOrderStatus
 from app.services import credentials
+from app.services import work_orders as wo_service
 from app.services.notifications.enqueue import dispatch,enqueue_for_event,plan_for_event
 
 router=APIRouter()
@@ -144,19 +145,18 @@ def list_orders(search:str|None=None,status_id:list[int]|None=Query(None),custom
 
 @router.post("",response_model=WorkOrderRead,status_code=status.HTTP_201_CREATED)
 def create_order(payload:WorkOrderInput,company_id:int=Depends(get_current_company_id),actor:User=Depends(require_permission("work_orders.manage")),db:Session=Depends(get_db)):
-    customer=db.query(Customer).filter_by(id=payload.customer_id,company_id=company_id,active=True).first()
-    equipment=db.query(Equipment).filter_by(id=payload.equipment_id,customer_id=payload.customer_id,company_id=company_id,active=True).first()
-    if not customer: raise HTTPException(422,"El cliente no pertenece a esta empresa o está inactivo.")
-    if not equipment: raise HTTPException(422,"El equipo no pertenece al cliente y empresa activos.")
+    # La creacion vive en el servicio: las propuestas de la IA escriben por el mismo camino,
+    # y no puede haber dos reglas de numeracion o de estado inicial.
     try:
-        number=_next_number(db,company_id)
-        initial=db.query(WorkOrderStatus).filter_by(company_id=company_id,is_initial=True,active=True).order_by(WorkOrderStatus.sort_order).first()
-        row=WorkOrder(company_id=company_id,number=number,received_by_user_id=actor.id,status="RECEIVED",status_id=initial.id if initial else None,**payload.model_dump())
-        db.add(row);db.flush()
-        db.add(WorkOrderEvent(company_id=company_id,work_order_id=row.id,event_type="RECEPTION",status="RECEIVED",detail="Equipo recibido y orden de trabajo generada.",user_id=actor.id))
-        db.commit();db.refresh(row);return _read(db,row)
+        row=wo_service.crear_orden(db,company_id=company_id,user_id=actor.id,**payload.model_dump())
+    except wo_service.ErrorDeDominio as exc:
+        db.rollback();raise HTTPException(exc.status_http,exc.mensaje)
+    try:
+        db.commit()
     except Exception:
         db.rollback();raise
+    db.refresh(row)
+    return _read(db,row)
 
 class NotificationSettingsInput(BaseModel):
     whatsapp_instance_id:str|None=Field(default=None,max_length=80)
@@ -311,47 +311,20 @@ def notification_variables(_actor:User=Depends(require_permission("work_orders.v
 
 @router.post("/{work_order_id}/status",response_model=WorkOrderRead)
 def change_status(work_order_id:int,payload:StatusChange,company_id:int=Depends(get_current_company_id),actor:User=Depends(require_permission("work_orders.manage")),db:Session=Depends(get_db)):
-    row=_row(db,company_id,work_order_id)
-    if _is_final(db,row): raise HTTPException(409,"La orden de trabajo está en un estado final (entregada) y no puede cambiar de estado.")
-    target=db.query(WorkOrderStatus).filter_by(id=payload.status_id,company_id=company_id,active=True).first()
-    if not target: raise HTTPException(422,"El estado no pertenece a esta empresa o está inactivo.")
-    previous=db.get(WorkOrderStatus,row.status_id) if row.status_id else None
-    if row.status_id==target.id:return _read(db,row)
-    row.status_id=target.id
-    row.status=target.name.upper().replace(" ","_")[:30]
-    now=datetime.utcnow()
-    lifecycle=[]
-    if target.marks_completed and row.completed_at is None:
-        row.completed_at=now
-        lifecycle.append("Se registró la finalización técnica.")
-    if target.marks_delivered and row.delivered_at is None:
-        row.delivered_at=now
-        lifecycle.append("Se registró la entrega real al cliente.")
-    detail=f"Estado cambiado de {previous.name if previous else 'sin estado'} a {target.name}."
-    if lifecycle:
-        detail+=" "+" ".join(lifecycle)
-    if payload.note and payload.note.strip():
-        detail+=f" Observación: {payload.note.strip()}"
-    event=WorkOrderEvent(company_id=company_id,work_order_id=row.id,event_type="STATUS_CHANGE",status=row.status,detail=detail,user_id=actor.id)
-    db.add(event)
-    db.flush()
-    # El aviso al cliente se encola en un savepoint: si encolar falla, se revierte solo
-    # el encolado y el cambio de estado sigue intacto. El commit de abajo guarda estado,
-    # evento y cola juntos, asi que si el proceso muere no se pierde nada. El envio va
-    # despues del commit y jamas puede hacer fallar el request.
-    queued=[]
-    company=db.get(Company,company_id)
-    if company is not None:
-        try:
-            with db.begin_nested():
-                overrides={k:v.model_dump() for k,v in (payload.notification_overrides or {}).items()}
-                queued=enqueue_for_event(db,company,row,event,status=target,previous_status=previous,overrides=overrides)
-        except Exception:
-            queued=[]
+    # Igual que la creacion: la transicion y el aviso al cliente viven en el servicio, asi que
+    # lo que la IA llegue a proponer termina en exactamente el mismo cambio.
+    overrides={k:v.model_dump() for k,v in (payload.notification_overrides or {}).items()}
+    try:
+        row,queued=wo_service.cambiar_estado(
+            db,company_id=company_id,user_id=actor.id,work_order_id=work_order_id,
+            status_id=payload.status_id,note=payload.note,overrides=overrides,
+        )
+    except wo_service.ErrorDeDominio as exc:
+        db.rollback();raise HTTPException(exc.status_http,exc.mensaje)
     db.commit();db.refresh(row)
     if queued:
         try:
-            dispatch(db,[n.id for n in queued])
+            dispatch(db,queued)
         except Exception:
             # La fila queda PENDING o FAILED y la toma el drenaje.
             pass

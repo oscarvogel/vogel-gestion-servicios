@@ -18,44 +18,16 @@ from app.models.work_order import WorkOrder, WorkOrderStatus
 from app.services.ai.tools.base import (
     ARGUMENTOS_INVALIDOS,
     ToolContext,
+    ToolError,
     ToolOutcome,
     ToolSpec,
-    ToolError,
 )
-
-# Tope duro de resultados. El modelo no puede pedir mil filas: el costo del prompt se
-# dispara y el operador no puede leerlas.
-MAX_RESULTADOS = 20
-
-
-def _texto(valor: object, campo: str) -> str:
-    if not isinstance(valor, str) or not valor.strip():
-        raise ToolError(ARGUMENTOS_INVALIDOS, f"El campo '{campo}' tiene que ser un texto no vacío.")
-    return valor.strip()
-
-
-def _limite(valor: object, por_defecto: int) -> int:
-    if valor is None:
-        return por_defecto
-    # El modelo a veces manda "5" como string; se acepta, pero nada que no sea un entero.
-    try:
-        n = int(valor)
-    except (TypeError, ValueError):
-        raise ToolError(ARGUMENTOS_INVALIDOS, "El campo 'limite' tiene que ser un numero entero.") from None
-    return max(1, min(n, MAX_RESULTADOS))
-
-
-def _id(valor: object, campo: str) -> int:
-    try:
-        return int(valor)
-    except (TypeError, ValueError):
-        raise ToolError(ARGUMENTOS_INVALIDOS, f"El campo '{campo}' tiene que ser un id numerico.") from None
-
-
-def _escape_like(texto: str) -> str:
-    """Escapa los comodines de LIKE para que '%' buscado no traiga todo."""
-    return texto.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-
+from app.services.ai.tools.validacion import (
+    escape_like as _escape_like,
+    entero as _id,
+    limite as _limite,
+    texto as _texto,
+)
 
 # --------------------------------------------------------------------------------------
 # buscar_cliente

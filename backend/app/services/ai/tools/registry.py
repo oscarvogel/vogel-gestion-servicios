@@ -28,10 +28,13 @@ from app.services.ai.tools.base import (
     ToolSpec,
 )
 from app.services.ai.tools.read import TOOLS as HERRAMIENTAS_DE_LECTURA
+from app.services.ai.tools.write import TOOLS as HERRAMIENTAS_DE_ESCRITURA
 
 logger = logging.getLogger(__name__)
 
-TODAS: tuple[ToolSpec, ...] = (*HERRAMIENTAS_DE_LECTURA,)
+# Primero las de lectura y despues las de escritura: en el catalogo que se le manda al
+# modelo conviene que las seguras esten a mano antes que las que piden confirmacion.
+TODAS: tuple[ToolSpec, ...] = (*HERRAMIENTAS_DE_LECTURA, *HERRAMIENTAS_DE_ESCRITURA)
 
 _POR_NOMBRE: dict[str, ToolSpec] = {t.name: t for t in TODAS}
 
@@ -50,8 +53,9 @@ def catalogo_para_proveedor(permissions) -> list[dict]:
 def ejecutar(name: str, argumentos: dict, ctx: ToolContext) -> ToolOutcome:
     """Ejecuta una herramienta y devuelve el resultado, sin propagar excepciones.
 
-    Todo fallo es un `ToolOutcome` con `ok=False` y un motivo tipado. Un error de una
-    herramienta no puede ser un 500: el operador tiene que poder seguir preguntando.
+    Para las de lectura toca la base y devuelve datos. Para las de escritura **no escribe
+    nada**: deja una propuesta pendiente y devuelve el id. El modelo no tiene ninguna via
+    para aplicar una escritura; esa llamada la hace una persona desde otro endpoint.
     """
     tool = _POR_NOMBRE.get(name)
     if tool is None:
@@ -70,7 +74,6 @@ def ejecutar(name: str, argumentos: dict, ctx: ToolContext) -> ToolOutcome:
                 "No le cuentes al operador que la consulta se hizo."
             ),
         )
-
     if argumentos is None:
         argumentos = {}
     if not isinstance(argumentos, dict):

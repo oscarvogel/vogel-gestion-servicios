@@ -143,6 +143,11 @@ function filas(bloque: { resultados?: Record<string, unknown>[] }): Record<strin
   display: flex;
   flex-direction: column;
   gap: 8px;
+  /* La tabla del historial tiene cinco columnas y no entra en una pantalla angosta. Sin
+     scroll propio se desborda y la ultima columna queda cortada, que es justo la falla
+     reportada, la que hay que leer. */
+  min-width: 0;
+  overflow-x: auto;
 }
 .ficha__titulo {
   display: flex;

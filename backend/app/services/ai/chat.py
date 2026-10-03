@@ -17,8 +17,16 @@ from app.services.ai.entitlement import (
     monthly_quota_usd,
     monthly_request_limit,
 )
-from app.services.ai.providers.base import LlmMessage, ProviderError
+from app.services.ai.providers.base import (
+    ROLE_ASSISTANT,
+    ROLE_TOOL,
+    LlmMessage,
+    LlmResponse,
+    ProviderError,
+)
 from app.services.ai.registry import get_provider
+from app.services.ai.tools.base import ToolContext
+from app.services.ai.tools.registry import catalogo_para_proveedor, ejecutar
 from app.services.ai.usage import ERROR, OK, SIN_CUOTA, record
 
 # Motivos de no disponibilidad. La API los expone para que el frontend distinga
@@ -31,6 +39,12 @@ CUOTA_EXCEDIDA = "cuota_excedida"
 DISPONIBLE = "disponible"
 NO_DISPONIBLE = "no_disponible"
 
+# Tope de vueltas del bucle de herramientas (una llamada al proveedor por vuelta). Cuatro
+# alcanza para "buscar el cliente, despues el equipo, despues el historial y responder", que
+# es lo mas largo que se le pide. Si se supera, se corta y se responde igual: una
+# conversation infinita de herramientas seria un costo sin fin.
+MAX_VUELTAS_HERRAMIENTAS = 4
+
 
 @dataclass
 class AiOutcome:
@@ -42,6 +56,9 @@ class AiOutcome:
     reason: str | None = None
     detail: str | None = None
     usage: dict[str, Any] = field(default_factory=dict)
+    # Herramientas que se ejecutaron en esta conversacion, en orden, con su motivo si
+    # fallaron. La UI los puede mostrar y el operador puede ver que se leyo algo de su base.
+    tool_calls: list[dict[str, Any]] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -53,6 +70,7 @@ class AiOutcome:
             "reason": self.reason,
             "detail": self.detail,
             "usage": self.usage,
+            "tool_calls": self.tool_calls,
         }
 
 
@@ -87,8 +105,15 @@ def run_chat(
     *,
     operation: str = "chat",
     max_tokens: int = 1024,
+    permissions: frozenset[str] | None = None,
 ) -> AiOutcome:
-    """Ejecuta una conversacion. No levanta nunca una excepcion por el proveedor."""
+    """Ejecuta una conversacion. No levanta nunca una excepcion por el proveedor.
+
+    Si ``permissions`` viene informado, el modelo recibe las herramientas de lectura que el
+    actor tiene permitidas y puede pedir que se ejecuten. El contexto de esas herramientas
+    (empresa y usuario) se arma con la sesion: el modelo elige **que** herramienta llamar y
+    **con que argumentos de negocio**, nunca a quien le pertenece la informacion.
+    """
     gate = availability(db, company_id)
     if not gate.ok and gate.reason != CUOTA_EXCEDIDA:
         # Ni habilitado ni configurado: ni siquiera se registra uso, porque no hubo
@@ -101,38 +126,134 @@ def run_chat(
                user_id=user_id, status=SIN_CUOTA, error="Cuota mensual excedida")
         return gate
 
-    try:
-        response = provider.complete(messages, max_tokens=max_tokens)
-    except ProviderError as exc:
-        # Se registra el intento fallido: si solo anotamos los exitos, el acumulado de
-        # consumo miente justo cuando la cosa esta peor.
-        record(db, company_id, provider.name, provider.model_id(), operation,
-               user_id=user_id, status=ERROR, error=str(exc))
-        return AiOutcome(
-            ok=False,
-            status=NO_DISPONIBLE,
-            reason=PROVEEDOR_CAIDO,
-            detail=str(exc),
-            provider=provider.name,
-            model=provider.model_id(),
+    contexto: ToolContext | None = None
+    catalogo: list[dict] = []
+    if permissions is not None:
+        contexto = ToolContext(
+            db=db, company_id=company_id, user_id=user_id, permissions=permissions
         )
-    except Exception as exc:  # noqa: BLE001 - un adaptador no puede romper el request
-        record(db, company_id, provider.name, provider.model_id(), operation,
-               user_id=user_id, status=ERROR, error=f"{type(exc).__name__}")
-        return AiOutcome(
-            ok=False,
-            status=NO_DISPONIBLE,
-            reason=PROVEEDOR_CAIDO,
-            detail="El proveedor fallo de forma inesperada.",
-            provider=provider.name,
-        )
+        catalogo = catalogo_para_proveedor(permissions)
 
-    record(db, company_id, response.provider, response.model, operation,
-           user_id=user_id, response=response, status=OK)
+    return _conversar(
+        db=db,
+        company_id=company_id,
+        user_id=user_id,
+        provider=provider,
+        contexto=contexto,
+        mensajes=list(messages),
+        operation=operation,
+        max_tokens=max_tokens,
+        catalogo=catalogo,
+    )
+
+
+def _conversar(
+    *,
+    db: Session,
+    company_id: int,
+    user_id: int | None,
+    provider: Any,
+    contexto: ToolContext | None,
+    mensajes: list[LlmMessage],
+    operation: str,
+    max_tokens: int,
+    catalogo: list[dict],
+) -> AiOutcome:
+    """Llama al proveedor y, si pide herramientas, las ejecuta y le manda el resultado.
+
+    El numero de vueltas esta acotado a proposito: un modelo que se pide una herramienta a si
+    mismo para siempre tiene que terminar, y en el peor caso tiene que terminar con una
+    respuesta. Cuando se agota el tope se devuelve la ultima respuesta que haya, que puede
+    venir vacia: es preferible una respuesta incompleta a un request colgado.
+    """
+    ejecutadas: list[dict[str, Any]] = []
+    ultima: LlmResponse | None = None
+
+    for _vuelta in range(MAX_VUELTAS_HERRAMIENTAS):
+        try:
+            respuesta = provider.complete(mensajes, max_tokens=max_tokens, tools=catalogo or None)
+        except ProviderError as exc:
+            # Se registra el intento fallido: si solo anotamos los exitos, el acumulado de
+            # consumo miente justo cuando la cosa esta peor.
+            record(db, company_id, provider.name, provider.model_id(), operation,
+                   user_id=user_id, status=ERROR, error=str(exc))
+            return AiOutcome(
+                ok=False,
+                status=NO_DISPONIBLE,
+                reason=PROVEEDOR_CAIDO,
+                detail=str(exc),
+                provider=provider.name,
+                model=provider.model_id(),
+                tool_calls=ejecutadas,
+            )
+        except Exception as exc:  # noqa: BLE001 - un adaptador no puede romper el request
+            record(db, company_id, provider.name, provider.model_id(), operation,
+                   user_id=user_id, status=ERROR, error=f"{type(exc).__name__}")
+            return AiOutcome(
+                ok=False,
+                status=NO_DISPONIBLE,
+                reason=PROVEEDOR_CAIDO,
+                detail="El proveedor fallo de forma inesperada.",
+                provider=provider.name,
+                tool_calls=ejecutadas,
+            )
+
+        ultima = respuesta
+
+        # Sin herramientas, o sin contexto para ejecutarlas, esta era la ultima llamada.
+        if not respuesta.wants_tools or contexto is None:
+            record(db, company_id, respuesta.provider, respuesta.model, operation,
+                   user_id=user_id, response=respuesta, status=OK)
+            return AiOutcome(
+                ok=True,
+                status=DISPONIBLE,
+                text=respuesta.text,
+                provider=respuesta.provider,
+                model=respuesta.model,
+                tool_calls=ejecutadas,
+            )
+
+        # El pedido de herramientas se registra por separado, con su propia operacion: el
+        # gasto de una vuelta que todavia no termino tiene que poder atribuirse.
+        record(db, company_id, respuesta.provider, respuesta.model,
+               f"{operation}:peticion_herramientas", user_id=user_id, response=respuesta)
+
+        mensajes = mensajes + [
+            LlmMessage(
+                role=ROLE_ASSISTANT,
+                content=respuesta.text or "",
+                tool_calls=tuple(respuesta.tool_calls),
+            )
+        ]
+
+        for llamada in respuesta.tool_calls:
+            resultado = ejecutar(llamada.name, llamada.arguments, contexto)
+            ejecutadas.append(
+                {"name": llamada.name, "ok": resultado.ok, "error": resultado.error_code}
+            )
+            # Cada herramienta queda registrada por separado: el acumulado tiene que poder
+            # atribuir el gasto a la herramienta y no solo a la conversacion.
+            record(
+                db,
+                company_id,
+                provider.name,
+                provider.model_id(),
+                f"herramienta:{llamada.name}",
+                user_id=user_id,
+                status=OK if resultado.ok else ERROR,
+                error=resultado.error_message if not resultado.ok else None,
+            )
+            mensajes = mensajes + [
+                LlmMessage(role=ROLE_TOOL, content=resultado.as_text(), tool_call_id=llamada.id)
+            ]
+
+    # Se agoto el tope de vueltas. Se devuelve lo que haya, que puede ser una respuesta sin
+    # texto si el modelo solo vino pidiendo herramientas.
     return AiOutcome(
         ok=True,
         status=DISPONIBLE,
-        text=response.text,
-        provider=response.provider,
-        model=response.model,
+        text=ultima.text if ultima else "",
+        provider=ultima.provider if ultima else provider.name,
+        model=ultima.model if ultima else provider.model_id(),
+        tool_calls=ejecutadas,
     )

@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.models.company import Company, CompanyParameter, ParameterDefinition
 from app.models.customer import Customer, Equipment
-from app.models.work_order import WorkOrder, WorkOrderCounter, WorkOrderEvent, WorkOrderStatus
+from app.models.work_order import WorkOrder, WorkOrderCounter, WorkOrderEvent, WorkOrderNotification, WorkOrderStatus
 from app.models.work_order_quote import (
     WorkOrderDiagnosis,
     WorkOrderExecutionItem,
@@ -316,6 +316,97 @@ def cambiar_estado(
         except Exception:
             encoladas = []
     return orden, encoladas
+
+
+# --------------------------------------------------------------------------------------
+# Preparar un aviso al cliente sin mandarlo
+# --------------------------------------------------------------------------------------
+
+
+def planear_comunicacion(
+    db: Session, *, company_id: int, work_order_id: int, overrides: dict | None = None
+) -> list[dict]:
+    """El aviso que se dejaria preparado **ahora**, sobre el estado en que esta la orden.
+
+    No escribe nada, como `planear_aviso`. La diferencia es que aquel mira "que pasaria si la
+    orden pasara a este otro estado" y este mira "que pasaria si preparase un aviso ahora".
+    Las dos terminan en `plan_for_event`, que es el unico lugar donde se decide que se avisa y
+    con que texto.
+    """
+    orden = leer_orden(db, company_id, work_order_id)
+    empresa = db.get(Company, company_id)
+    if empresa is None:
+        return []
+    estado = db.get(WorkOrderStatus, orden.status_id) if orden.status_id else None
+    if estado is None or not (estado.notify_whatsapp or estado.notify_email):
+        return []
+    return plan_for_event(db, empresa, orden, status=estado, overrides=overrides)
+
+
+def preparar_comunicacion(
+    db: Session,
+    *,
+    company_id: int,
+    user_id: int,
+    work_order_id: int,
+    overrides: dict | None = None,
+) -> list[WorkOrderNotification]:
+    """Deja el aviso **listo para enviar** y no lo envia. Devuelve las filas encoladas.
+
+    Lo encolado va PENDIENTE, en la misma transaccion que su evento, como todos los avisos de
+    #45. Quien lo manda es una persona, desde la OT, reviewing el texto exacto.
+
+    Que sea una funcion aparte y no un `cambiar_estado` con la orden quieta es lo que evita el
+    bug mas caro de esta parte: un aviso colgado de un evento de cambio de estado choca contra
+    el unico (company_id, work_order_event_id, channel), y ademas el texto diria "paso a" algo
+    que no paso. Por eso crea un evento propio, de tipo NOTICE.
+    """
+    orden = leer_orden(db, company_id, work_order_id)
+    empresa = db.get(Company, company_id)
+    estado = db.get(WorkOrderStatus, orden.status_id) if orden.status_id else None
+    if empresa is None or estado is None:
+        raise ErrorDeDominio(
+            "La orden no tiene un estado del que sacar un aviso.", "estado_inexistente", 409
+        )
+    if not estado.notifications_active or not (estado.notify_whatsapp or estado.notify_email):
+        raise ErrorDeDominio(
+            f"El estado «{estado.name}» no tiene avisos al cliente configurados, así que no hay "
+            "nada que preparar. Configuralos en Estados de OT, o pasá la orden a un estado que "
+            "los tenga.",
+            "sin_avisos_configurados", 422,
+        )
+
+    plan = plan_for_event(
+        db, empresa, orden, status=estado, overrides=overrides
+    )
+    mandables = [p for p in plan if not p["skipped"]]
+    if not mandables:
+        # Se encolaria algo que el sistema sabe que no se puede mandar (sin numero, sin
+        # email). Mejor decirlo ahora que dejar un SKIPPED que la persona tiene que
+        # interpretar sola.
+        razones = "; ".join(p["reason"] for p in plan if p.get("reason")) or "sin canales"
+        raise ErrorDeDominio(
+            f"No hay a quien mandarle el aviso: {razones}. Se puede preparar, pero no se va a "
+            "enviar. Cargale un numero o un email al cliente.",
+            "sin_destinatario", 422,
+        )
+
+    canales = ", ".join(p["channel"] for p in mandables)
+    evento = WorkOrderEvent(
+        company_id=company_id,
+        work_order_id=orden.id,
+        event_type="NOTICE",
+        status=orden.status,
+        detail=f"Aviso al cliente preparado para enviar por {canales}. Queda pendiente hasta que alguien lo envíe.",
+        user_id=user_id,
+    )
+    db.add(evento)
+    db.flush()
+
+    encoladas = enqueue_for_event(
+        db, empresa, orden, evento, status=estado, overrides=overrides
+    )
+    return encoladas
 
 
 def actualizar_orden(

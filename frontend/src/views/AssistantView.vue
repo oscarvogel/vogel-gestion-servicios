@@ -86,6 +86,7 @@ const ETIQUETAS_HERRAMIENTA: Record<string, string> = {
   agregar_repuesto: "sumar repuestos",
   calcular_presupuesto: "calcular presupuestos",
   generar_presupuesto: "generar presupuestos",
+  preparar_comunicacion_cliente: "preparar avisos al cliente",
 };
 
 async function cargar() {

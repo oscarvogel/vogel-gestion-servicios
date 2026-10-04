@@ -545,6 +545,51 @@ def _aplicar_generar_presupuesto(db: Session, company_id: int, user_id: int, a: 
     }, False
 
 
+def _aplicar_preparar_comunicacion_cliente(
+    db: Session, company_id: int, user_id: int, a: dict
+) -> tuple[dict, bool]:
+    """Encola el aviso en PENDING. Devolver `False` en el segundo valor es lo que hace que
+    `_despachar` no lo mande: confirmar la propuesta **no** envia el mensaje.
+
+    Ese `False` es el mecanismo, no una convencion. Si volviera True, confirmar seria enviar,
+    y el sub-issue pide justo lo contrario: preparar y que lo mande una persona.
+    """
+    from app.services import work_orders as wo_service
+    from app.services.ai.tools.validacion import MAX_TEXTO, entero, texto, texto_opcional
+    from app.services.notifications.channels import EMAIL, WHATSAPP
+
+    orden_id = entero(a.get("orden"), "orden", minimo=1)
+    mensaje = texto_opcional(a.get("mensaje"), "mensaje", maximo=MAX_TEXTO)
+    canal = a.get("canal")
+    canales: dict[str, dict] = {}
+    if canal is not None:
+        elegido = texto(canal, "canal", maximo=20).upper()
+        if elegido not in (EMAIL, WHATSAPP):
+            raise ErrorDePropuesta(
+                f"El canal tiene que ser {WHATSAPP} o {EMAIL}.", codigo="canal_invalido"
+            )
+        canales[elegido] = {}
+    if mensaje is not None:
+        for nombre in canales or {EMAIL: {}, WHATSAPP: {}}:
+            canales.setdefault(nombre, {})["body"] = mensaje
+
+    try:
+        filas = wo_service.preparar_comunicacion(
+            db, company_id=company_id, user_id=user_id,
+            work_order_id=orden_id, overrides=canales or None,
+        )
+    except wo_service.ErrorDeDominio as exc:
+        raise ErrorDePropuesta(exc.mensaje, codigo=exc.codigo) from None
+
+    return {
+        "tipo": "aviso",
+        "orden": orden_id,
+        "notificaciones": [f.id for f in filas],
+        "canales": [f.channel for f in filas],
+        "estado": "pendiente de envío",
+    }, False
+
+
 APLICADORES: dict[str, Callable[..., tuple[dict, bool]]] = {
     "crear_cliente": _aplicar_crear_cliente,
     "crear_equipo": _aplicar_crear_equipo,
@@ -554,6 +599,7 @@ APLICADORES: dict[str, Callable[..., tuple[dict, bool]]] = {
     "agregar_trabajo": _aplicar_agregar_trabajo,
     "agregar_repuesto": _aplicar_agregar_repuesto,
     "generar_presupuesto": _aplicar_generar_presupuesto,
+    "preparar_comunicacion_cliente": _aplicar_preparar_comunicacion_cliente,
 }
 
 

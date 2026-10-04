@@ -50,12 +50,24 @@ from app.services.ai.tools.validacion import (
 
 MENSAJE_PROPUESTA = (
     "Dejé la propuesta #{id} esperando que un humano la confirme. "
-    "Decile al operador qué es y que la revise: no se wrote nada todavía."
+    "Decile al operador qué es y que la revise: no se escribió nada todavía."
 )
 
 
-def _dejar(ctx: ToolContext, tool: str, argumentos: dict, riesgo: str, notifica: bool) -> ToolOutcome:
-    """Registra la propuesta y le devuelve al modelo lo que necesita para avisarle al operador."""
+def _dejar(
+    ctx: ToolContext,
+    tool: str,
+    argumentos: dict,
+    riesgo: str,
+    notifica: bool,
+    previo: dict | None = None,
+) -> ToolOutcome:
+    """Registra la propuesta y le devuelve al modelo lo que necesita para avisarle al operador.
+
+    ``previo`` es lo que el modelo le va a poder contar al operador antes de que confirme: por
+    ejemplo, como quedaria el presupuesto. Va en la respuesta, no en la propuesta, porque es
+    informacion de lectura y no algo que la persona vaya a editar.
+    """
     # Los campos que el modelo no lleno van como null. Guardarlos asi en la propuesta es ruido
     # para la pantalla y hace que "lo que cambio" muestre diferencias que no son diferencias.
     limpio = {k: v for k, v in argumentos.items() if v is not None}
@@ -68,16 +80,16 @@ def _dejar(ctx: ToolContext, tool: str, argumentos: dict, riesgo: str, notifica:
         riesgo=riesgo,
         notifica=notifica,
     )
-    return ToolOutcome(
-        ok=True,
-        data={
-            "propuesta_id": propuesta.id,
-            "estado": propuesta.status,
-            "riesgo": riesgo,
-            "avisa_al_cliente": notifica,
-            "lo_que_hay_que_confirmar": limpio,
-        },
-    )
+    datos = {
+        "propuesta_id": propuesta.id,
+        "estado": propuesta.status,
+        "riesgo": riesgo,
+        "avisa_al_cliente": notifica,
+        "lo_que_hay_que_confirmar": limpio,
+    }
+    if previo:
+        datos["previo"] = previo
+    return ToolOutcome(ok=True, data=datos)
 
 
 # --------------------------------------------------------------------------------------
@@ -268,6 +280,84 @@ def _agregar_trabajo(ctx: ToolContext, args: dict) -> ToolOutcome:
 
 
 # --------------------------------------------------------------------------------------
+# generar_presupuesto
+# --------------------------------------------------------------------------------------
+
+
+def _generar_presupuesto(ctx: ToolContext, args: dict) -> ToolOutcome:
+    """Propone emitir el presupuesto de una orden. Los importes no se proponen: se calculan.
+
+    Que esta herramienta **no tenga un campo de precio** es la decision de diseno que hace
+    verdadera la regla del sub-issue. Si aceptara importes, el modelo podria mandarle un
+    precio y quedaria igual de creible que uno real: la unica defensa seria pedirle a la
+    persona que lo revisara, y una revision humana no detecta un numero inventado, solo uno
+    raro. Sin campo, no hay por donde inventarlo.
+
+    Las lineas se derivan de la orden al proponer y otra vez al aplicar. Si al aplicar ya no
+    se puede generar (alguien borro un precio, o la orden se entrego), la propuesta queda
+    fallida con el motivo, que tambien es auditabilidad.
+    """
+    from app.services import work_orders as wo_service
+
+    orden_id = entero(args.get("orden"), "orden", minimo=1)
+    argumentos: dict = {"orden": orden_id}
+    notas = texto_opcional(args.get("notas"), "notas", maximo=MAX_TEXTO)
+    if notas is not None:
+        argumentos["notas"] = notas
+
+    try:
+        orden = wo_service.leer_orden(ctx.db, ctx.company_id, orden_id)
+    except wo_service.ErrorDeDominio as exc:
+        raise ToolError("argumentos_invalidos", exc.mensaje) from None
+
+    if wo_service.es_final(ctx.db, orden):
+        raise ToolError(
+            "argumentos_invalidos",
+            "La orden de trabajo está en un estado final (entregada) y no admite presupuestos.",
+        )
+
+    calculo = wo_service.calcular_presupuesto(
+        ctx.db, company_id=ctx.company_id, work_order_id=orden_id
+    )
+    if not calculo["puede_generar"]:
+        # Aca esta el punto donde el sub-issue dice que la IA tiene que pedir y no estimar. Si
+        # falta algo, se devuelve el motivo y no queda ninguna propuesta: la persona carga el
+        # dato que falta y se vuelve a pedir.
+        motivos = list(calculo["motivos_de_dominio"]) + list(calculo["pendientes"])
+        raise ToolError(
+            "argumentos_invalidos",
+            "No se puede generar el presupuesto todavía. "
+            + " ".join(motivos)
+            + " Decile eso al operador: los precios no se estiman, se cargan.",
+        )
+
+    # Un presupuesto es un compromiso de plata con el cliente, asi que se marca como riesgo
+    # financiero: es lo que la pantalla muestra antes de que la persona confirme.
+    return _dejar(
+        ctx,
+        "generar_presupuesto",
+        argumentos,
+        RIESGO_FINANCIERO,
+        False,
+        previo={
+            "total": calculo["total"],
+            "cantidad_de_lineas": len(calculo["items"]),
+            "items": [
+                {
+                    "descripcion": linea["descripcion"],
+                    "tipo": linea["tipo"],
+                    "cantidad": linea["cantidad"],
+                    "precio_unitario": linea["precio_unitario"],
+                    "total_linea": linea["total_linea"],
+                }
+                for linea in calculo["items"]
+            ],
+            "avisos": calculo["avisos"],
+        },
+    )
+
+
+# --------------------------------------------------------------------------------------
 # Catalogo
 # --------------------------------------------------------------------------------------
 
@@ -418,5 +508,25 @@ TOOLS: tuple[ToolSpec, ...] = (
         },
         permission="work_orders.manage",
         run=_agregar_repuesto,
+    ),
+    ToolSpec(
+        name="generar_presupuesto",
+        description=(
+            "Propone emitir el presupuesto de una orden, con los trabajos y repuestos que ya "
+            "tiene cargados. NO lo emite hasta que un humano lo confirme, y NO acepta "
+            "importes: los precios salen de los datos de la orden. Antes de llamarla usá "
+            "calcular_presupuesto: si esa dice que falta algún precio, pedile ese precio al "
+            "operador en vez de estimarlo."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "orden": {"type": "integer", "description": "Id de la orden de trabajo."},
+                "notas": {"type": "string", "description": "Observación para el presupuesto."},
+            },
+            "required": ["orden"],
+        },
+        permission="work_orders.manage",
+        run=_generar_presupuesto,
     ),
 )

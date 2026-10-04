@@ -4,10 +4,11 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, inspect, text
 
-HEAD_REVISION = "20261003_0021"
+HEAD_REVISION = "20261004_0022"
 REVISION_BEFORE_EQUIPMENT_CATEGORIES = "20260925_0003"
 REVISION_EQUIPMENT_CATEGORIES = "20260925_0004"
 REVISION_BEFORE_ADMIN_BACKFILL = "20261003_0019"
+REVISION_BEFORE_ITEM_TYPE_LABOR = "20261003_0021"
 
 
 def _alembic_config(database_path: Path) -> Config:
@@ -112,6 +113,77 @@ def _seed_admin_con_permisos_de_0003_y_0005(database_path: Path) -> None:
                 connection.execute(
                     text("INSERT INTO role_permissions (role_id, permission_id) VALUES (1, :pid)"),
                     {"pid": pid},
+                )
+    finally:
+        engine.dispose()
+
+
+def _seed_trabajo_con_item_type_work(database_path: Path) -> None:
+    """El estado que dejó `agregar_trabajo`: dos trabajos en "WORK" y un repuesto en "PART".
+
+    Se siembran los dos "WORK" a proposito: uno de ellos tiene `unit_price` cargado y el otro
+    no, que es como quedaron segun lo que el modelo habia mandado. Asi el test tambien
+    comprueba que la normalizacion no toca importes, que es lo que no se debe tocar.
+    """
+    engine = create_engine(f"sqlite:///{database_path}")
+    try:
+        with engine.begin() as connection:
+            connection.execute(text("INSERT INTO companies (id, name) VALUES (1, 'Vogel')"))
+            connection.execute(
+                text(
+                    "INSERT INTO users (id, email, full_name, password_hash, is_superadmin)"
+                    " VALUES (1, 'recepcion@vogel.test', 'Recepción', 'x', 0)"
+                )
+            )
+            connection.execute(
+                text("INSERT INTO customers (id, company_id, name) VALUES (1, 1, 'Pérez')")
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO equipment_categories (id, company_id, name, active, created_at,"
+                    " updated_at) VALUES (1, 1, 'Televisores', 1, CURRENT_TIMESTAMP,"
+                    " CURRENT_TIMESTAMP)"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO equipment (id, company_id, customer_id, category_id, description)"
+                    " VALUES (1, 1, 1, 1, 'Televisor LG')"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO work_order_statuses (id, company_id, name, color, sort_order,"
+                    " active, is_initial, is_final, marks_quoted, marks_awaiting_quote_approval,"
+                    " marks_repair, marks_waiting_parts, marks_completed, marks_delivered,"
+                    " notify_whatsapp, notify_email, notifications_active)"
+                    " VALUES (1, 1, 'Recibido', '#10B981', 10, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1)"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO work_orders (id, company_id, number, customer_id, equipment_id,"
+                    " received_at, reported_fault, received_by_user_id, status, status_id)"
+                    " VALUES (1, 1, 1, 1, 1, CURRENT_TIMESTAMP, 'No enciende', 1, 'RECEIVED', 1)"
+                )
+            )
+            for fila in (
+                ("Resoldado de conector", "20000.00", "0"),
+                ("Cambio de fuente", "0", "0"),
+                ("Fuente 24V", "0", "0"),
+            ):
+                connection.execute(
+                    text(
+                        "INSERT INTO work_order_execution_items (company_id, work_order_id,"
+                        " item_type, description, quantity, unit_cost, unit_price,"
+                        " created_by_user_id, created_at)"
+                        " VALUES (1, 1, :tipo, :descripcion, 1, 0, :precio, 1, CURRENT_TIMESTAMP)"
+                    ),
+                    {
+                        "tipo": "PART" if fila[0] == "Fuente 24V" else "WORK",
+                        "descripcion": fila[0],
+                        "precio": fila[1],
+                    },
                 )
     finally:
         engine.dispose()
@@ -329,6 +401,62 @@ def test_migration_0020_completa_los_permisos_del_administrador_incompleto(
         "el Administrador de empresa quedo sin estos permisos del catalogo, o sea que el "
         f"admin de la empresa no puede usarlos: {faltan}"
     )
+    assert revision == HEAD_REVISION
+
+
+def test_migration_0022_normaliza_el_item_type_de_los_trabajos_agregados_por_la_ia(
+    monkeypatch, tmp_path
+):
+    """`agregar_trabajo` escribía "WORK" y el dominio solo conoce PART y LABOR.
+
+    La fila quedaba fuera del vocabulario. No se veía al mirarla —la pantalla cae en la rama
+    "no es PART" y la muestra como Trabajo— sino al usarla: cualquier consulta que filtre
+    `item_type = 'LABOR'` dejaba afuera esas filas, y el cálculo del presupuesto es una.
+
+    Este test arma el estado que dejó la herramienta: una empresa, un cliente, un equipo, una
+    orden y un trabajo escrito con "WORK". Después de la migración tiene que decir "LABOR", y
+    los repuestos, que son "PART", no se tocan.
+    """
+    database_path = tmp_path / "item-type-work.sqlite3"
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{database_path}")
+    config = _alembic_config(database_path)
+
+    command.upgrade(config, REVISION_BEFORE_ITEM_TYPE_LABOR)
+    _seed_trabajo_con_item_type_work(database_path)
+
+    engine = create_engine(f"sqlite:///{database_path}")
+    try:
+        with engine.connect() as connection:
+            antes = sorted(
+                r[0]
+                for r in connection.execute(
+                    text("SELECT item_type FROM work_order_execution_items")
+                ).fetchall()
+            )
+    finally:
+        engine.dispose()
+    assert antes == ["PART", "WORK", "WORK"], "el seed deberia reproducir el estado previo"
+
+    command.upgrade(config, "head")
+
+    engine = create_engine(f"sqlite:///{database_path}")
+    try:
+        with engine.connect() as connection:
+            despues = sorted(
+                r[0]
+                for r in connection.execute(
+                    text("SELECT item_type FROM work_order_execution_items")
+                ).fetchall()
+            )
+            revision = connection.execute(
+                text("SELECT version_num FROM alembic_version")
+            ).scalar_one()
+    finally:
+        engine.dispose()
+
+    # Lo importante primero: ningun "WORK" sobrevive, y "PART" no se toco.
+    assert "WORK" not in despues, "quedaron trabajos con el item_type fuera del dominio"
+    assert despues == ["LABOR", "LABOR", "PART"]
     assert revision == HEAD_REVISION
 
 

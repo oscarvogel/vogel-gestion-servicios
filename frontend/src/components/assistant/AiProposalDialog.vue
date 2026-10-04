@@ -14,7 +14,30 @@
  */
 import { computed, ref, watch } from "vue";
 import Modal from "../Modal.vue";
+import { apiGet } from "../../lib/api";
 import type { Propuesta } from "../../lib/ai";
+
+/** Una linea del calculo, tal como lo devuelve el backend. */
+interface LineaCalculo {
+  descripcion: string;
+  tipo: string;
+  cantidad: string;
+  precio_unitario: string | null;
+  total_linea: string | null;
+  pendiente: string | null;
+  revisar: string | null;
+}
+
+interface CalculoPresupuesto {
+  items: LineaCalculo[];
+  subtotal_repuestos: string;
+  subtotal_manos_de_obra: string;
+  total: string;
+  pendientes: string[];
+  avisos: string[];
+  puede_generar: boolean;
+  motivos_de_dominio: string[];
+}
 
 const props = defineProps<{ open: boolean; propuesta: Propuesta | null; busy?: boolean }>();
 const emit = defineEmits<{
@@ -42,6 +65,7 @@ const ETIQUETAS: Record<string, string> = {
   agregar_diagnostico: "Guardar el diagnóstico",
   agregar_trabajo: "Sumar trabajo a una orden",
   agregar_repuesto: "Sumar un repuesto a una orden",
+  generar_presupuesto: "Generar el presupuesto de una orden",
 };
 
 const CAMPOS: Record<string, string> = {
@@ -111,6 +135,55 @@ const riesgos = computed(() => {
 function confirmar() {
   emit("confirmar", { ...editados.value });
 }
+
+/**
+ * Los importes del presupuesto, para que la persona vea **cuanto** va a quedar antes de
+ * confirmar. No es la propuesta: es el calculo del backend con los datos de ahora. Se pide
+ * al abrir el dialogo y no se guarda, asi que no hay forma de que quede viejo sin que se note,
+ * y si la orden cambio entre la propuesta y la confirmacion, muestra el estado actual.
+ *
+ * Sin esto, confirmar una propuesta que mueve plata es apretar "Confirmar" al lado de un
+ * "Id de la orden: 1" y enterarse el total despues. El riesgo se avisa; el numero no.
+ */
+const calculo = ref<CalculoPresupuesto | null>(null);
+const calculoFallido = ref(false);
+
+async function cargarCalculo() {
+  calculo.value = null;
+  calculoFallido.value = false;
+  const orden = props.propuesta?.argumentos_propuestos?.orden;
+  if (props.propuesta?.tool !== "generar_presupuesto" || orden === undefined) return;
+  try {
+    calculo.value = await apiGet<CalculoPresupuesto>(`/work-orders/${orden}/quotes/preview`);
+  } catch {
+    // Si el calculo no se puede pedir, el dialogo sigue siendo utilizable: los campos
+    // editables y el boton no dependen de el. Se marca para que el silencio no se lea como
+    // "no hay nada que ver".
+    calculoFallido.value = true;
+  }
+}
+
+watch(() => props.propuesta, () => void cargarCalculo(), { immediate: true });
+
+const tieneAvisos = computed(
+  () =>
+    (calculo.value?.pendientes.length ?? 0) + (calculo.value?.avisos.length ?? 0) > 0,
+);
+
+/**
+ * La cantidad viene como texto desde el backend porque la columna es `Numeric(10, 3)`, y eso
+ * muestra "1.000" para una fuente que va una sola vez. Se recorta solo cuando no hay parte
+ * decimal: 0.75 tiene que seguir mostrando 0.75, no 0.75 ni 1.
+ */
+function cantidad(texto: string): string {
+  return texto.includes(".") ? texto.replace(/0+$/, "").replace(/\.$/, "") : texto;
+}
+
+/** Mismo formato de plata que usa el resto de la aplicacion. */
+function plata(texto: string | null): string {
+  if (texto === null) return "sin precio";
+  return `$ ${Number(texto).toLocaleString("es-AR", { minimumFractionDigits: 2 })}`;
+}
 </script>
 
 <template>
@@ -129,6 +202,57 @@ function confirmar() {
       <p class="prop__intro">
         Esto es lo que propuso el asistente. <strong>Revisalo y corregí lo que haga falta</strong>:
         se va a guardar exactamente lo que dejes acá.
+      </p>
+
+      <!--
+        Los importes van antes de los campos. Es lo que la persona tiene que mirar antes de
+        apretar "Confirmar", asi que no puede quedar abajo, debajo de algo que hay que leer
+        para entender el dialogo.
+      -->
+      <div v-if="calculo" class="prop__calculo">
+        <p class="prop__calculo-titulo">Queda así el presupuesto</p>
+        <table class="prop__tabla">
+          <thead>
+            <tr>
+              <th scope="col">Concepto</th>
+              <th scope="col" class="num">Cant.</th>
+              <th scope="col" class="num">Unitario</th>
+              <th scope="col" class="num">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(linea, i) in calculo.items" :key="i" :class="{ 'es-pendiente': !linea.total_linea }">
+              <td>
+                {{ linea.descripcion }}
+                <span v-if="linea.tipo === 'PART'" class="prop__tipo">repuesto</span>
+                <span v-else class="prop__tipo">mano de obra</span>
+              </td>
+              <td class="num">{{ cantidad(linea.cantidad) }}</td>
+              <td class="num">{{ plata(linea.precio_unitario) }}</td>
+              <td class="num">{{ plata(linea.total_linea) }}</td>
+            </tr>
+          </tbody>
+          <tfoot>
+            <tr>
+              <td colspan="3" class="num">Repuestos</td>
+              <td class="num">{{ plata(calculo.subtotal_repuestos) }}</td>
+            </tr>
+            <tr>
+              <td colspan="3" class="num">Mano de obra</td>
+              <td class="num">{{ plata(calculo.subtotal_manos_de_obra) }}</td>
+            </tr>
+            <tr class="prop__total">
+              <td colspan="3" class="num">Total</td>
+              <td class="num">{{ plata(calculo.total) }}</td>
+            </tr>
+          </tfoot>
+        </table>
+        <p v-if="tieneAvisos" class="prop__aviso">
+          <span v-for="(a, i) in [...calculo.pendientes, ...calculo.avisos]" :key="i">• {{ a }}</span>
+        </p>
+      </div>
+      <p v-else-if="calculoFallido" class="prop__aviso">
+        No se pudo calcular el presupuesto para mostrarlo. Revisá la orden antes de confirmar.
       </p>
 
       <div class="prop__campos">
@@ -178,6 +302,72 @@ function confirmar() {
   margin: 0;
   font-size: 14px;
   color: var(--color-text-secondary, #cbd5e1);
+}
+/* La tabla del calculo va en un panel aparte y con fondo propio: el dialogo ya tiene un
+   bloque de riesgo, una intro y los campos, y sin esta separacion la tabla se lee como un
+   campo mas. */
+.prop__calculo {
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.5);
+}
+.prop__calculo-titulo {
+  margin: 0 0 8px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted, #94a3b8);
+}
+.prop__tabla {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.prop__tabla th,
+.prop__tabla td {
+  padding: 6px 4px;
+  text-align: left;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+}
+.prop__tabla th {
+  font-weight: 500;
+  font-size: 12px;
+  color: var(--color-text-muted, #94a3b8);
+}
+.prop__tabla .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.prop__tabla tbody tr.es-pendiente td {
+  color: var(--color-text-muted, #94a3b8);
+}
+.prop__tabla tfoot td {
+  border-bottom: none;
+  color: var(--color-text-secondary, #cbd5e1);
+}
+.prop__tabla tr.prop__total td {
+  color: var(--color-text-primary, #e5edf7);
+  font-weight: 600;
+  border-top: 1px solid rgba(148, 163, 184, 0.35);
+}
+.prop__tipo {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  background: rgba(148, 163, 184, 0.18);
+  color: var(--color-text-muted, #94a3b8);
+}
+.prop__aviso {
+  margin: 10px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: #fbbf24;
 }
 .prop__campos {
   display: grid;

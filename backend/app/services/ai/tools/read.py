@@ -204,6 +204,47 @@ def _consultar_historial_equipo(ctx: ToolContext, args: dict) -> ToolOutcome:
 
 
 # --------------------------------------------------------------------------------------
+# calcular_presupuesto
+# --------------------------------------------------------------------------------------
+
+
+def _calcular_presupuesto(ctx: ToolContext, args: dict) -> ToolOutcome:
+    """Arma el presupuesto de la orden con los datos que ya tiene cargados. No escribe nada.
+
+    Es la herramienta que sostiene la regla del sub-issue: **el modelo no propone importes**.
+    Cada linea que sale de aca viene de un trabajo o repuesto que alguien cargo en la orden, y
+    su precio viene de un dato real de esa linea. Si a una linea le falta el precio, la tool no
+    la completa: la deja con `precio_unitario` en null y lo anota en `pendientes`, que es la
+    senal de que hay que preguntarle al operador en vez de estimar.
+
+    Devolver el total sin el detalle habria sido mas comodo para el modelo, pero entonces un
+    pendiente se veria igual que un precio. El detalle va primero.
+    """
+    from app.services import work_orders as wo_service
+
+    orden_id = _id(args.get("orden"), "orden")
+    consulta = f"orden_id={orden_id}"
+
+    try:
+        calculo = wo_service.calcular_presupuesto(
+            ctx.db, company_id=ctx.company_id, work_order_id=orden_id
+        )
+    except wo_service.ErrorDeDominio:
+        # Mismo criterio que las otras lecturas: una orden de otra empresa devuelve vacio y no
+        # un error, para que el modelo no pueda usar el error para enumerar ids ajenos.
+        return ToolOutcome(
+            ok=True,
+            data={
+                "consulta": consulta,
+                "encontrado": False,
+                "nota": "No hay ninguna orden con ese identificador en esta empresa.",
+            },
+        )
+
+    return ToolOutcome(ok=True, data={"consulta": consulta, "encontrado": True, **calculo})
+
+
+# --------------------------------------------------------------------------------------
 # Catalogo
 # --------------------------------------------------------------------------------------
 
@@ -271,5 +312,24 @@ TOOLS: tuple[ToolSpec, ...] = (
         },
         permission="work_orders.view",
         run=_consultar_historial_equipo,
+    ),
+    ToolSpec(
+        name="calcular_presupuesto",
+        description=(
+            "Arma el presupuesto de una orden con los trabajos y repuestos que ya tiene "
+            "cargados, y dice que le falta. NO acepta importes: los precios salen de los datos "
+            "de la orden, y las lineas sin precio real aparecen con precio vacio y quedan "
+            "listadas en 'pendientes'. Si 'pendientes' no esta vacio, NO inventes un precio: "
+            "decile al operador que falta cargarlo. Usala antes de generar_presupuesto."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "orden": {"type": "integer", "description": "Id de la orden de trabajo."},
+            },
+            "required": ["orden"],
+        },
+        permission="work_orders.view",
+        run=_calcular_presupuesto,
     ),
 )

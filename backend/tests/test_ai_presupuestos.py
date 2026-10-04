@@ -498,3 +498,86 @@ def test_una_orden_entregada_no_admite_presupuesto(db_session):
     resultado = _proponer(db_session, company.id, "generar_presupuesto", {"orden": orden.id})
     assert resultado.ok is False
     assert db_session.query(WorkOrderQuote).filter_by(company_id=company.id).count() == 0
+
+
+# --- el endpoint que usa el dialogo para mostrar los importes antes de confirmar ----------
+
+
+def test_el_preview_devuelve_el_calculo_y_no_escribe_nada(client, db_session):
+    """Lo que el dialogo de confirmacion muestra antes de que la persona confirme.
+
+    Es el unico lugar donde el operador ve el total antes de aprobar una propuesta que mueve
+    plata, asi que tiene que salir de la misma funcion que usa la herramienta de IA: si
+    divergieran, la pantalla y el guardado harian cuentas distintas.
+    """
+    company, _, orden = _escenario(db_session, "preview-calculo")
+    _ejecucion(db_session, company, orden, "PART", "Fuente", cantidad=2, costo=10000, precio=0)
+    _ejecucion(db_session, company, orden, "LABOR", "Resoldado", costo=0, precio=15000)
+
+    token = client.post(
+        "/api/v1/auth/login",
+        json={"email": "ot.preview-calculo@example.com", "password": "Password1234"},
+    ).json()["access_token"]
+    r = client.post(
+        "/api/v1/auth/select-company",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"company_id": company.id},
+    )
+    cabeceras = {"Authorization": f"Bearer {r.json()['access_token']}"}
+
+    antes = db_session.query(WorkOrderQuote).filter_by(company_id=company.id).count()
+    respuesta = client.get(f"/api/v1/work-orders/{orden.id}/quotes/preview", headers=cabeceras)
+
+    assert respuesta.status_code == 200, respuesta.text
+    cuerpo = respuesta.json()
+    calculado = _proponer(db_session, company.id, "calcular_presupuesto", {"orden": orden.id}).data
+    # Mismo calculo que la herramienta de IA, linea por linea.
+    # 2 fuentes a 15000 (costo 10000 con 50% de margen) mas 15000 de mano de obra.
+    assert cuerpo["total"] == calculado["total"] == "45000.00"
+    assert [i["descripcion"] for i in cuerpo["items"]] == ["Fuente", "Resoldado"]
+    assert cuerpo["puede_generar"] is True
+    # Y no escribe: mirarlo no cambia nada.
+    assert db_session.query(WorkOrderQuote).filter_by(company_id=company.id).count() == antes
+
+
+def test_el_preview_muestra_las_lineas_sin_precio_como_pendientes(client, db_session):
+    """Si falta un precio, la pantalla tiene que decirlo y no esconder la linea."""
+    company, _, orden = _escenario(db_session, "preview-pendiente")
+    _ejecucion(db_session, company, orden, "PART", "Fuente", costo=0, precio=0)
+
+    token = client.post(
+        "/api/v1/auth/login",
+        json={"email": "ot.preview-pendiente@example.com", "password": "Password1234"},
+    ).json()["access_token"]
+    r = client.post(
+        "/api/v1/auth/select-company",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"company_id": company.id},
+    )
+    cabeceras = {"Authorization": f"Bearer {r.json()['access_token']}"}
+
+    cuerpo = client.get(f"/api/v1/work-orders/{orden.id}/quotes/preview", headers=cabeceras).json()
+
+    assert cuerpo["items"][0]["precio_unitario"] is None
+    assert cuerpo["items"][0]["pendiente"]
+    assert cuerpo["pendientes"]
+    assert cuerpo["puede_generar"] is False
+
+
+def test_el_preview_de_otra_empresa_no_existe(client, db_session):
+    company_a, _, orden_a = _escenario(db_session, "preview-iso-a")
+    company_b, _, _ = _escenario(db_session, "preview-iso-b")
+
+    token = client.post(
+        "/api/v1/auth/login",
+        json={"email": "ot.preview-iso-b@example.com", "password": "Password1234"},
+    ).json()["access_token"]
+    r = client.post(
+        "/api/v1/auth/select-company",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"company_id": company_b.id},
+    )
+    cabeceras = {"Authorization": f"Bearer {r.json()['access_token']}"}
+
+    respuesta = client.get(f"/api/v1/work-orders/{orden_a.id}/quotes/preview", headers=cabeceras)
+    assert respuesta.status_code == 404

@@ -71,6 +71,22 @@ def save_diagnosis(oid:int,p:DiagnosisInput,cid:int=Depends(get_current_company_
 @router.get("/{oid}/quotes")
 def list_quotes(oid:int,cid:int=Depends(get_current_company_id),_a:User=Depends(require_permission("work_orders.view")),db:Session=Depends(get_db)):
     order(db,cid,oid);return [quote_read(db,row) for row in db.query(WorkOrderQuote).filter_by(company_id=cid,work_order_id=oid).order_by(WorkOrderQuote.version.desc()).all()]
+@router.get("/{oid}/quotes/preview")
+def preview_quote(oid:int,cid:int=Depends(get_current_company_id),_a:User=Depends(require_permission("work_orders.view")),db:Session=Depends(get_db)):
+    """El presupuesto tal como quedaria, calculado con los datos de ahora. No escribe nada.
+
+    Lo usa el dialogo de confirmacion del asistente: una propuesta que mueve plata tiene que
+    mostrar los importes antes de que la persona confirme, no despues. Es la misma funcion que
+    usa la herramienta de IA, asi que lo que se muestra aca es exactamente lo que se va a
+    guardar, y si entre medio cambio algo, muestra el estado actual y no el de la propuesta.
+    """
+    order(db,cid,oid)
+    try:
+        return wo_service.calcular_presupuesto(db,company_id=cid,work_order_id=oid)
+    except wo_service.ErrorDeDominio as exc:
+        raise HTTPException(exc.status_http,exc.mensaje)
+
+
 @router.post("/{oid}/quotes",status_code=201)
 def create_quote(oid:int,p:QuoteInput,cid:int=Depends(get_current_company_id),a:User=Depends(require_permission("work_orders.manage")),db:Session=Depends(get_db)):
     order(db,cid,oid)

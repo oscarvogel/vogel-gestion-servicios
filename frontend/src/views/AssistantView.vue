@@ -84,6 +84,8 @@ const ETIQUETAS_HERRAMIENTA: Record<string, string> = {
   agregar_diagnostico: "guardar diagnósticos",
   agregar_trabajo: "sumar trabajo",
   agregar_repuesto: "sumar repuestos",
+  calcular_presupuesto: "calcular presupuestos",
+  generar_presupuesto: "generar presupuestos",
 };
 
 async function cargar() {

@@ -32,6 +32,7 @@ from app.models.ai_action_proposal import (
 )
 from app.services.ai import proposals
 from app.services.ai.tools.base import ToolContext, ToolError, ToolOutcome, ToolSpec
+from app.services.notifications.channels import EMAIL, WHATSAPP
 from app.services.ai.tools.validacion import (
     MAX_DIRECCION,
     MAX_DOCUMENTO,
@@ -358,6 +359,100 @@ def _generar_presupuesto(ctx: ToolContext, args: dict) -> ToolOutcome:
 
 
 # --------------------------------------------------------------------------------------
+# preparar_comunicacion_cliente
+# --------------------------------------------------------------------------------------
+
+
+def _preparar_comunicacion_cliente(ctx: ToolContext, args: dict) -> ToolOutcome:
+    """Deja un aviso al cliente listo para enviar. **No lo envia.**
+
+    La diferencia con las demas herramientas de escritura es que esta no aplica nada al
+    cliente: encola el aviso en PENDIENTE, con su evento, y devuelve. El envio lo hace una
+    persona desde la orden, despues de leer el texto.
+
+    Que el texto lo pueda escribir el modelo no lo vuelve peligroso por si mismo: el mensaje
+    va en el dialogo de confirmacion, editable, y queda en la lista de la OT. Lo que no
+    alcanza es que la propuesta lo mande sola por las dudas, asi que va con `notifica=False`.
+
+    El texto por defecto sale de la plantilla del estado, la misma de #45. El modelo puede
+    traer uno propio, que se usa como override, y la persona lo ve completo antes de
+    confirmar.
+    """
+    from app.services import work_orders as wo_service
+
+    orden_id = entero(args.get("orden"), "orden", minimo=1)
+    argumentos: dict = {"orden": orden_id}
+
+    mensaje = texto_opcional(args.get("mensaje"), "mensaje", maximo=MAX_TEXTO)
+    if mensaje is not None:
+        argumentos["mensaje"] = mensaje
+
+    canal = args.get("canal")
+    canales: dict[str, dict] = {}
+    if canal is not None:
+        # Aceptar solo los dos canales que existen. Sin esto, un canal inventado pasaria
+        # hasta `enqueue_for_event` y ahi recien se veria que no hay adapter.
+        elegido = texto(canal, "canal", maximo=20).upper()
+        if elegido not in (EMAIL, WHATSAPP):
+            raise ToolError(
+                "argumentos_invalidos",
+                f"El canal tiene que ser {WHATSAPP} o {EMAIL}.",
+            )
+        argumentos["canal"] = elegido
+        canales[elegido] = {}
+    if mensaje is not None:
+        for nombre in canales or {EMAIL: {}, WHATSAPP: {}}:
+            canales.setdefault(nombre, {})["body"] = mensaje
+
+    try:
+        plan = wo_service.planear_comunicacion(
+            ctx.db, company_id=ctx.company_id, work_order_id=orden_id,
+            overrides=canales or None,
+        )
+    except wo_service.ErrorDeDominio as exc:
+        raise ToolError("argumentos_invalidos", exc.mensaje) from None
+
+    mandables = [p for p in plan if not p.get("skipped")]
+    if not mandables:
+        # El estado puede no tener avisos, o el cliente no tener donde recibirlo. Las dos son
+        # cosas que se arreglan en la pantalla, no argumentos de esta herramienta.
+        if not plan:
+            raise ToolError(
+                "sin_avisos_configurados",
+                "El estado actual de la orden no tiene avisos al cliente configurados, así que "
+                "no hay nada que preparar. Decile al operador que los configure en Estados de OT.",
+            )
+        raise ToolError(
+            "sin_destinatario",
+            "No hay a quien mandarle el aviso: "
+            + "; ".join(p["reason"] for p in plan if p.get("reason"))
+            + " Decile al operador que cargue un numero o un email al cliente.",
+        )
+
+    # Un mensaje al cliente no se puede deshacer: se marca como riesgo de comunicacion aunque
+    # todavia no salga. `notifica=False` es lo que garantiza que confirmar no lo mande.
+    return _dejar(
+        ctx,
+        "preparar_comunicacion_cliente",
+        argumentos,
+        RIESGO_COMUNICACION,
+        False,
+        previo={
+            "queda_pendiente_de_envio": True,
+            "avisos": [
+                {
+                    "canal": p["channel"],
+                    "destinatario": p["recipient"],
+                    "asunto": p.get("subject"),
+                    "mensaje": p["body"],
+                }
+                for p in mandables
+            ],
+        },
+    )
+
+
+# --------------------------------------------------------------------------------------
 # Catalogo
 # --------------------------------------------------------------------------------------
 
@@ -528,5 +623,33 @@ TOOLS: tuple[ToolSpec, ...] = (
         },
         permission="work_orders.manage",
         run=_generar_presupuesto,
+    ),
+    ToolSpec(
+        name="preparar_comunicacion_cliente",
+        description=(
+            "Deja preparado un aviso para el cliente de una orden, con el texto de la plantilla "
+            "de su estado o con el que le pases en 'mensaje'. NO lo envía: queda pendiente en la "
+            "orden, visible y editable, y lo manda una persona. Usala cuando el operador pida "
+            "avisarle algo al cliente. Si el estado no tiene avisos configurados o el cliente no "
+            "tiene dónde recibirlo, la herramienta falla y te dice cuál de las dos es."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "orden": {"type": "integer", "description": "Id de la orden de trabajo."},
+                "mensaje": {
+                    "type": "string",
+                    "description": "Texto a enviar. Si se omite, sale de la plantilla del estado.",
+                },
+                "canal": {
+                    "type": "string",
+                    "enum": [WHATSAPP, EMAIL],
+                    "description": "Canal. Si se omite, se usan los que el estado tenga activados.",
+                },
+            },
+            "required": ["orden"],
+        },
+        permission="work_orders.manage",
+        run=_preparar_comunicacion_cliente,
     ),
 )

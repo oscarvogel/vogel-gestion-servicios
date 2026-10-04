@@ -10,6 +10,7 @@ from app.models.user import User
 from app.models.work_order import WorkOrder,WorkOrderCounter,WorkOrderEvent,WorkOrderNotification,WorkOrderStatus
 from app.services import credentials
 from app.services import work_orders as wo_service
+from app.services.notifications.channels import EMAIL,WHATSAPP
 from app.services.notifications.enqueue import dispatch,enqueue_for_event,plan_for_event
 
 router=APIRouter()
@@ -254,6 +255,34 @@ class NotificationPreviewInput(BaseModel):
     status_id:int
     overrides:dict[str,NotificationOverride]|None=None
 
+class CommunicationPreviewInput(BaseModel):
+    """Que aviso quedaria preparado. `mensaje` en vacio significa "usa la plantilla"."""
+    mensaje:str|None=Field(default=None,max_length=4000)
+    canal:str|None=None
+
+@router.post("/{work_order_id}/communication-preview",response_model=NotificationPreview)
+def preview_communication(work_order_id:int,payload:CommunicationPreviewInput,
+                          company_id:int=Depends(get_current_company_id),
+                          _actor:User=Depends(require_permission("work_orders.view")),db:Session=Depends(get_db)):
+    """El aviso tal como quedaria, con las variables de la plantilla ya resueltas. No escribe.
+
+    Es lo que muestra el dialogo de confirmacion del asistente antes de aplicar. Sin el, la
+    persona confirmaria un mensaje al cliente viendo solo el texto que escribio el modelo,
+    sin ver a quien le va a llegar ni como quedaron los `{{nombre}}`.
+    """
+    row=_row(db,company_id,work_order_id)
+    overrides:dict[str,dict]={}
+    canales=[payload.canal] if payload.canal else [EMAIL,WHATSAPP]
+    for canal in canales:
+        canal=str(canal).upper()
+        if canal not in (EMAIL,WHATSAPP):
+            raise HTTPException(422,f"El canal tiene que ser {WHATSAPP} o {EMAIL}.")
+        if payload.mensaje:overrides[canal]={"body":payload.mensaje}
+    plan=wo_service.planear_comunicacion(db,company_id=company_id,work_order_id=row.id,
+                                          overrides=overrides or None)
+    items=[NotificationPreviewItem(**i) for i in plan]
+    return {"items":items,"would_notify":any(not i.skipped for i in items)}
+
 @router.post("/{work_order_id}/notification-preview",response_model=NotificationPreview)
 def preview_notifications(work_order_id:int,payload:NotificationPreviewInput,
                           company_id:int=Depends(get_current_company_id),
@@ -308,6 +337,38 @@ def notification_variables(_actor:User=Depends(require_permission("work_orders.v
     """Variables disponibles para las plantillas, para documentar la pantalla de config."""
     from app.services.notifications.templates import TEMPLATE_VARIABLES
     return {"variables":TEMPLATE_VARIABLES,"example":"Hola {{cliente}}, tu orden de trabajo N° {{numero_ot}} pasó a {{estado}}."}
+
+@router.post("/{work_order_id}/notifications/{notification_id}/send",response_model=NotificationRead)
+def send_notification(work_order_id:int,notification_id:int,
+                      company_id:int=Depends(get_current_company_id),
+                      actor:User=Depends(require_permission("work_orders.manage")),db:Session=Depends(get_db)):
+    """Manda **un** aviso que ya estaba preparado. No crea ni encola nada.
+
+    Existia un hueco: los avisos se mandaban solos al cambiar el estado, pero no habia forma
+    de mandar a mano uno que quedara pendiente. Sin esto, preparar un aviso era un callejon sin
+    salida, porque el unico despacho era el que acompana al cambio de estado.
+
+    Reenviar uno FAILED es intencional: se muestra el error en pantalla justamente para que
+    quien esta Operando pueda reintentar. Volver a mandar uno que ya salio se rechaza, asi no
+    se duplica el mensaje al cliente por una doble vuelta.
+    """
+    row=_row(db,company_id,work_order_id)
+    fila=(db.query(WorkOrderNotification)
+          .filter(WorkOrderNotification.company_id==company_id,
+                  WorkOrderNotification.work_order_id==row.id,
+                  WorkOrderNotification.id==notification_id).first())
+    if not fila: raise HTTPException(404,"Ese aviso no existe en esta orden.")
+    if fila.status in ("SENT","QUEUED"):
+        raise HTTPException(409,"Ese aviso ya se envió.")
+    if fila.status=="SKIPPED":
+        raise HTTPException(409,"Ese aviso nunca se va a enviar: no tenía destinatario. Cargale un numero o un email al cliente y preparalo de nuevo.")
+    try:
+        dispatch(db,[fila.id],actor_id=actor.id)
+    except Exception:
+        # La excepcion del proveedor ya queda en `fila.error`; el endpoint no cae.
+        pass
+    db.refresh(fila)
+    return NotificationRead(id=fila.id,channel=fila.channel,recipient=fila.recipient,subject=fila.subject,body=fila.body,status=fila.status,attempts=fila.attempts,error=fila.error,provider_message_id=fila.provider_message_id,created_at=fila.created_at,sent_at=fila.sent_at)
 
 @router.post("/{work_order_id}/status",response_model=WorkOrderRead)
 def change_status(work_order_id:int,payload:StatusChange,company_id:int=Depends(get_current_company_id),actor:User=Depends(require_permission("work_orders.manage")),db:Session=Depends(get_db)):

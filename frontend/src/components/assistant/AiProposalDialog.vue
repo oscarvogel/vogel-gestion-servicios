@@ -14,7 +14,7 @@
  */
 import { computed, ref, watch } from "vue";
 import Modal from "../Modal.vue";
-import { apiGet } from "../../lib/api";
+import { apiGet, apiPost } from "../../lib/api";
 import type { Propuesta } from "../../lib/ai";
 
 /** Una linea del calculo, tal como lo devuelve el backend. */
@@ -66,6 +66,7 @@ const ETIQUETAS: Record<string, string> = {
   agregar_trabajo: "Sumar trabajo a una orden",
   agregar_repuesto: "Sumar un repuesto a una orden",
   generar_presupuesto: "Generar el presupuesto de una orden",
+  preparar_comunicacion_cliente: "Preparar un aviso para el cliente",
 };
 
 const CAMPOS: Record<string, string> = {
@@ -96,7 +97,18 @@ const CAMPOS: Record<string, string> = {
   precio_unitario: "Precio unitario",
   costo_unitario: "Costo unitario",
   orden: "Id de la orden",
+  mensaje: "Mensaje para el cliente",
+  canal: "Canal",
 };
+
+/**
+ * Campos que se editan en un area de texto y no en una linea.
+ *
+ * Un mensaje de WhatsApp con dos saltos de linea en un `<input>` se ve como una sola renglon
+ * larguisimo y no se puede leer. Es el unico campo del sistema cuyo valor es texto para otra
+ * persona, asi que el tratamiento lo merece.
+ */
+const CAMPOS_MULTILINEA = new Set(["mensaje", "diagnostico", "notas_tecnicas"]);
 
 const titulo = computed(() =>
   props.propuesta ? (ETIQUETAS[props.propuesta.tool] ?? props.propuesta.tool) : "",
@@ -169,6 +181,50 @@ const tieneAvisos = computed(
   () =>
     (calculo.value?.pendientes.length ?? 0) + (calculo.value?.avisos.length ?? 0) > 0,
 );
+
+/** Un aviso del preview, tal como lo devuelve el backend. */
+interface AvisoPrevio {
+  channel: string;
+  recipient: string;
+  subject: string | null;
+  body: string;
+  skipped: boolean;
+  reason: string | null;
+}
+
+/**
+ * El aviso tal como quedaría, con la plantilla ya resuelta. Se pide al abrir el dialogo.
+ *
+ * Sin esto, quien confirma ve el texto que escribió el modelo pero no a quién le llega ni cómo
+ * quedaron los `{{nombre}}`. Y el mensaje se va a un cliente, que no puede deshacer lo que le
+ * mandaron: es el caso donde ver antes importa más.
+ */
+const avisos = ref<AvisoPrevio[]>([]);
+const avisoFallido = ref(false);
+
+async function cargarAviso() {
+  avisos.value = [];
+  avisoFallido.value = false;
+  const args = props.propuesta?.argumentos_propuestos ?? {};
+  if (props.propuesta?.tool !== "preparar_comunicacion_cliente" || args.orden === undefined) return;
+  try {
+    const respuesta = await apiPost<{ items: AvisoPrevio[] }>(
+      `/work-orders/${args.orden}/communication-preview`,
+      {
+        mensaje: args.mensaje ?? null,
+        canal: args.canal ?? null,
+      },
+    );
+    avisos.value = respuesta.items;
+  } catch {
+    avisoFallido.value = true;
+  }
+}
+
+watch(() => props.propuesta, () => void cargarAviso(), { immediate: true });
+
+const avisosMandables = computed(() => avisos.value.filter((a) => !a.skipped));
+const avisosSinDestino = computed(() => avisos.value.filter((a) => a.skipped));
 
 /**
  * La cantidad viene como texto desde el backend porque la columna es `Numeric(10, 3)`, y eso
@@ -255,10 +311,46 @@ function plata(texto: string | null): string {
         No se pudo calcular el presupuesto para mostrarlo. Revisá la orden antes de confirmar.
       </p>
 
+      <!--
+        El aviso al cliente va antes de los campos, y con una aclaración explícita: confirmar
+        NO lo manda. Sin esa frase, "Confirmar y aplicar" al lado de un WhatsApp se lee como
+        "se envía ahora", que es justo la confusión que este sub-issue quiere evitar.
+      -->
+      <div v-if="avisosMandables.length" class="prop__calculo">
+        <p class="prop__calculo-titulo">Así le llega al cliente</p>
+        <p class="prop__nota-envio">
+          Confirmar lo deja <strong>pendiente</strong> en la orden. No se envía solo: lo mandás vos.
+        </p>
+        <div v-for="(aviso, i) in avisosMandables" :key="i" class="prop__aviso-bloque">
+          <p class="prop__aviso-canal">
+            <span class="prop__tipo">{{ aviso.channel === "WHATSAPP" ? "WhatsApp" : "Email" }}</span>
+            <span class="prop__aviso-destino">{{ aviso.recipient }}</span>
+          </p>
+          <p v-if="aviso.subject" class="prop__aviso-asunto"><strong>{{ aviso.subject }}</strong></p>
+          <p class="prop__aviso-texto">{{ aviso.body }}</p>
+        </div>
+      </div>
+      <div v-else-if="avisosSinDestino.length" class="prop__calculo">
+        <p class="prop__calculo-titulo">No se va a poder enviar</p>
+        <p v-for="(aviso, i) in avisosSinDestino" :key="i" class="prop__aviso">
+          • {{ aviso.reason }}
+        </p>
+      </div>
+      <p v-else-if="avisoFallido" class="prop__aviso">
+        No se pudo preparar la vista previa del aviso. Revisá la orden antes de confirmar.
+      </p>
+
       <div class="prop__campos">
-        <label v-for="c in campos" :key="c.clave" class="field">
+        <label v-for="c in campos" :key="c.clave" class="field" :class="{ 'field--ancho': CAMPOS_MULTILINEA.has(c.clave) }">
           <span>{{ c.etiqueta }}</span>
+          <textarea
+            v-if="CAMPOS_MULTILINEA.has(c.clave)"
+            rows="5"
+            :value="editado(c.clave)"
+            @input="cambiar(c.clave, $event)"
+          ></textarea>
           <input
+            v-else
             :value="editado(c.clave)"
             :type="esNumero(c.clave) ? 'number' : 'text'"
             :step="c.clave === 'cantidad' ? 'any' : undefined"
@@ -369,6 +461,39 @@ function plata(texto: string | null): string {
   font-size: 12px;
   color: #fbbf24;
 }
+/* El aviso al cliente se muestra como un bloque de texto legible, no como una fila de tabla:
+   lo que se lee es el mensaje, y tiene que poder copiarse tal como va a salir. */
+.prop__nota-envio {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: #fbbf24;
+}
+.prop__aviso-bloque {
+  padding: 10px 0;
+  border-top: 1px solid rgba(148, 163, 184, 0.18);
+}
+.prop__aviso-canal {
+  margin: 0 0 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.prop__aviso-destino {
+  color: var(--color-text-secondary, #cbd5e1);
+  font-variant-numeric: tabular-nums;
+}
+.prop__aviso-asunto {
+  margin: 0 0 6px;
+  font-size: 13px;
+}
+.prop__aviso-texto {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  color: var(--color-text-primary, #e5edf7);
+}
 .prop__campos {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -391,6 +516,24 @@ function plata(texto: string | null): string {
   padding: 8px 10px;
   color-scheme: dark;
   width: 100%;
+}
+.prop__campos textarea {
+  background: #10283f;
+  color: #e5edf7;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 8px;
+  padding: 8px 10px;
+  color-scheme: dark;
+  width: 100%;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  resize: vertical;
+}
+/* Los campos de texto largo ocupan todo el ancho: partir un mensaje en dos columnas lo deja
+   ilegible. */
+.prop__campos .field--ancho {
+  grid-column: 1 / -1;
 }
 .prop__pie {
   display: flex;

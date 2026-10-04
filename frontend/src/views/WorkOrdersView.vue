@@ -23,10 +23,14 @@ interface ExecutionItem{id:number;item_type:"PART"|"LABOR";description:string;qu
  * ya trae el nombre del estado, asi que se usa para esos casos y el `detail` de al lado ya
  * explica que paso.
  */
-const ETIQUETAS_EVENTO:Record<string,string>={STATUS_CHANGE:"Cambio de estado"};
+const ETIQUETAS_EVENTO:Record<string,string>={STATUS_CHANGE:"Cambio de estado",NOTICE:"Aviso preparado"};
 function etiquetaEvento(e:Event):string{
-  if(e.status==="RECEIVED")return"Recibido";
-  return ETIQUETAS_EVENTO[e.event_type]??e.event_type;
+  // El mapa se consulta **antes** que el caso RECEIVED. Un aviso preparado tambien nace con
+  // el estado que tenia la orden en su campo `status`, asi que si la orden estaba en Recibido
+  // el evento salia rotulado "Recibido", como si la recepcion se hubiera repetido.
+  const etiqueta=ETIQUETAS_EVENTO[e.event_type];
+  if(etiqueta)return etiqueta;
+  return e.status==="RECEIVED"?"Recibido":e.event_type;
 }
 interface FinalTest{id:number;passed:boolean;notes:string|null;tested_at:string}
 const toast=useToastStore(),session=useSessionStore(),orders=ref<Order[]>([]),total=ref(0),search=ref(""),customers=ref<Customer[]>([]),equipment=ref<Equipment[]>([]),selected=ref<Order|null>(null),events=ref<Event[]>([]),statuses=ref<OtStatus[]>([]),showReception=ref(false),showStatuses=ref(false);

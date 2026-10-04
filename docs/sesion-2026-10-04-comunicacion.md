@@ -82,6 +82,40 @@ herramienta quede sin su entrada en `APLICADORES`. Una herramienta sin aplicador
 se confirma, y falla recién en producción, con el mensaje "no hay función para aplicar X" en
 lugar de algo útil. Cuesta cuatro líneas.
 
+## Verificación en el navegador, y lo que encontró
+
+Los tests cubren el backend, pero el diálogo **no se había abierto**. Se armó una empresa con
+una orden, un cliente con WhatsApp, y un estado con avisos configurados. La empresa quedó **sin
+instancia de WhatsApp**, a propósito: el sender corta antes de tocar la red, y así se pudo
+mirar también el camino de error sin mandar nada a nadie.
+
+Recorrido completo, desde la conversación del asistente:
+
+1. El panel lista las 12 herramientas, incluida "preparar avisos al cliente".
+2. La propuesta sale marcada **"avisa al cliente"**.
+3. El diálogo muestra, antes de los campos, el bloque "ASÍ LE LLEGA AL CLIENTE", la aclaración
+   en amarillo de que confirmar **no** manda nada, el canal, el número, y el texto con las
+   variables ya resueltas y los saltos de línea intactos. Abajo, el mismo mensaje en un
+   `<textarea>` editable.
+4. Confirmar deja el aviso **Pendiente** en la orden, con "Ver mensaje" y "Enviar ahora".
+5. "Ver mensaje" muestra el texto completo.
+6. "Enviar ahora" lo manda: pasa a **Falló** con el motivo real —"La empresa no tiene API key
+   de WhatsApp configurada"— y el botón pasa a **Reintentar**. El estado sobrevive al reload.
+7. El historial registra "Aviso preparado · Aviso al cliente preparado para enviar por
+   WHATSAPP. Queda pendiente hasta que alguien lo envíe."
+
+**El ciclo se cierra: confirmar prepara, y el envío es un acto aparte y visible.**
+
+### Lo que salió mal y hubo que corregir
+
+En el paso 7 el evento de aviso aparecía rotulado **"Recibido"** en el historial, como si la
+recepción se hubiera repetido. La causa era el orden de las reglas de `etiquetaEvento`: primero
+preguntaba si el estado era `RECEIVED`, y el evento de aviso **nace con el estado que tenía la
+orden** en su campo `status`. Con la orden en "Recibido", el aviso salía rotulado "Recibido".
+
+Se invirtieron las reglas: el mapa de event types se consulta antes, y recién después se cae al
+caso `RECEIVED`. Ahora dice "Aviso preparado".
+
 ## Verificación
 
 - **22 tests nuevos** en `tests/test_ai_comunicacion.py`, uno por criterio del issue más los que
@@ -90,13 +124,10 @@ lugar de algo útil. Cuesta cuatro líneas.
 - El test de "no manda" se validó **contra el código roto** en los dos niveles: con el aplicador
   en `True` fallan tanto el test de `confirmar` como el que va por el endpoint, y este último
   con el síntoma real, `{'sent': 1}`.
-- Los 218 tests anteriores del backend siguen en verde.
+- **240 tests del backend** en verde, 31 del frontend, build OK.
 
 ## Pendientes
 
-- Verificar en el navegador el diálogo de la comunicación y el botón de enviar. Los tests
-  cubren el backend y la vista previa se pide por el mismo endpoint que testea el backend, pero
-  **la pantalla no se abrió todavía** para este sub-issue.
 - Sigue abierta la decisión de si emitir un presupuesto debe avisar al cliente (quedó anotada
   en el sub-issue 4). Ahora hay un botón de enviar a mano, así que hoy el camino es: preparar,
   que alguien lo mande. Cambiar el comportamiento del presupuesto es otra decisión, y ahora es

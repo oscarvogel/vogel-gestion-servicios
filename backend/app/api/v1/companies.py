@@ -221,6 +221,68 @@ def create_company(
     return _serialize(company, user_count=_count_users(db, company.id))
 
 
+class AiConsumoEmpresa(BaseModel):
+    """Una fila del tablero de consumo: toda empresa, con lo que gasto este mes."""
+
+    company_id: int
+    company_name: str
+    company_active: bool
+    enabled: bool
+    monthly_quota_usd: float
+    monthly_request_limit: int
+    requests: int
+    input_tokens: int
+    output_tokens: int
+    cost_usd: float
+    previous_month_cost_usd: float
+    agotada: bool
+
+
+@router.get("/ai-consumo", response_model=list[AiConsumoEmpresa])
+def listar_consumo_ia(
+    _admin: User = Depends(require_superadmin),
+    db: Session = Depends(get_db),
+):
+    """Todas las empresas con su consumo del mes, para decidir a quien se le renueva.
+
+    Ruta estatica, declarada antes que `/{company_id}`: si fuera despues, el conversor a int
+    la agarra y devuelve 422 en vez de la lista.
+
+    Se leen **todas** las empresas, no solo las que tienen la IA prendida. Una empresa que la
+    tiene apagada pero con consumo en el mes es justo la que hay que mirar: esta pagando sin
+    estar contratada, o se le quedo el interruptor despues de un mes de uso.
+    """
+    from app.services.ai import entitlement
+    from app.services.ai.usage import last_period_cost, month_totals
+
+    filas = db.query(Company).order_by(Company.active.desc(), Company.name).all()
+    salida: list[AiConsumoEmpresa] = []
+    for company in filas:
+        totals = month_totals(db, company.id)
+        cuota = entitlement.monthly_quota_usd(db, company.id)
+        limite = entitlement.monthly_request_limit(db, company.id)
+        salida.append(
+            AiConsumoEmpresa(
+                company_id=company.id,
+                company_name=company.name,
+                company_active=company.active,
+                enabled=entitlement.is_enabled(db, company.id),
+                monthly_quota_usd=cuota,
+                monthly_request_limit=limite,
+                requests=totals["requests"],
+                input_tokens=totals["input_tokens"],
+                output_tokens=totals["output_tokens"],
+                cost_usd=totals["cost_usd"],
+                previous_month_cost_usd=last_period_cost(db, company.id),
+                agotada=bool(
+                    (cuota and totals["cost_usd"] >= cuota)
+                    or (limite and totals["requests"] >= limite)
+                ),
+            )
+        )
+    return salida
+
+
 @router.get("/{company_id}", response_model=CompanyDetail)
 def get_company(
     company_id: int,

@@ -98,6 +98,15 @@ const links = computed<NavLink[]>(() => {
       visible: session.activeCompany !== null && session.hasPermission("ai.use"),
     },
     {
+      id: "consumo-ia",
+      label: "Consumo de IA",
+      to: "/app/consumo-ia",
+      icon: IconAssistant,
+      // Junto al asistente porque es la otra mitad de la misma pregunta: cuanto se uso y
+      // cuanto queda. Sin empresa activa no hay "mi consumo", y la ruta tampoco responderia.
+      visible: session.activeCompany !== null && session.hasPermission("ai.use"),
+    },
+    {
       id: "settings",
       label: "Configuración",
       to: "/app/settings",

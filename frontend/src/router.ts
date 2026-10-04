@@ -15,6 +15,7 @@ import SettingsView from "./views/SettingsView.vue";
 import ParametersView from "./views/ParametersView.vue";
 import WorkOrderStatusesView from "./views/WorkOrderStatusesView.vue";
 import AssistantView from "./views/AssistantView.vue";
+import AiConsumoView from "./views/AiConsumoView.vue";
 
 declare module "vue-router" {
   interface RouteMeta {
@@ -115,6 +116,14 @@ const routes: RouteRecordRaw[] = [
         path: "assistant",
         name: "assistant",
         component: AssistantView,
+        meta: { requiresAuth: true, permission: "ai.use" },
+      },
+      {
+        path: "consumo-ia",
+        name: "consumo-ia",
+        component: AiConsumoView,
+        alias: ["/consumo-ia"],
+        // El mismo permiso que el asistente: consumo sin poder usar la IA no tiene sentido.
         meta: { requiresAuth: true, permission: "ai.use" },
       },
       {

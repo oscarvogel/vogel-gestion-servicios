@@ -103,9 +103,58 @@ migración es idempotente y su `downgrade` está documentado como no exacto: baj
 las filas viejas con las nuevas, porque después de la corrección la herramienta ya escribe
 `LABOR`.
 
+## Verificación en el navegador, y lo que faltaba
+
+Los tests cubren el backend, pero el diálogo de confirmación **no se había abierto**. Se.armó
+una empresa de prueba con una orden, un repuesto con costo y un trabajo con precio, y se
+disparó la conversación real contra el `FakeProvider` para que la propuesta saliera por el
+mismo camino que en producción: modelo → herramientas → propuesta → pantalla.
+
+**Lo que faltaba era grave.** El diálogo de confirmación mostraba el riesgo ("financiero",
+"mueve plata") y un solo campo editable: "Id de la orden: 1". **Ni un solo importe.**
+
+Es decir: una persona iba a apretar "Confirmar y aplicar" sobre una propuesta que mueve
+$57.000 sin ver un número. El riesgo se avisaba; la cifra no. Y el criterio de #44 es
+explícito: *"Antes de operaciones que creen/modifiquen datos relevantes, mostrar claramente
+qué se interpretó y qué se va a guardar"*. Los tests no lo detectaron porque no miran la
+pantalla: el backend entregaba el cálculo correctamente y nadie verificaba que llegara a la
+vista.
+
+**El arreglo:** endpoint de solo lectura `GET /work-orders/{oid}/quotes/preview`, que
+devuelve exactamente lo mismo que `calcular_presupuesto` — la misma función, no una
+segunda implementación — y el diálogo lo pide al abrirse para pintar la tabla de líneas,
+subtotales y total antes de los campos editables.
+
+Se decidió que el cálculo **se pide al abrir el diálogo en vez de guardarse en la
+propuesta**. Tres razones: el modelo de `AiActionProposal` no crece, el número que muestra
+es el de ahora y no el de hace una hora, y si la orden cambió entre la propuesta y la
+confirmación, el operador ve el estado real en vez del que se propuso.
+
+### Dos cosas más que solo se ven en el navegador
+
+1. **La cantidad salía como `1.000`.** La columna es `Numeric(10, 3)`, y el backend devuelve
+   el texto crudo, así que una fuente que va una vez se veía como "1.000". Ahora se recorta
+   la parte decimal cuando es cero, y la plata usa el mismo formato que el resto de la
+   aplicación (`$ 27.000,00`).
+2. **En el historial, un evento aparecía crudo como `STATUS_CHANGE`.** Venía de
+   `{{e.status==="RECEIVED"?"Recibido":e.event_type}}`: todo evento que no fuera una
+   recepción mostraba el enum. Preexistente, pero este sub-issue escribe justamente ese
+   evento, así que quedaba a la vista. Ahora dice "Cambio de estado" y el `detail` al lado
+   ya explica qué pasó.
+
+### El circuito completo, verificado
+
+Confirmar desde el navegador y después abrir la orden: el presupuesto aparece como **v1 ·
+$ 57.000,00**, la orden quedó en **Presupuestado**, el diagnóstico se cerró, y el historial
+registra "Presupuesto v1 generado" más "Estado cambiado de Recibido a Presupuestado al emitir
+el presupuesto". El mismo número que se le mostró a la persona que confirmó aparece en la
+orden, que es la comprobación que importa: **lo que se ve antes de confirmar es lo que se
+guarda después**.
+
 ## Verificación
 
-- **24 tests nuevos** en `tests/test_ai_presupuestos.py`, uno por criterio del issue.
+- **215 tests del backend** en verde al momento del PR, más 3 del endpoint de preview.
+- **31 del frontend**, y el build que corre la CI.
 - El test del vocabulario `LABOR` se validó **contra el código roto**: se revirtió el fix y
   falla con `assert 'WORK' == 'LABOR'`. Un test que pasa contra el código roto no prueba
   nada.
@@ -126,9 +175,10 @@ las filas viejas con las nuevas, porque después de la corrección la herramient
 
 ## Pendientes
 
-- Verificar en el navegador que el diálogo de confirmación de `generar_presupuesto` se ve
-  bien y que la vista previa con los importes le llega al operador antes de confirmar. Los
-  tests cubren el backend; la pantalla no se abrió todavía.
 - La lista de clientes de prueba en staging sigue pendiente de borrar a mano: 2042, 2043 y
   2044 (viene del sub-issue 7).
 - Sub-issues de #44 que siguen abiertos: #93 comunicación, #94 voz, #96 métricas.
+- El detalle del evento dice "Presupuesto v1 generado por $57000.00" sin separador de miles,
+  mientras el resto de la pantalla usa "$ 57.000,00". Es texto viejo del endpoint y **no se
+  cambió a propósito**: los presupuestos ya emitidos quedan con el formato anterior y
+  corregirlo solo el nuevo los deja mezclados en el mismo historial.

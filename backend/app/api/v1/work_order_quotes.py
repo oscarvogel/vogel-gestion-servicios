@@ -1,11 +1,10 @@
-from decimal import Decimal,ROUND_HALF_UP
+from decimal import Decimal
 from datetime import datetime
 from fastapi import APIRouter,Depends,HTTPException
 from pydantic import BaseModel,Field
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 from app.api.dependencies import get_current_company_id,get_db,require_permission
-from app.models.company import CompanyParameter,ParameterDefinition
+from app.services import work_orders as wo_service
 from app.models.user import User
 from app.models.work_order import WorkOrder,WorkOrderEvent,WorkOrderStatus
 from app.models.work_order_quote import WorkOrderDiagnosis,WorkOrderQuote,WorkOrderQuoteItem,WorkOrderExecutionItem,WorkOrderFinalTest
@@ -46,18 +45,11 @@ def _is_final(db,cid,oid,wo):
     st=db.get(WorkOrderStatus,wo.status_id)
     return bool(st and st.is_final)
 def parameter_bool(db,cid,key,default=True):
-    d=db.query(ParameterDefinition).filter_by(parameter=key,active=True).first()
-    if not d:return default
-    o=db.query(CompanyParameter).filter_by(company_id=cid,parameter_definition_id=d.id).first()
-    raw=(o.value if o else d.default_value)
-    return str(raw).strip().lower() in ("1","true","yes","si","sí","on")
+    return wo_service.parameter_bool(db,cid,key,default)
 
 def markup(db,cid):
-    d=db.query(ParameterDefinition).filter_by(parameter="pricing.parts_markup_percent",active=True).first()
-    if not d:return Decimal("0")
-    o=db.query(CompanyParameter).filter_by(company_id=cid,parameter_definition_id=d.id).first()
-    return Decimal(o.value if o else d.default_value)
-def money(v):return Decimal(v).quantize(Decimal("0.01"),rounding=ROUND_HALF_UP)
+    return wo_service.markup_partes(db,cid)
+def money(v):return wo_service.money(v)
 def quote_read(db,row):
     items=db.query(WorkOrderQuoteItem).filter_by(quote_id=row.id,company_id=row.company_id).order_by(WorkOrderQuoteItem.id).all()
     return {"id":row.id,"work_order_id":row.work_order_id,"version":row.version,"status":row.status,"notes":row.notes,"diagnosis_snapshot":row.diagnosis_snapshot,"diagnosis_revision":row.diagnosis_revision,"subtotal_parts":row.subtotal_parts,"subtotal_labor":row.subtotal_labor,"total":row.total,"created_at":row.created_at,"sent_at":row.sent_at,"decided_at":row.decided_at,"items":[{"id":i.id,"item_type":i.item_type,"description":i.description,"quantity":i.quantity,"unit_cost":i.unit_cost,"markup_percent":i.markup_percent,"unit_price":i.unit_price,"line_total":i.line_total} for i in items]}
@@ -81,27 +73,10 @@ def list_quotes(oid:int,cid:int=Depends(get_current_company_id),_a:User=Depends(
     order(db,cid,oid);return [quote_read(db,row) for row in db.query(WorkOrderQuote).filter_by(company_id=cid,work_order_id=oid).order_by(WorkOrderQuote.version.desc()).all()]
 @router.post("/{oid}/quotes",status_code=201)
 def create_quote(oid:int,p:QuoteInput,cid:int=Depends(get_current_company_id),a:User=Depends(require_permission("work_orders.manage")),db:Session=Depends(get_db)):
-    wo=order(db,cid,oid)
-    if _is_final(db,cid,oid,wo):raise HTTPException(409,"La orden de trabajo está en un estado final (entregada) y no admite presupuestos.")
-    if not parameter_bool(db,cid,"work_orders.use_budget",True):raise HTTPException(409,"Los presupuestos están deshabilitados para esta empresa.")
-    if parameter_bool(db,cid,"work_orders.use_diagnosis",True) and not db.query(WorkOrderDiagnosis).filter_by(company_id=cid,work_order_id=oid).first():raise HTTPException(422,"Primero debe registrar el diagnóstico técnico.")
-    version=(db.query(func.max(WorkOrderQuote.version)).filter_by(company_id=cid,work_order_id=oid).scalar() or 0)+1
-    diag=db.query(WorkOrderDiagnosis).filter_by(company_id=cid,work_order_id=oid).first()
-    row=WorkOrderQuote(company_id=cid,work_order_id=oid,version=version,status="ISSUED",notes=p.notes,diagnosis_snapshot=(diag.diagnosis if diag else None),diagnosis_revision=(diag.revision if diag else None),created_by_user_id=a.id);db.add(row);db.flush()
-    if diag:diag.is_open=False
-    default_markup=markup(db,cid);parts=Decimal("0");labor=Decimal("0")
-    for x in p.items:
-        m=default_markup if x.item_type=="PART" else Decimal("0");price=money(x.unit_price if x.unit_price is not None else (x.unit_cost*(Decimal("1")+m/Decimal("100"))));total=money(x.quantity*price)
-        db.add(WorkOrderQuoteItem(company_id=cid,quote_id=row.id,item_type=x.item_type,description=x.description.strip(),quantity=x.quantity,unit_cost=money(x.unit_cost),markup_percent=m,unit_price=price,line_total=total))
-        if x.item_type=="PART":parts+=total
-        else:labor+=total
-    row.subtotal_parts=money(parts);row.subtotal_labor=money(labor);row.total=money(parts+labor)
-    db.add(WorkOrderEvent(company_id=cid,work_order_id=oid,event_type="QUOTE_CREATED",status=wo.status,detail="Presupuesto v%d generado por $%s."%(version,row.total),user_id=a.id))
-    target=db.query(WorkOrderStatus).filter_by(company_id=cid,marks_quoted=True,active=True).order_by(WorkOrderStatus.sort_order).first()
-    if target and wo.status_id!=target.id:
-        previous=db.get(WorkOrderStatus,wo.status_id) if wo.status_id else None
-        wo.status_id=target.id;wo.status=target.name.upper().replace(" ","_")[:30]
-        db.add(WorkOrderEvent(company_id=cid,work_order_id=oid,event_type="STATUS_CHANGE",status=wo.status,detail="Estado cambiado de %s a %s al emitir el presupuesto."%((previous.name if previous else "sin estado"),target.name),user_id=a.id))
+    order(db,cid,oid)
+    try:
+        row=wo_service.crear_presupuesto(db,company_id=cid,user_id=a.id,work_order_id=oid,notes=p.notes,items=[dict(x) for x in p.items])
+    except wo_service.ErrorDeDominio as exc:raise HTTPException(exc.status_http,exc.mensaje)
     db.commit();db.refresh(row);return quote_read(db,row)
 
 def _move_status(db,cid,wo,marker,user_id,detail):

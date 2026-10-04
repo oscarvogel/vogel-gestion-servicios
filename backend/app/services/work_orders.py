@@ -13,15 +13,21 @@ motivo que se muestra en la pantalla de confirmacion.
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
-from sqlalchemy import text
+from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
-from app.models.company import Company
+from app.models.company import Company, CompanyParameter, ParameterDefinition
 from app.models.customer import Customer, Equipment
 from app.models.work_order import WorkOrder, WorkOrderCounter, WorkOrderEvent, WorkOrderStatus
-from app.models.work_order_quote import WorkOrderDiagnosis
+from app.models.work_order_quote import (
+    WorkOrderDiagnosis,
+    WorkOrderExecutionItem,
+    WorkOrderQuote,
+    WorkOrderQuoteItem,
+)
 from app.services.notifications.enqueue import enqueue_for_event, plan_for_event
 
 
@@ -37,6 +43,45 @@ class ErrorDeDominio(Exception):
 
 def utcnow() -> datetime:
     return datetime.utcnow()
+
+
+# --------------------------------------------------------------------------------------
+# Parametros de la empresa
+# --------------------------------------------------------------------------------------
+
+
+def parameter_bool(db: Session, company_id: int, key: str, default: bool = True) -> bool:
+    """Lee un parametro booleano de la empresa, con el default de la definicion.
+
+    Vive aca y no en la API porque lo consultan dos caminos: la pantalla y el calculo del
+    presupuesto que hace la IA. Si cada uno leyera el valor por su cuenta, una empresa podria
+    tener dos reglas distintas para el mismo parametro.
+    """
+    definicion = db.query(ParameterDefinition).filter_by(parameter=key, active=True).first()
+    if definicion is None:
+        return default
+    valor = db.query(CompanyParameter).filter_by(
+        company_id=company_id, parameter_definition_id=definicion.id
+    ).first()
+    crudo = valor.value if valor else definicion.default_value
+    return str(crudo).strip().lower() in ("1", "true", "yes", "si", "sí", "on")
+
+
+def markup_partes(db: Session, company_id: int) -> Decimal:
+    """El margen que la empresa carga sobre los repuestos. La mano de obra no lleva."""
+    definicion = db.query(ParameterDefinition).filter_by(
+        parameter="pricing.parts_markup_percent", active=True
+    ).first()
+    if definicion is None:
+        return Decimal("0")
+    valor = db.query(CompanyParameter).filter_by(
+        company_id=company_id, parameter_definition_id=definicion.id
+    ).first()
+    return Decimal(valor.value if valor else definicion.default_value)
+
+
+def money(valor: Any) -> Decimal:
+    return Decimal(valor).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
 # --------------------------------------------------------------------------------------
@@ -364,3 +409,305 @@ def guardar_diagnostico(
     )
     db.flush()
     return diagnostico
+
+
+# --------------------------------------------------------------------------------------
+# Presupuesto
+# --------------------------------------------------------------------------------------
+#
+# La regla que ordena todo este bloque: **una linea del presupuesto sale de un trabajo o un
+# repuesto que esta cargado en la orden, y su precio sale de un dato real de esa linea**. Si no
+# hay dato, la linea queda `pendiente` y el presupuesto no se puede generar. Nunca se completa
+# un importe que no vino de la base.
+#
+# Por que no se rellena con un promedio, con "un precio tipico" o con lo que le suene al modelo:
+# un presupuesto es lo que el cliente ve como compromiso. Un precio inventado que llega a la
+# pantalla se ve igual que uno real, y la diferencia la descubre el cliente, no el sistema.
+#
+# `calcular_presupuesto` no escribe nada: arma el presupuesto en memoria y dice que le falta.
+# `crear_presupuesto` es el unico que lo persiste.
+
+# De donde salio el precio de una linea. Va en la respuesta para que se pueda auditar.
+ORIGEN_PRECIO_CARGADO = "precio_cargado"
+ORIGEN_COSTO_MAS_MARKUP = "costo_mas_markup"
+ORIGEN_SIN_PRECIO = "sin_precio"
+
+
+def _motivos_para_no_generar(
+    db: Session, company_id: int, orden: WorkOrder, diagnostico: WorkOrderDiagnosis | None
+) -> list[str]:
+    """Las reglas de dominio que impiden emitir un presupuesto, en el orden que las corre la API."""
+    motivos: list[str] = []
+    if es_final(db, orden):
+        motivos.append(
+            "La orden de trabajo esta en un estado final (entregada) y no admite presupuestos."
+        )
+    if not parameter_bool(db, company_id, "work_orders.use_budget", True):
+        motivos.append("Los presupuestos estan deshabilitados para esta empresa.")
+    if parameter_bool(db, company_id, "work_orders.use_diagnosis", True) and diagnostico is None:
+        motivos.append("Primero debe registrar el diagnostico tecnico de la orden.")
+    return motivos
+
+
+def calcular_presupuesto(db: Session, *, company_id: int, work_order_id: int) -> dict:
+    """Arma el presupuesto de la orden **desde los datos reales que ya tiene cargados**.
+
+    No escribe nada. Devuelve las lineas con el origen de cada precio, los subtotales, y sobre
+    todo `puede_generar`: si hay lineas sin precio real, el presupuesto no se puede emitir y
+    esto dice exactamente cual falta.
+
+    Cada linea trae `origen_id`, que es el id del trabajo o repuesto del que salio. Es lo que
+    hace auditable el importe: se puede volver a la linea de la orden y ver el dato.
+    """
+    orden = leer_orden(db, company_id, work_order_id)
+    diagnostico = db.query(WorkOrderDiagnosis).filter_by(
+        company_id=company_id, work_order_id=work_order_id
+    ).first()
+
+    # Si la empresa no muestra costos internos, la IA tampoco los ve: ni el costo, ni el
+    # markup, ni el margen. Y tampoco puede derivar el precio desde el costo, porque el precio
+    # asi calculado revela el costo: si el modelo ve 35000 y sabe que el markup es 0, ya sabe
+    # cuanto costo. Por eso el costo no habilita el precio cuando los costos estan ocultos.
+    costos_visibles = parameter_bool(db, company_id, "work_orders.show_internal_costs", True)
+    markup_por_defecto = markup_partes(db, company_id)
+
+    ejecuciones = (
+        db.query(WorkOrderExecutionItem)
+        .filter_by(company_id=company_id, work_order_id=work_order_id)
+        .order_by(WorkOrderExecutionItem.id)
+        .all()
+    )
+
+    pendientes: list[str] = []
+    avisos: list[str] = []
+    lineas: list[dict] = []
+    subtotal_repuestos = Decimal("0")
+    subtotal_manos_de_obra = Decimal("0")
+
+    for ejecucion in ejecuciones:
+        # Todo lo que no sea repuesto se trata como mano de obra. Es la misma regla que usa la
+        # pantalla, y evita que un valor inesperado en la base se cuele como repuesto.
+        es_repuesto = ejecucion.item_type == "PART"
+        markup_aplicado = markup_por_defecto if es_repuesto else Decimal("0")
+
+        origen_del_precio = ORIGEN_SIN_PRECIO
+        precio: Decimal | None = None
+        if ejecucion.unit_price > 0:
+            precio = money(ejecucion.unit_price)
+            origen_del_precio = ORIGEN_PRECIO_CARGADO
+        elif costos_visibles and ejecucion.unit_cost > 0:
+            precio = money(ejecucion.unit_cost * (Decimal("1") + markup_aplicado / Decimal("100")))
+            origen_del_precio = ORIGEN_COSTO_MAS_MARKUP
+
+        pendiente: str | None = None
+        revisar: str | None = None
+        if precio is None:
+            if not costos_visibles:
+                pendiente = (
+                    "no tiene precio cargado, y esta empresa tiene los costos internos ocultos "
+                    "asi que no se puede derivar el precio"
+                )
+            else:
+                pendiente = "no tiene precio ni costo cargado"
+            pendientes.append(f"{ejecucion.description}: {pendiente}.")
+        elif origen_del_precio == ORIGEN_COSTO_MAS_MARKUP and not es_repuesto:
+            # La mano de obra no lleva markup, asi que derivar el precio del costo devuelve el
+            # costo mismo. El numero sale de un dato real, pero ofrecerlo al cliente como
+            # precio deja margen cero. No se bloquea: se avisa para que la persona lo revise.
+            revisar = (
+                "el precio sale del costo sin margen, porque la mano de obra no lleva markup. "
+                "Si se quiere cobrar otra cosa, cargalo como precio."
+            )
+            avisos.append(f"{ejecucion.description}: {revisar}.")
+
+        total_linea = money(precio * ejecucion.quantity) if precio is not None else None
+        if total_linea is not None:
+            if es_repuesto:
+                subtotal_repuestos += total_linea
+            else:
+                subtotal_manos_de_obra += total_linea
+
+        linea = {
+            "origen_id": ejecucion.id,
+            "tipo": "PART" if es_repuesto else "LABOR",
+            "descripcion": ejecucion.description,
+            "cantidad": str(ejecucion.quantity),
+            "precio_unitario": str(precio) if precio is not None else None,
+            "total_linea": str(total_linea) if total_linea is not None else None,
+            "origen_del_precio": origen_del_precio,
+            "pendiente": pendiente,
+            "revisar": revisar,
+        }
+        if costos_visibles:
+            linea["costo_unitario"] = str(money(ejecucion.unit_cost))
+            linea["markup"] = str(markup_aplicado)
+            if precio is not None and ejecucion.unit_cost > 0:
+                linea["margen"] = str(money(precio - ejecucion.unit_cost))
+        lineas.append(linea)
+
+    if not ejecuciones:
+        pendientes.append(
+            "La orden no tiene trabajos ni repuestos cargados, asi que no hay nada que "
+            "presupuestar todavia."
+        )
+
+    motivos = _motivos_para_no_generar(db, company_id, orden, diagnostico)
+
+    return {
+        "orden": orden.id,
+        "numero": orden.number,
+        "puede_generar": not motivos and not pendientes and bool(lineas),
+        "motivos_de_dominio": motivos,
+        "costos_visibles": costos_visibles,
+        "diagnostico": {
+            "cargado": diagnostico is not None,
+            "revision": diagnostico.revision if diagnostico else None,
+            "texto": diagnostico.diagnosis if diagnostico else None,
+        },
+        "items": lineas,
+        "subtotal_repuestos": str(money(subtotal_repuestos)),
+        "subtotal_manos_de_obra": str(money(subtotal_manos_de_obra)),
+        "total": str(money(subtotal_repuestos + subtotal_manos_de_obra)),
+        "pendientes": pendientes,
+        "avisos": avisos,
+    }
+
+
+def crear_presupuesto(
+    db: Session,
+    *,
+    company_id: int,
+    user_id: int,
+    work_order_id: int,
+    items: list[dict],
+    notes: str | None = None,
+) -> WorkOrderQuote:
+    """Emite el presupuesto. Las reglas son las de la pantalla, no unas propias.
+
+    ``items`` son las lineas ya resueltas: ``item_type``, ``description``, ``quantity``,
+    ``unit_cost`` y ``unit_price`` (que puede venir None para que lo calcule el markup, como
+    hace la pantalla cuando el precio queda en automatico).
+
+    No hace commit: la transaccion la cierra quien la llama, que puede ser el endpoint o la
+    aplicacion de una propuesta de la IA.
+    """
+    orden = leer_orden(db, company_id, work_order_id)
+    if es_final(db, orden):
+        raise ErrorDeDominio(
+            "La orden de trabajo está en un estado final (entregada) y no admite presupuestos.",
+            "orden_final", 409,
+        )
+    if not parameter_bool(db, company_id, "work_orders.use_budget", True):
+        raise ErrorDeDominio(
+            "Los presupuestos están deshabilitados para esta empresa.",
+            "presupuestos_deshabilitados", 409,
+        )
+    diagnostico = db.query(WorkOrderDiagnosis).filter_by(
+        company_id=company_id, work_order_id=work_order_id
+    ).first()
+    if parameter_bool(db, company_id, "work_orders.use_diagnosis", True) and diagnostico is None:
+        raise ErrorDeDominio(
+            "Primero debe registrar el diagnóstico técnico.",
+            "diagnostico_requerido", 422,
+        )
+
+    version = (
+        db.query(func.max(WorkOrderQuote.version))
+        .filter_by(company_id=company_id, work_order_id=work_order_id)
+        .scalar()
+        or 0
+    ) + 1
+
+    presupuesto = WorkOrderQuote(
+        company_id=company_id,
+        work_order_id=work_order_id,
+        version=version,
+        status="ISSUED",
+        notes=notes,
+        diagnosis_snapshot=diagnostico.diagnosis if diagnostico else None,
+        diagnosis_revision=diagnostico.revision if diagnostico else None,
+        created_by_user_id=user_id,
+    )
+    db.add(presupuesto)
+    db.flush()
+    if diagnostico:
+        # El diagnóstico queda cerrado por este presupuesto. Se puede reabrir, pero solo a
+        # mano y desde el endpoint que lo pide explícitamente.
+        diagnostico.is_open = False
+
+    markup_por_defecto = markup_partes(db, company_id)
+    repuestos = Decimal("0")
+    mano_de_obra = Decimal("0")
+    for item in items:
+        es_repuesto = item["item_type"] == "PART"
+        markup_aplicado = markup_por_defecto if es_repuesto else Decimal("0")
+        costo = money(item.get("unit_cost") or 0)
+        precio_pedido = item.get("unit_price")
+        precio = (
+            money(precio_pedido)
+            if precio_pedido is not None
+            else money(costo * (Decimal("1") + markup_aplicado / Decimal("100")))
+        )
+        cantidad = Decimal(str(item["quantity"]))
+        db.add(
+            WorkOrderQuoteItem(
+                company_id=company_id,
+                quote_id=presupuesto.id,
+                item_type=item["item_type"],
+                description=item["description"].strip(),
+                quantity=cantidad,
+                unit_cost=costo,
+                markup_percent=markup_aplicado,
+                unit_price=precio,
+                line_total=money(cantidad * precio),
+            )
+        )
+        total = money(cantidad * precio)
+        if es_repuesto:
+            repuestos += total
+        else:
+            mano_de_obra += total
+
+    presupuesto.subtotal_parts = money(repuestos)
+    presupuesto.subtotal_labor = money(mano_de_obra)
+    presupuesto.total = money(repuestos + mano_de_obra)
+
+    db.add(
+        WorkOrderEvent(
+            company_id=company_id,
+            work_order_id=work_order_id,
+            event_type="QUOTE_CREATED",
+            status=orden.status,
+            detail=f"Presupuesto v{version} generado por ${presupuesto.total}.",
+            user_id=user_id,
+        )
+    )
+
+    # El estado "presupuestado" se asigna directo y no por `cambiar_estado`, igual que hace la
+    # pantalla: emitir un presupuesto no es un cambio de estado pedido por una persona, y asi
+    # este camino no dispara los avisos que tengan configurados los estados.
+    objetivo = (
+        db.query(WorkOrderStatus)
+        .filter_by(company_id=company_id, marks_quoted=True, active=True)
+        .order_by(WorkOrderStatus.sort_order)
+        .first()
+    )
+    if objetivo and orden.status_id != objetivo.id:
+        anterior = db.get(WorkOrderStatus, orden.status_id) if orden.status_id else None
+        orden.status_id = objetivo.id
+        orden.status = objetivo.name.upper().replace(" ", "_")[:30]
+        db.add(
+            WorkOrderEvent(
+                company_id=company_id,
+                work_order_id=work_order_id,
+                event_type="STATUS_CHANGE",
+                status=orden.status,
+                detail=(
+                    f"Estado cambiado de {anterior.name if anterior else 'sin estado'} a "
+                    f"{objetivo.name} al emitir el presupuesto."
+                ),
+                user_id=user_id,
+            )
+        )
+    db.flush()
+    return presupuesto

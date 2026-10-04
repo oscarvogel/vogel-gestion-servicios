@@ -42,6 +42,7 @@ const ETIQUETAS: Record<string, string> = {
   agregar_diagnostico: "Guardar el diagnóstico",
   agregar_trabajo: "Sumar trabajo a una orden",
   agregar_repuesto: "Sumar un repuesto a una orden",
+  generar_presupuesto: "Generar el presupuesto de una orden",
 };
 
 const CAMPOS: Record<string, string> = {

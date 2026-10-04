@@ -477,7 +477,72 @@ def _aplicar_agregar_repuesto(db: Session, company_id: int, user_id: int, a: dic
 
 
 def _aplicar_agregar_trabajo(db: Session, company_id: int, user_id: int, a: dict) -> tuple[dict, bool]:
-    return _item_ejecucion(db, company_id, user_id, a, "WORK")
+    # "LABOR", no "WORK": es el valor que usa el resto del dominio. La API lo valida con
+    # ^(PART|LABOR)$ y la pantalla separa con `item_type === "PART"`. Con "WORK" la fila
+    # quedaba fuera del vocabulario. El calculo del presupuesto no se enteraba porque trata
+    # como repuesto solo lo que dice "PART", pero cualquier consulta que filtre
+    # `item_type = 'LABOR'` dejaba estas filas afuera, y no por una decision sino por un
+    # valor mal escrito. Dependia de que al escribir la fila alguien se acordara.
+    return _item_ejecucion(db, company_id, user_id, a, "LABOR")
+
+
+def _aplicar_generar_presupuesto(db: Session, company_id: int, user_id: int, a: dict) -> tuple[dict, bool]:
+    """Emite el presupuesto con las lineas que salen de la orden en este momento.
+
+    Las lineas se vuelven a calcular aca y no se leen de lo que propuso el modelo, por dos
+    razones. La primera es que la propuesta no trae importes: no hay de donde copiarlos. La
+    segunda es que entre que se propuso y se confirmo la orden pudo cambiar, y lo que vale es
+    lo que hay ahora.
+    """
+    from app.services import work_orders as wo_service
+    from app.services.ai.tools.validacion import MAX_TEXTO, entero, texto_opcional
+
+    orden_id = entero(a.get("orden"), "orden", minimo=1)
+    notas = texto_opcional(a.get("notas"), "notas", maximo=MAX_TEXTO)
+
+    try:
+        calculo = wo_service.calcular_presupuesto(
+            db, company_id=company_id, work_order_id=orden_id
+        )
+    except wo_service.ErrorDeDominio as exc:
+        raise ErrorDePropuesta(exc.mensaje, codigo=exc.codigo) from None
+
+    if not calculo["puede_generar"]:
+        motivos = list(calculo["motivos_de_dominio"]) + list(calculo["pendientes"])
+        raise ErrorDePropuesta(
+            "El presupuesto ya no se puede generar: " + " ".join(motivos),
+            codigo="presupuesto_incompleto",
+        )
+
+    items = [
+        {
+            "item_type": linea["tipo"],
+            "description": linea["descripcion"],
+            "quantity": linea["cantidad"],
+            "unit_cost": linea.get("costo_unitario") or 0,
+            # El precio ya viene resuelto por el calculo. Pasarlo explicito evita que el
+            # servicio lo vuelva a multiplicar por el markup y termine en otra cifra.
+            "unit_price": linea["precio_unitario"],
+        }
+        for linea in calculo["items"]
+    ]
+
+    try:
+        presupuesto = wo_service.crear_presupuesto(
+            db, company_id=company_id, user_id=user_id,
+            work_order_id=orden_id, items=items, notes=notas,
+        )
+    except wo_service.ErrorDeDominio as exc:
+        raise ErrorDePropuesta(exc.mensaje, codigo=exc.codigo) from None
+
+    return {
+        "tipo": "presupuesto",
+        "id": presupuesto.id,
+        "orden": orden_id,
+        "version": presupuesto.version,
+        "total": float(presupuesto.total),
+        "lineas": len(items),
+    }, False
 
 
 APLICADORES: dict[str, Callable[..., tuple[dict, bool]]] = {
@@ -488,6 +553,7 @@ APLICADORES: dict[str, Callable[..., tuple[dict, bool]]] = {
     "agregar_diagnostico": _aplicar_agregar_diagnostico,
     "agregar_trabajo": _aplicar_agregar_trabajo,
     "agregar_repuesto": _aplicar_agregar_repuesto,
+    "generar_presupuesto": _aplicar_generar_presupuesto,
 }
 
 

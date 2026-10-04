@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -21,7 +22,7 @@ from app.api.v1.schemas import (
     TokenBundle,
 )
 from app.core.security import create_access_token, hash_password
-from app.models.company import Company
+from app.models.company import Company, CompanyParameter, ParameterDefinition
 from app.models.role import Permission, Role
 from app.models.user import CompanyUser, User
 
@@ -321,6 +322,157 @@ def disable_company(
     db.commit()
     db.refresh(company)
     return _serialize(company, user_count=_count_users(db, company.id))
+
+
+# ---------- El adicional de IA, desde la plataforma ----------
+#
+# La IA se vende por empresa, asi que su interruptor y su techo de uso NO son configuracion
+# del cliente: los parametros estan en `parameter_definitions.editable = false` y
+# `PATCH /company-parameters` los rechaza con 403. Esta es la unica via para cambiarlo, y es
+# superadmin.
+#
+# Que sea un endpoint explicito y no "un superadmin puede saltarse el editable" importa por
+# dos razones: queda escrito que estos tres parametros son comerciales, y el que lo escribe
+# dice que es a proposito. Saltarse la regla en general habria que dejar la puerta abierta
+# para todos los demas.
+
+
+def _numero(valor: float | int) -> str:
+    """Como se guarda un numero en un parametro que llega como texto.
+
+    El servicio lee con `float()`, asi que 0 y 0.0 son el mismo valor, pero `str(0.0)` es
+    "0.0" y no "0". Guardar "0.0" contra un default "0" dejaba un override que decia
+    exactamente lo mismo que el default, y la pantalla lo mostraba como "personalizado":
+    el superadmin no podia distinguir "le deje sin cuota a proposito" de "nunca le dije nada".
+    """
+    numero = float(valor)
+    return str(int(numero)) if numero.is_integer() else str(numero)
+
+
+class AiEntitlementUpdate(BaseModel):
+    enabled: bool
+    # 0 = sin cuota y sin limite. Es el valor por defecto del catalogo.
+    monthly_quota_usd: float = 0
+    monthly_request_limit: int = 0
+
+
+class AiEntitlementRead(BaseModel):
+    company_id: int
+    company_name: str
+    enabled: bool
+    monthly_quota_usd: float
+    monthly_request_limit: int
+    # Lo consumido del mes en curso. Va en la misma respuesta porque la pregunta de la
+    # plataforma es siempre la misma: cuanto lleva gastado esta empresa y cuando se frena.
+    usage_requests: int
+    usage_cost_usd: float
+    usage_input_tokens: int
+    usage_output_tokens: int
+    # El mes anterior, para ver la tendencia y no solo el mes en curso.
+    last_period_cost_usd: float
+    over_quota: bool
+    # Que el limite de la cuota ya se toco, para que la pantalla lo diga en vez de dejar
+    # que el usuario lo descubra cuando la IA le deje de responder.
+    quota_exhausted: bool
+
+
+@router.get("/{company_id}/ai", response_model=AiEntitlementRead)
+def get_ai_entitlement(
+    company_id: int,
+    _admin: User = Depends(require_superadmin),
+    db: Session = Depends(get_db),
+):
+    """Como esta la IA en esa empresa y cuanto consumio del mes. No escribe nada."""
+    company = db.get(Company, company_id)
+    if not company:
+        raise HTTPException(status_code=404, detail="Empresa no encontrada.")
+    from app.services.ai import entitlement
+    from app.services.ai.usage import last_period_cost, month_totals
+
+    totals = month_totals(db, company_id)
+    quota = entitlement.monthly_quota_usd(db, company_id)
+    limite = entitlement.monthly_request_limit(db, company_id)
+    return AiEntitlementRead(
+        company_id=company.id,
+        company_name=company.name,
+        enabled=entitlement.is_enabled(db, company_id),
+        monthly_quota_usd=quota,
+        monthly_request_limit=limite,
+        usage_requests=totals["requests"],
+        usage_cost_usd=totals["cost_usd"],
+        usage_input_tokens=totals["input_tokens"],
+        usage_output_tokens=totals["output_tokens"],
+        last_period_cost_usd=last_period_cost(db, company_id),
+        over_quota=bool(
+            (quota and totals["cost_usd"] >= quota)
+            or (limite and totals["requests"] >= limite)
+        ),
+        quota_exhausted=bool(
+            quota and totals["cost_usd"] >= quota
+        ),
+    )
+
+
+@router.put("/{company_id}/ai", response_model=AiEntitlementRead)
+def set_ai_entitlement(
+    company_id: int,
+    payload: AiEntitlementUpdate,
+    _admin: User = Depends(require_superadmin),
+    db: Session = Depends(get_db),
+):
+    """Habilita o deshabilita la IA de esa empresa y le fija su techo de uso.
+
+    No le amigues `PATCH /company-parameters` a proposito. Ahi el `editable` protege, y esta
+    es la excepcion: aca lo que se esta haciendo es una decision comercial, entonces queda
+    en un endpoint con un nombre que lo dice y no en una puerta trasera.
+
+    Un valor igual al default borra el override en vez de guardarlo, como hace la pantalla:
+    asi "sin cuota" es de verdad el default del catalogo y no una fila que dice 0.
+    """
+    company = db.get(Company, company_id)
+    if not company:
+        raise HTTPException(status_code=404, detail="Empresa no encontrada.")
+    if payload.monthly_quota_usd < 0:
+        raise HTTPException(status_code=422, detail="La cuota no puede ser negativa.")
+    if payload.monthly_request_limit < 0:
+        raise HTTPException(status_code=422, detail="El límite de pedidos no puede ser negativo.")
+
+    from app.core.parameter_catalog import AI_PARAMETERS
+
+    valores = {
+        "ai.enabled": "true" if payload.enabled else "false",
+        "ai.monthly_quota_usd": _numero(payload.monthly_quota_usd),
+        "ai.monthly_request_limit": _numero(payload.monthly_request_limit),
+    }
+    defaults = {p[0]: p[1] for p in AI_PARAMETERS}
+    for nombre, valor in valores.items():
+        definicion = db.query(ParameterDefinition).filter_by(parameter=nombre).first()
+        if definicion is None:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Falta la definición del parámetro {nombre}. Corré las migraciones.",
+            )
+        fila = (
+            db.query(CompanyParameter)
+            .filter_by(company_id=company_id, parameter_definition_id=definicion.id)
+            .first()
+        )
+        if valor == defaults[nombre]:
+            # Volvio al default: el override sobra. Ademas molestaria en la pantalla, que
+            # loeria "personalizado" para un valor que en realidad es el general.
+            if fila is not None:
+                db.delete(fila)
+            continue
+        if fila is None:
+            db.add(
+                CompanyParameter(
+                    company_id=company_id, parameter_definition_id=definicion.id, value=valor
+                )
+            )
+        else:
+            fila.value = valor
+    db.commit()
+    return get_ai_entitlement(company_id, _admin, db)
 
 
 # ---------- Helpers ----------

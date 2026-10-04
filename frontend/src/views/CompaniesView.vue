@@ -2,7 +2,7 @@
 import { onMounted, ref, computed, watch } from "vue";
 import { useRouter } from "vue-router";
 import Modal from "../components/Modal.vue";
-import { apiGet, apiPost, apiPatch } from "../lib/api";
+import { apiGet, apiPost, apiPatch, apiPut, getApiErrorMessage } from "../lib/api";
 import { useSessionStore } from "../stores/session";
 import { useToastStore } from "../stores/toasts";
 
@@ -135,6 +135,73 @@ function openEdit(item: CompanyItem) {
     admin_password: "",
   };
   showForm.value = true;
+  if (isPlatformView.value) void loadAi(item.id);
+}
+
+/**
+ * El plan de IA de la empresa: si se le vendio el adicional, con que techo, y cuanto llevo
+ * gastado del mes. Es la unica pantalla desde donde se cambia — en Parametros el admin de la
+ * empresa lo ve pero no lo puede tocar, y en el backend el PATCH lo corta con 403.
+ */
+interface AiPlan {
+  enabled: boolean;
+  monthly_quota_usd: number;
+  monthly_request_limit: number;
+  usage_requests: number;
+  usage_cost_usd: number;
+  usage_input_tokens: number;
+  usage_output_tokens: number;
+  last_period_cost_usd: number;
+  over_quota: boolean;
+  quota_exhausted: boolean;
+}
+const ai = ref<AiPlan>({
+  enabled: false, monthly_quota_usd: 0, monthly_request_limit: 0,
+  usage_requests: 0, usage_cost_usd: 0, usage_input_tokens: 0, usage_output_tokens: 0,
+  last_period_cost_usd: 0, over_quota: false, quota_exhausted: false,
+});
+const aiGuardado = ref<AiPlan | null>(null);
+const aiSaving = ref(false);
+const aiError = ref("");
+
+async function loadAi(companyId: number) {
+  aiError.value = "";
+  try {
+    const datos = await apiGet<AiPlan>(`/companies/${companyId}/ai`);
+    ai.value = datos;
+    // Copia de lo que esta guardado, para el boton deshabilitado mientras no cambie nada.
+    aiGuardado.value = { ...datos };
+  } catch (e) {
+    aiError.value = getApiErrorMessage(e);
+  }
+}
+
+const aiDirty = computed(
+  () => !aiGuardado.value || JSON.stringify(ai.value) !== JSON.stringify(aiGuardado.value),
+);
+
+function toggleAi() {
+  ai.value.enabled = !ai.value.enabled;
+}
+
+async function saveAi() {
+  if (!editing.value || aiSaving.value) return;
+  aiSaving.value = true;
+  aiError.value = "";
+  try {
+    const datos = await apiPut<AiPlan>(`/companies/${editing.value.id}/ai`, {
+      enabled: ai.value.enabled,
+      monthly_quota_usd: Number(ai.value.monthly_quota_usd) || 0,
+      monthly_request_limit: Number(ai.value.monthly_request_limit) || 0,
+    });
+    ai.value = datos;
+    aiGuardado.value = { ...datos };
+    toasts.push("Plan de IA actualizado", "success");
+  } catch (e) {
+    aiError.value = getApiErrorMessage(e);
+  } finally {
+    aiSaving.value = false;
+  }
 }
 
 async function save() {
@@ -362,6 +429,63 @@ async function enterCompany(item: CompanyItem) {
           </div>
         </template>
 
+        <!--
+          El adicional de IA se vende desde acá, y no desde Parametros: es configuracion
+          comercial de la plataforma, no del cliente. En la pantalla de Parametros el
+          administrador de la empresa la ve, pero no la puede tocar.
+        -->
+        <section v-if="editing && isPlatformView" class="ai-plan">
+          <header class="ai-plan__head">
+            <h3>Adicional de IA</h3>
+            <span v-if="aiSaving" class="text-muted">Guardando…</span>
+          </header>
+          <p class="text-secondary ai-plan__intro">
+            Solo vos lo podés cambiar. La empresa lo ve en su pantalla de Parámetros, apagado.
+          </p>
+
+          <div v-if="aiError" class="ai-plan__error">{{ aiError }}</div>
+
+          <label class="ai-plan__switch">
+            <input type="checkbox" :checked="ai.enabled" :disabled="aiSaving" @change="toggleAi" />
+            <span>{{ ai.enabled ? "IA habilitada para esta empresa" : "IA no vendida a esta empresa" }}</span>
+          </label>
+
+          <div class="ai-plan__grid">
+            <div class="field">
+              <label>Cuota mensual (USD)</label>
+              <input
+                v-model.number="ai.monthly_quota_usd" type="number" min="0" step="0.01"
+                :disabled="aiSaving"
+              />
+              <small class="text-muted">0 = sin cuota. Alcanzarla frena la IA para esa empresa.</small>
+            </div>
+            <div class="field">
+              <label>Pedidos por mes</label>
+              <input
+                v-model.number="ai.monthly_request_limit" type="number" min="0" step="1"
+                :disabled="aiSaving"
+              />
+              <small class="text-muted">0 = sin límite.</small>
+            </div>
+          </div>
+
+          <div class="ai-plan__usage">
+            <span>Este mes: <strong>{{ ai.usage_requests }}</strong> pedidos · <strong>$ {{ ai.usage_cost_usd.toFixed(4) }}</strong> estimado</span>
+            <span v-if="ai.quota_exhausted" class="ai-plan__warn">Cuota agotada</span>
+            <span v-else-if="ai.over_quota" class="ai-plan__warn">Techo de pedidos alcanzado</span>
+          </div>
+
+          <div class="flex flex--between" style="margin-top:14px">
+            <span class="text-muted">Último período: $ {{ ai.last_period_cost_usd.toFixed(4) }}</span>
+            <button
+              class="btn btn--primary btn--sm" type="button"
+              :disabled="aiSaving || !aiDirty" @click="saveAi"
+            >
+              Guardar el plan
+            </button>
+          </div>
+        </section>
+
         <div class="flex flex--between" style="margin-top:18px">
           <button class="btn btn--ghost" type="button" @click="showForm = false">Cancelar</button>
           <button class="btn btn--primary" type="submit">Guardar</button>
@@ -372,4 +496,58 @@ async function enterCompany(item: CompanyItem) {
 </template>
 <style scoped>
 .page-wrap { display: flex; flex-direction: column; gap: 24px; }
+/* El plan de IA va separado del formulario de la empresa, con su propio boton de guardar: son
+   dos cosas distintas y guardarlas juntas haria que tocar el nombre guardara el plan. */
+.ai-plan {
+  margin-top: 18px;
+  padding: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.45);
+}
+.ai-plan__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.ai-plan__head h3 { margin: 0; }
+.ai-plan__intro { margin: 6px 0 12px; font-size: 13px; }
+.ai-plan__switch {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 14px;
+  margin-bottom: 12px;
+}
+.ai-plan__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.ai-plan__grid .field { display: flex; flex-direction: column; gap: 4px; }
+.ai-plan__grid small { font-size: 11px; }
+.ai-plan__usage {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  font-size: 13px;
+}
+.ai-plan__warn {
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  background: rgba(251, 191, 36, 0.16);
+  color: #fbbf24;
+}
+.ai-plan__error {
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  background: rgba(239, 68, 68, 0.14);
+  color: #ef4444;
+}
+@media (max-width: 600px) { .ai-plan__grid { grid-template-columns: 1fr; } }
 </style>

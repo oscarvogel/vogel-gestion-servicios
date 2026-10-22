@@ -704,17 +704,25 @@ Además: **muestra de 20 registros por entidad**, lado a lado (legacy vs destino
 
 ---
 
-## 9. Las 4 decisiones que faltan (esperando tu respuesta)
+## 9. Las decisiones que faltaban (RESUELTAS el 22/10/2026)
 
-Las contestadas están en §1. Estas cuatro cambian el resultado y **no puedo elegir por vos sin
-confirmar**, porque el número que se ve a fin de mes depende de ellas:
+Las contestadas están en §1. Estas cuatro cambian el resultado, así que no se podían
+elegir sin confirmación. **Ya están contestadas:**
 
-| # | Decisión | Recomendación | Impacto si cambia |
+| # | Decisión | **Resuelto** | Consecuencia en el código |
 |---|---|---|---|
-| **9.1** | **Alcance del cierre**: ¿sólo garantía (`Gt = 1`) o también la rama `FUERA` de cada marca? | **Las dos** (todo lo que tiene empresa a liquidar) | 2.853 OTs / 25,4 M contra 6.418 OTs / 73,2 M en 2020+. Es la diferencia entre liquidar el 35 % o el 100 % del trabajo de marca |
-| **9.2** | **Alladio** (`CodCli = 7634`): ¿se liquida como marca de fábrica o como *service oficial*? | Liquidarlo **sí**, pero con su propio criterio (tiene `Gt = 2` en "Garantía de Service") | 304 OTs / 174.081,12 en 2020+. Hoy su trabajo fuera de garantía no se le liquida (cae en el área genérica) |
-| **9.3** | **Persona vs. empresa**: ¿CUIT válido + sufijo societario y **consolidar los 288 nombres repetidos**, o dejar cada sucursal como cliente aparte? | Consolidar | Define cuántos clientes quedan en `customers` (14.730 filas crudas contra ~1.300 reales) |
-| **9.4** | **Mesas**: ¿maestro normalizado (`work_benches`) o texto libre? | Maestro normalizado | Permite medir carga por mesa después |
+| **9.1** | **Alcance del cierre**: ¿sólo garantía (`Gt = 1`) o también la rama `FUERA` de cada marca? | **Las dos**: entra toda OT cuya política pertenece a un área con empresa a liquidar | El flag de garantía **categoriza** pero no decide la inclusión. 6.418 OTs / 73,2 M en 2020+ |
+| **9.2** | **Alladio** (`CodCli = 7634`): ¿marca de fábrica o *service oficial*? | **Se liquida, con su propio criterio** | `Gt = 2` (garantía propia / de service) pasa a tener **tercer casillero** en el cierre: `own_warranty_works_count` / `own_warranty_amount` (migración `20261022_0026`). No va mezclado con "fuera de garantía": es garantía, pero no de terceros |
+| **9.3** | **Persona vs. empresa**: ¿consolidar los 288 nombres repetidos o dejar cada sucursal aparte? | **Pendiente, y no bloquea** | La primera importación deja las 14.730 filas del legacy tal cual (más los clientes deducidos de las OTs). Consolidar es un paso posterior y reversible; no se pierde nada por no hacerlo ahora |
+| **9.4** | **Mesas**: ¿maestro normalizado (`work_benches`) o texto libre? | **Maestro normalizado** | Permite medir carga por mesa después |
+
+**El detalle de 9.2 que conviene tener a mano:** Alladio es un *service oficial*, no una
+marca. Sus políticas de "Garantía de Service" tienen `Gt = 2`: la garantía la da el service.
+Con dos casDlleros (garantía / fuera de garantía) ese trabajo se reportaba como "fuera de
+garantía", o sea como trabajo que la marca no cubre — que no es lo que pasa, y además
+implicaría liquidarle al service oficial un número que no es el real. Por eso el desglose
+tiene **tres** casilleros, y el total sigue cuadrando: garantía + garantía propia + fuera de
+garantía = total liquidado.
 
 **Lo que este plan no cubre (a la espera, sin decisión pendiente):**
 

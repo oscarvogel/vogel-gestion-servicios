@@ -44,6 +44,11 @@ class WarrantySettlement(Base):
     warranty_amount: Mapped[float] = mapped_column(Numeric(19, 6), nullable=False, default=0)
     out_of_warranty_works_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     out_of_warranty_amount: Mapped[float] = mapped_column(Numeric(19, 6), nullable=False, default=0)
+    # garantia propia / de service (warranty_type = 2). ES garantia, pero no de terceros:
+    # la hace el service oficial (Alladio, CodCli 7634). Va en su propio casillero y no
+    # mezclado con "fuera de garantia", que es otra cosa: trabajo que la marca no cubre.
+    own_warranty_works_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    own_warranty_amount: Mapped[float] = mapped_column(Numeric(19, 6), nullable=False, default=0)
     invoice_number: Mapped[str | None] = mapped_column(String(30), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     generated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
@@ -72,7 +77,7 @@ class WarrantySettlementOrder(Base):
     )
     work_order_id: Mapped[int] = mapped_column(ForeignKey("work_orders.id"), index=True)
     work_area_id: Mapped[int | None] = mapped_column(ForeignKey("work_areas.id"), nullable=True)
-    # 1 = garantia, 0 = fuera de garantia
+    # 0 = fuera de garantia, 1 = garantia de terceros, 2 = garantia propia / de service
     warranty_type: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     amount: Mapped[float] = mapped_column(Numeric(19, 6), nullable=False, default=0)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

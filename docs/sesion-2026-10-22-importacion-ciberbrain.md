@@ -172,21 +172,100 @@ de garantía que las marcas igual pagan.
 7. **Nada de esto toca staging ni producción**: el MySQL local de WSL es el banco de
    pruebas.
 
+## La importación corrió y el cierre cuadra
+
+### El resultado del corte 2020+
+
+Cuadre completo en `backup/_work/import_electrotecniref_cuadre.txt`:
+
+| Entidad | Filas | |
+|---|---:|---|
+| `work_orders` | 9.316 | 0 sin cliente, 0 sin equipo |
+| `customers` | 17.565 | 14.246 del maestro (484 consolidadas) + 3.318 deducidos de las OTs |
+| `work_order_parts` | 29.799 | 0 líneas sin OT en el corte |
+| `work_order_technicians` | 18.383 | |
+| `work_order_part_commissions` | 10.509 | |
+| `equipment` | 9.316 | uno por OT |
+| `work_areas` | 126 | 10 sin empresa a liquidar |
+| `invoices` | 1.962 | de 83.164 del legacy: sólo las que una OT reclama |
+
+Costo importado **101.374.150,496810** y venta **331.992.746,604800** — idéntico al legacy.
+
+### El cierre de junio 2025 cuadra centavo a centavo
+
+La validación que se eligió: el mismo mes, la misma consulta del legacy
+(`backup/_work/ver_junio2025.sql`, que filtra por `FechaLista`, que es lo que el
+importador mapea a `completed_at`) contra el reporte del sistema nuevo.
+
+| | Legacy | Sistema nuevo |
+|---|---:|---:|
+| OTs con empresa | 123 | **123** |
+| Costo | 1.675.486,90 | **1.675.486,90** |
+| Sólo garantía (`Gt = 1`) | 91 OTs / 1.045.148,15 | **91 OTs / 1.045.148,145** |
+| Fuera de garantía con empresa | 32 OTs / 630.338,75 | **32 OTs / 630.338,755** |
+
+El desglose por empresa también coincide: DREAN 92 OTs (82 en garantía), BGH 6 (2),
+AUTOSAL 5 (3), y así hasta las 15 empresas del mes.
+
+## Bugs encontrados y corregidos
+
+### 47 OTs se importaban como "Entregado" cuando el legacy no tiene estado
+
+`mappers.estado_destino()` devolvía el **último** estado del mapa como default, que es
+"Entregado" (8): el estado final del tablero, con `is_final`. Las OTs con `Estado = NULL`
+—47 en el corte 2020+— quedaban como terminadas, y no se sabe si se terminaron.
+
+Corregido: sin estado (o con un estado desconocido) la OT va al estado **inicial**
+("Recibido"). Es la única forma honesta de representar un estado que no se conoce.
+
+### El túnel se rompía cada vez que se reiniciaba Docker
+
+El túnel apuntaba a `cb-sql` por **IP** (`172.17.0.2`). Cuando los contenedores se
+reiniciaron, la IP pasó a `172.17.0.3` y el túnel quedó apuntándose a sí mismo: el
+importador connectaba, pero no al SQL Server.
+
+Corregido: se creó la red `cibernet` y el túnel apunta por **nombre** (`TCP:cb-sql:1433`),
+que es DNS de Docker y no depende de la IP.
+
+### Se cayeron los tres contenedores (exit 255) a mitad de la importación
+
+No fue un error del importador: **se crasheó el runtime local** y con él el daemon de
+Docker de WSL. La base restaurada de CiberBase no se perdió (vive en el volumen del
+contenedor y el `.bak` en `/home/oscar/cb_restore`), pero la importación quedó a medias
+(las OTs estaban y las líneas no).
+
+La lección: el cuadre que escribe el importador dice lo que se insertó, así que hay
+que **mirar la base después de correr**, no solo el cuadre. Y los contenedores hay que
+levantarlos a mano después de un crash: Docker los deja "Exited" aunque tengan
+`--restart unless-stopped` (que solo aplica a los que corren).
+
 ## Pendientes
 
-- [ ] **Importador**: terminar de cambiar la capa de lectura a `pymssql` y correr el
-      `--dry-run` completo.
+Resueltos en esta sesión:
+
+- [x] **Importador contra la base real**: la capa de lectura quedó en `pymssql` y el
+      importador corre contra CiberBase por TCP.
+- [x] **Prueba contra junio 2025**: el cierre cuadra centavo a centavo con el legacy.
+- [x] **Alcance del cierre (§9.1)**: confirmado **B** (todo lo que tiene empresa a
+      liquidar: 6.418 OTs / 73,2 M en el corte 2020+).
+- [x] **Alladio (§9.2)**: se liquida con criterio propio, con un tercer casillero para
+      la garantía de service (`Gt = 2`).
+- [x] **Persona vs empresa (§9.3)**: la primera importación deja las 14.730 filas del
+      legacy tal cual (484 consolidadas por nombre normalizado) más los clientes deducidos
+      de las OTs. Consolidar más es un paso posterior y reversible.
+- [x] **Mesas (§9.4)**: maestro normalizado.
+
+Siguen pendientes:
+
 - [ ] **CUIT de la empresa**: no es derivable del legacy. El CUIT que más factura es
-      `20111111112`, que es un placeholder. Hay que cargarlo a mano para crear
-      "Electrotecniref".
-- [ ] **Alcance del cierre (§9.1)**: sigue abierta la decisión entre A (sólo garantía
-      estricta: 2.853 OTs / 25,4 M) y B (todo lo que tiene empresa a liquidar:
-      6.418 OTs / 73,2 M). El código implementa **B**; hay que confirmarlo.
-- [ ] **Alladio (§9.2)**: ¿marca de fábrica o service oficial? Define si sus OTs
-      entran al cierre y contra quién se liquida.
-- [ ] **Persona vs empresa y mesas (§9.3, §9.4)**: hay default asumido y anotado
-      (persona jurídica y "múltiples"), no bloquean.
+      `20111111112`, que es un placeholder. La empresa se creó sin CUIT (`companies.tax_id`
+      es nullable), así que no bloquea, pero hay que cargarlo.
+- [ ] **Tests del importador**: hay 19 que fijan el parseo y las reglas de mapeo, pero no
+      hay tests que corran el importador entero contra la base real.
+- [ ] **Cierre de junio 2025 registrado**: el reporte cuadra, pero falta generarlo
+      (`POST /warranty-settlements/generate`) y emitirlo, para ver el ciclo
+      `draft → issued → settled` con números reales.
 - [ ] **Validación de CUIT contra AFIP**: pendiente, no bloquea la importación.
 - [ ] **Pantalla del cierre**: no existe en el frontend. Hay backend y API, no UI.
-- [ ] **Prueba contra junio 2025** (el mes ya medido: 91 OTs en garantía /
-      1.045.148,15) antes de cargar el corte completo.
+- [ ] **Histórico 2001-2019**: no entra en el primer corte (decisión 1.3).
+

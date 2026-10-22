@@ -91,6 +91,7 @@ facturas
 
 OBSERVACIONES
 ------------------------------------------------------------------------------
+- --replace: 1962 filas borradas de invoices
 - --replace: 9316 filas borradas de work_orders
 - --replace: 126 filas borradas de work_areas
 - --replace: 9316 filas borradas de equipment

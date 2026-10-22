@@ -221,10 +221,17 @@ ESTADOS_LEGACY_EXTRA = (
 
 
 def estado_destino(estado_legacy: int | None) -> str:
-    """Nombre del estado de destino para un estado del legacy."""
+    """Nombre del estado de destino para un estado del legacy.
+
+    Si el legacy no tiene estado (o tiene uno que no se conoce), va al estado **inicial**
+    ("Recibido"), no al final. Marcar como "Entregado" una OT de la que no se sabe el
+    estado es mostrar como terminado un trabajo que no se sabe si se termino: en el
+    corte 2020+ son 47 OTs sin estado, y "Entregado" es ademas el estado final del
+    tablero (``is_final``).
+    """
     if estado_legacy is None:
-        return ESTADO_LEGACY_A_DESTINO[-1]
-    return ESTADO_LEGACY_A_DESTINO.get(estado_legacy, ESTADO_LEGACY_A_DESTINO[-1])
+        return "Recibido"
+    return ESTADO_LEGACY_A_DESTINO.get(estado_legacy, "Recibido")
 
 
 # ---------------------------------------------------------------------------

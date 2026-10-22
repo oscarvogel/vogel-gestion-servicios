@@ -9,3 +9,8 @@ dist/
 coverage/
 output/
 .playwright-cli/
+
+# Legacy CiberBrain: el backup nativo (.bak, 3,67 GB) y las exportaciones TSV
+# (regenerables con backup/_work/export.sh) no van al repo.
+backup/*.bak
+backup/_work/csv/

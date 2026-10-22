@@ -1,0 +1,104 @@
+==============================================================================
+CUADRE DE IMPORTACION CIBERBRAIN (SQL Server -> MySQL)
+==============================================================================
+Empresa   : Electrotecniref
+Origen    : CiberBase en localhost:1433 (corte FechaAlta >= 20200101)
+Modo      : reimportacion (--replace)
+
+ENTIDAD                       LEIDOS   INSERT.   OMITID.  DESCART.
+------------------------------------------------------------------------------
+work_order_statuses                 0          0          0          0
+                           motivo: 8 por defecto + 'Faltan requisitos', 'Rechazada' y 'Anulada' (legacy)
+users                              44          1         44          0
+                           motivo: usuarios del legacy (tabla global) + 'ImportaciÃ³n / legacy' de respaldo
+sellers                            14         14          0          0
+                           motivo: usuarios del legacy con la tarea 'Vendedor'
+technicians                        44         44          0          0
+                           motivo: 44 usuarios del legacy, 0 personas borradas (nombre 'Sistema')
+customers (maestro)             14730      14246          0        484
+                           motivo: 484 filas consolidadas en clientes repetidos (nombre + CUIT valido); documento solo si el CUIT pasa el digito verificador y es unico
+customers (deducidos de la OT)       5969       3318       1337          0
+                           motivo: clientes que el legacy copio a la OT y no estan en CC_Clientes_Tabla (D1): clave = nombre normalizado
+work_areas                        126        126          0         10
+                           motivo: politicas del legacy (area principal + sub-tipos FUERA/AGU/...). 10 areas sin CodCli de facturacion (billing_customer_id NULL)
+equipment_categories               58         58          0          0
+                           motivo: catalogo curado: 60 categorias mas frecuentes + 'OTROS'
+equipment                        9316       9316          0          0
+                           motivo: un equipo por OT (D3): no se deduplica por serie
+work_orders                      9316       9316          0          0
+                           costo total: 101.374.150,50
+                           venta total: 331.992.746,60
+work_order_parts                29799      29799          0          0
+                           motivo: line_no = Item del legacy; comision_recipient_type = LiquidaComision; 0 lineas sin OT en el corte
+                           costo de lineas: 1.741.374,35
+work_order_technicians          18383      18383          0          0
+                           motivo: importes de comision migrados tal cual (no se recalculan)
+                           comisiones: 99.644.458,02
+work_order_part_commissions      10509      10509          0          0
+                           motivo: se une por work_order_parts.legacy_id (ID de CS_Partes)
+                           comisiones por linea: 99.644.458,02
+invoices                         1962       1962          0          0
+                           motivo: solo las facturas que una OT reclama (id_trabajo no vacio): 83.164 del legacy, 1.962 con id_trabajo; 1864 de las importadas apuntan a una OT fuera del corte (work_order_id NULL)
+                           total facturado: 4.465.599,03
+
+CIERRE MENSUAL A MARCAS (criterio B: todo lo que tiene empresa a liquidar)
+--------------------------------------------------------------------------
+Con empresa a liquidar :   6418 OTs   costo      73,178,994.15
+  de ellas, en garantia :   2853 OTs   costo      25,356,252.43
+Sin empresa a liquidar  :   2898 OTs   costo      28,195,156.35
+Total                   :   9316 OTs   costo     101,374,150.50
+
+DESCARTES Y CONTEO EXACTO
+------------------------------------------------------------------------------
+clientes del maestro
+    filas del legacy                                          14730
+    clientes tras consolidar (por nombre normalizado)         14246
+    filas absorbidas por consolidacion                          484
+    filas con CUIT de 11 digitos                                197
+    filas sin CUIT de 11 digitos                              14533
+    filas con CUIT de 11 digitos que no pasan el digito verificador          2
+    CUIT en colision entre clientes distintos (dejan document NULL)         22
+    clientes que quedan sin document                          14074
+clientes deducidos de la OT
+    OTs sin CodCli                                             5969
+    nombres distintos                                          3592
+    nombres que ya estaban en el maestro                        274
+    OTs emparejadas con el maestro                             1337
+    clientes nuevos deducidos                                  3318
+    nombres con documentos distintos (sin vacio)                  6
+    nombres con documentos distintos (incluyendo vacio)          26
+equipos
+    equipos creados (uno por OT)                               9316
+    sin numero de serie utilizable                             2889
+    sin modelo                                                 1877
+    sin descripcion de equipo                                    15
+    series descartadas por ser placeholder                     2889
+ordenes de trabajo
+    OTs del corte                                              9316
+    importadas                                                 9316
+    recibidas por el 'Usuario' de la OT (D5)                      9
+    recibidas por el 'Responsable' de la OT                    9305
+    recibidas por el usuario de respaldo                          2
+    sin empresa a liquidar                                     2898
+    en garantia (warranty_type = 1)                            2853
+facturas
+    facturas del legacy                                       83164
+    sin id_trabajo (facturacion de mostrador, no entra)       81202
+    con id_trabajo (importadas)                                1962
+    de las importadas, con la OT fuera del corte               1864
+    de las importadas, con la OT en el corte                     98
+    anuladas (status = cancelled)                                 0
+
+OBSERVACIONES
+------------------------------------------------------------------------------
+- --replace: 9316 filas borradas de work_orders
+- --replace: 126 filas borradas de work_areas
+- --replace: 9316 filas borradas de equipment
+- --replace: 17565 filas borradas de customers
+- --replace: 958 filas borradas de work_benches
+- --replace: 44 filas borradas de technicians
+- --replace: 14 filas borradas de sellers
+- Cierre mensual: entra toda OT cuya politica pertenece a un area con empresa a liquidar (work_areas.billing_customer_id). El flag de garantia solo categoriza, no decide la inclusion (decision D6): en el corte son 6.418 OTs con empresa a liquidar, de las cuales 2.853 en garantia estricta y 3.565 fuera de garantia que las marcas igual pagan.
+- Numero de OT: correlativo propio por empresa (work_order_counters). El NumeroOrden del legacy va a legacy_number porque no es unico (12.886 numeros para 56.619 OTs, con hasta 60 repeticiones y 69 % vacio).
+- 3 valores recortados por el ancho de la columna 'customers.phone'
+==============================================================================

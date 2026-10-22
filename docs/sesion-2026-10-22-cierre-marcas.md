@@ -97,7 +97,7 @@ Un test que no se rompe con el código saboteado no protege nada.
 
 ---
 
-## 4. Dos bugs que aparecieron por el camino
+## 4. Tres bugs que aparecieron por el camino
 
 ### 4.1 La migración 0024 reventaba la suite en SQLite
 
@@ -129,7 +129,58 @@ saber cuál se está mirando: 91 OTs / 1.045.148,15 (solo garantía) contra 123 
 
 ---
 
-## 5. Decisiones que conviene no olvidar
+## 5. Verificado contra la API real de staging
+
+Staging se desplegó **con la rama, antes de mergear**, para probar la migración 0024 contra
+MySQL real sin tocar producción. Recién después se mergeó.
+
+Como el importador todavía no corrió, se sembró el mínimo en la base de la empresa
+Electrotecniref (id=7): la marca DREAN S.A., el cliente final PEREZ JUAN, un equipo, **dos
+áreas** (una de garantía y una fuera de garantía, las dos con la marca como empresa a liquidar)
+y tres OTs: dos de junio 2025 y una de julio 2025.
+
+El reporte de junio 2025, contra la API real:
+
+```
+empresa a liquidar : DREAN S.A. (id=2047)
+total obras        : 2
+importe total      : 400.000000   <- COSTO, no la venta
+en garantia        : 1 obras por 100.000000
+fuera de garantia  : 1 obras por 300.000000
+   OT 1 | 2025-06-18 | area=DREAN GARANTIAS | garantia=1 | cliente=PEREZ JUAN | importe=100
+   OT 2 | 2025-06-20 | area=DREAN FUERA DE GARANTIA | garantia=0 | cliente=PEREZ JUAN | importe=300
+```
+
+Lo que eso demuestra, contra MySQL y no contra el código:
+
+- **La empresa a liquidar es DREAN S.A., no PEREZ JUAN.** PEREZ JUAN es el cliente final.
+- **Se liquidan 400, que es el costo.** La venta de esas dos OTs suma 850.
+- **La OT de julio queda fuera**: 1 obra, 999, en el reporte de julio.
+- **Los dos buckets se separan**: 100 en garantía, 300 fuera de garantía.
+
+El ciclo completo, en vivo:
+
+| Paso | Resultado |
+|---|---|
+| `GET /warranty-settlements?period=2025-06` | 200, 1 empresa, 2 obras, 400 |
+| `POST /warranty-settlements/generate` | 200, el reporte |
+| `GET /warranty-settlements/registros` | 1 registro: id=1, 2025-06, `draft`, 400, DREAN S.A. |
+| `POST /{id}/issue` | `issued` |
+| `POST /{id}/settle` | `settled` |
+| `POST /generate` de nuevo | 409: *"El cierre de DREAN S.A. para 2025-06 esta 'settled' y no se puede regenerar"* |
+| `GET ?period=junio-2025` | 422, el periodo tiene que ser `AAAA-MM` |
+
+Dos cosas que se aprendieron probing:
+
+- **`GET /` devuelve 401 aunque la ruta no exista**: el control de acceso corre antes del
+  ruteo. Un 401 no prueba que la ruta exista; un 404 sí prueba que no existe. Para probar que
+  una ruta nueva está desplegada hay que mandar un token.
+- **`POST /generate` devuelve el reporte, no el registro.** El id del cierre hay que sacarlo de
+  `GET /registros`.
+
+---
+
+## 6. Decisiones que conviene no olvidar
 
 - **El importe que se liquida es el costo.** El precio de venta de la garantía de terceros está
   inflado por el legacy; el costo es el número que se le factura a la marca.
@@ -143,7 +194,7 @@ saber cuál se está mirando: 91 OTs / 1.045.148,15 (solo garantía) contra 123 
 
 ---
 
-## 6. Pendientes
+## 7. Pendientes
 
 - **Fase 2:** importador (otra sesión). Falta el cuadre contra el legacy: junio 2025 da 91 OTs de
   garantía por 1.045.148,15 (y 123 OTs / 1.675.486,90 contando las que no son de marca).

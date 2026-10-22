@@ -273,6 +273,34 @@ El token vive en `%USERPROFILE%\.coolify-token` (un archivo, una línea, 51 cara
 El panel no responde en ningún puerto conocido de `186.5.245.12`: se entra por
 `https://coolify.vogelconsultoria.com.ar`.
 
+### Desplegar staging con una rama, antes de mergear a `main`
+
+Cuando el cambio **agrega migraciones**, mergear a `main` manda el cambio a producción sin
+haberlo probado contra MySQL real: si la migración falla, el backend no levanta y producción
+queda caído. La forma de no hacer eso es probar en staging primero, con la rama:
+
+```powershell
+# 1. apuntar staging a la rama y construirla
+Invoke-RestMethod -Method Patch -Uri "$api/api/v1/applications/<uuid-staging-backend>" -Headers $h `
+  -ContentType 'application/json' -Body (@{ git_branch = 'feature/mi-rama'; git_commit_sha = 'HEAD' } | ConvertTo-Json)
+Invoke-RestMethod -Method Post -Uri "$api/api/v1/deploy?uuid=<uuid-staging-backend>&force=true" -Headers $h
+
+# 2. verificar contra la API real de staging
+# 3. mergear a main (esto dispara produccion)
+# 4. RESTAURAR staging a main, SIEMPRE
+Invoke-RestMethod -Method Patch -Uri "$api/api/v1/applications/<uuid-staging-backend>" -Headers $h `
+  -ContentType 'application/json' -Body (@{ git_branch = 'main'; git_commit_sha = 'HEAD' } | ConvertTo-Json)
+Invoke-RestMethod -Method Post -Uri "$api/api/v1/deploy?uuid=<uuid-staging-backend>&force=true" -Headers $h
+```
+
+**El paso 4 no es opcional.** Si staging queda apuntando a una rama de feature, el próximo que
+pruebe staging está probando código que puede desaparecer. Si la rama se borró, staging se
+queda sin desplegar.
+
+Comprobar que la migración corrió: si las tablas nuevas no existen, el endpoint nuevo devuelve
+500 y no un 404. Un 404 en una ruta que debería existir significa que **falta el deploy**; un
+500 significa que **falló la migración**.
+
 ---
 
 ## Notas de la API de Coolify
@@ -298,3 +326,38 @@ El panel no responde en ningún puerto conocido de `186.5.245.12`: se entra por
   está girando.
 - Un deploy disparado por la API puede tardar bastante si el build usa nixpacks: la
   primera parte descarga el store de Nix y sola se come varios minutos.
+
+---
+
+## Trampa 5: dos sesiones en el mismo worktree se pelean por el índice de git
+
+El 2026-10-22 hubo dos sesiones trabajando en `C:\Programacion\vogel-gestion` al mismo tiempo
+(una con el importador del legacy CiberBrain y otra con el schema y el cierre mensual a marcas).
+Las dos usaron el **mismo worktree**, o sea el **mismo índice de git**, y ahí empezó el problema:
+
+- La sesión A hizo `git add` de sus archivos y quedó esperando.
+- La sesión B hizo `git commit` y **se llevó los archivos de A** en su commit: quedó un commit
+  etiquetado `docs(...)` con 858 líneas de schema y 1.177 de código adentro.
+- Cuando A quiso partir su commit mixto con `git reset --soft HEAD~1` + `git reset`, encontró
+  que B ya lo había hecho: el `reset` de A corrió sobre un HEAD que ya no era el que A creyó,
+  y **dejó la rama un commit atrás de `origin/main`**.
+
+Un `git reset` es global al worktree: mueve HEAD para todos los que están adentro.
+
+**Regla:** una sesión, un worktree.
+
+```powershell
+git worktree add "C:\Programacion\vogel-gestion-cierre" -b feature/cierre-marcas origin/main
+```
+
+Se trabaja ahí, se commitea ahí, se abre el PR desde ahí. La otra sesión ni se entera.
+
+**Si ya te pasó:** el contenido no se pierde, se acomoda.
+
+- `git reflog` muestra qué hizo cada uno (los `reset` y los `commit` quedan con su SHA).
+- `git diff <commit-mixto> HEAD --stat` dice si el árbol sigue igual: si no aparece nada, el
+  contenido está entero y lo único que hay que arreglar es el historial.
+- `git diff <commit-que-faltaba> HEAD --stat` sobre el commit de `origin/main` que la rama
+  quedó atrás muestra **qué se Desanduvo**: eso es lo que hay que reponer.
+- Nunca hagas `git reset` sobre un worktree donde otra sesión esté trabajando: primero
+  `git status` y mirá si hay archivos stageados que no son tuyos.

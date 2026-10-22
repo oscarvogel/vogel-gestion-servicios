@@ -1,0 +1,14 @@
+CREATE View [dbo].[CS_TrabajosLiquidacionTecnico]
+AS
+-- Para mostrar en pantalla los items de la liquidacion de los tecnicos (Ya realizada)
+SELECT OL.Liquidacion, T.IDTrabajo, T.NroOtorgado, P.NombreCompleto as Politica, CONVERT(VARCHAR, T.FechaAlta, 103) as Alta, CONVERT(Varchar, T.FechaCerrada, 103) as Cierre, OL.Importe as Comision, 
+T.Cliente, T.Modelo, T.Equipo, CONVERT(VARCHAR(150), T.TrabajoRealizado) as TrabajoRealizado, COALESCE(OL.Tecnico, T.Responsable) as IDTecnico, dbo.GetNombreUsuario(OL.Tecnico) as Tecnico, T.Accesorios,
+COALESCE(I.ComisionProductos, 0) + COALESCE(I.ComisionPartes, 0) + COALESCE(I.ComisionServicios, 0) + COALESCE(I.ComisionOtros, 0) as ComisionActual,
+OL.Rechazada
+FROM CS_OrdenesLiquidadasTecnicos OL WITH (NOLOCK)
+INNER JOIN CS_Trabajos T WITH (NOLOCK) ON T.IDTrabajo = OL.Orden
+LEFT JOIN CS_PoliticasxArea P WITH (NOLOCK)  ON P.ID = T.IDPolitica
+LEFT JOIN Intervienen I WITH (NOLOCK) ON I.Liquidacion = OL.Liquidacion AND I.Orden = OL.Orden AND I.Persona = COALESCE(OL.Tecnico, T.Responsable)
+
+
+(1 rows affected)

@@ -1,0 +1,14 @@
+CREATE   VIEW WCS_ComisionConsumos
+-- Esta vista se usa solo para mostrar partes....
+as
+SELECT 0 as Codigo, ' [Sin Comisión]' as Nombre, 0 as Anulado
+UNION
+SELECT -1 as Codigo, ' [Para Todos]' as Nombre, 0 as Anulado
+UNION
+SELECT Codigo, Nombre, Anulado FROM CC_NombreUsuario U
+
+
+
+
+
+(1 rows affected)

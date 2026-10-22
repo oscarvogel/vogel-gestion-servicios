@@ -1,0 +1,186 @@
+CREATE PROCEDURE [dbo].[CS_EstadoPosible]
+@IDPolitica INT, 
+@Comprobante VARCHAR(50), 
+@NroOtorgado VARCHAR(50), 
+@Faxeada BIT, 
+@Autorizacion VARCHAR(20),
+@Lista BIT, 
+@TotalPresupuesto DECIMAL(19, 6),
+@MontoAutorizar DECIMAL(19, 6),
+@Presupuestar BIT,			-- Presupuestar al cliente
+@Presupuestado BIT,			-- Presupuestado al cliente
+@CliInformado SMALLINT,		-- Cliente informado
+@Respuesta TINYINT,			-- Respuesta del cliente
+@FechaEntrega DATETIME,
+@CierreManual BIT=1,
+@LiquidacionManual BIT=1,
+@EstadoActual INT=-1,
+@FechaRecepcion DATETIME=NULL,
+@PresupuestadoAgente TINYINT=NULL,		-- Consolidado presupuestos Agentes 0=no hay presupuestos 1=Hay 2=todos terminados
+@EstadoPresupAgentes INT=NULL,			-- Presupuesto de agentes aprobado 0=No aprobado 1=Aprobado
+@IDTipoCanje INT=NULL,
+@ErrInf VARCHAR(2000) OUT
+AS
+SET NOCOUNT ON
+
+IF @EstadoActual IN (5,6) RETURN @EstadoActual	-- Esta anulada, retornar eso
+
+Declare @Etapa varchar(50)
+DECLARE @EstadoPosible INT
+DECLARE @Garantia TINYINT
+DECLARE @ExigirComprobante BIT
+DECLARE @MomentoComprobante SMALLINT
+DECLARE @OtorganNumero BIT
+DECLARE @MomentoNumero SMALLINT
+DECLARE @InformarTrabajo BIT
+DECLARE @MomentoInformar SMALLINT
+DECLARE @Autorizar TINYINT
+DECLARE @MomentoAutorizacion SMALLINT
+DECLARE @E SMALLINT
+DECLARE @OrdenPresupuestos TINYINT
+DECLARE @Cerrar TINYINT
+DECLARE @Liquidar TINYINT
+DECLARE @PresupAgente TINYINT = 0
+DECLARE @PresupCliente TINYINT = 0
+DECLARE @RecibirUsado BIT = 0
+
+SET @ErrInf = ''
+
+-- Traer los datos de la politica
+SELECT @Garantia = P.Garantia, @ExigirComprobante = P.ExigirComprobante, @MomentoComprobante = P.MomentoComprobante,
+@OtorganNumero = P.OtorganNumero, @MomentoNumero = P.MomentoNumero, @InformarTrabajo = P.InformarTrabajo, @MomentoInformar = P.MomentoInformar,
+@Autorizar = P.Autorizar, @MomentoAutorizacion = P.MomentoAutorizacion, @OrdenPresupuestos = OrdenPresupuestos,
+@Liquidar = P.Liquidar, @Cerrar = P.Cerrar, @PresupAgente = COALESCE(P.PresupuestarTecnico, 0), @PresupCliente = COALESCE(@Presupuestar, P.Presupuestar, 0)
+FROM CS_PoliticasxArea P
+WHERE P.ID = @IDPolitica
+
+SELECT @RecibirUsado = COALESCE(Recibir , 0) FROM CS_TiposCanje WHERE ID = @IDTipoCanje
+
+-- Empezar a generar estados posibles hasta que no pueda subir mas
+DECLARE @Sensando INT		
+SET @EstadoPosible = -2		-- Comenzamos suponiendo que no se puede generar
+SET @Sensando = -1			-- Comenzamos con "Para Generar"
+
+WHILE (1 = 1)
+	BEGIN
+		-- Infomar en que momento se frena...
+		SELECT @Etapa = CASE @Sensando 	WHEN -1 THEN 'Generar'
+									    WHEN  4 THEN 'Abrir'
+										WHEN  7 THEN 'Cerrar' 
+										WHEN  8 THEN 'Liquidar' END
+		--PRINT 'Etapa:' + @Etapa
+		--PRINT 'Sensando:' + CONVERT(VARCHAR, @Sensando) 
+
+		SET @EstadoPosible = @Sensando		
+
+		-- Verificar Comprobante para este momento...
+		IF @ExigirComprobante = 1 AND @Garantia <> 0 AND @Comprobante = '' BEGIN
+			SET @E=dbo.CS_VerificarMomento(@MomentoComprobante, @Sensando)  
+			IF @E < @Sensando	BEGIN
+				SET @ErrInf = @ErrInf + '* Falta "Comprobante" para ' + @Etapa + '.
+'
+				SET @EstadoPosible=@E
+			END
+		END
+		
+		-- Verificar Numero Otorgado
+		IF @OtorganNumero = 1 AND @NroOtorgado = '' AND @MomentoNumero <> 5 BEGIN
+			SET @E=dbo.CS_VerificarMomento(@MomentoNumero, @Sensando)  
+			DECLARE @txt VARCHAR(100) = 'Numero Otorgado'
+			SELECT @Txt = NombreOrden FROM CS_PoliticasxArea WHERE ID = @IDPolitica
+			IF @E<@Sensando BEGIN
+				SET @ErrInf = @ErrInf + '* Falta "' + @Txt + '" para ' + @Etapa + '.
+'
+		  		SET @EstadoPosible=@E
+			END
+		END
+		-- Verificar Informada...
+		IF @InformarTrabajo = 1 AND @Faxeada = 0 BEGIN
+			SET @E=dbo.CS_VerificarMomento(@MomentoInformar, @Sensando)  
+			IF @E<@Sensando BEGIN
+				SET @ErrInf = @ErrInf + '* Falta "Informar el Trabajo" para ' + @Etapa + '.
+'
+		  		SET @EstadoPosible=@E
+			END
+		END
+		-- Verificar Autorizacion....
+		--PRINT 'Autorizar:' + CONVERT(VARCHAR, @Autorizar)
+		IF COALESCE(@Autorizacion, '') = '' AND (
+				((@Autorizar & 1) = 1 AND @ExigirComprobante = 1 AND @Comprobante = '') OR -- autorizar por falta de comprobante
+				((@Autorizar & 2) = 2 AND (@TotalPresupuesto = 0 OR @TotalPresupuesto > @MontoAutorizar)) OR -- Autorizar por monto
+				((@Autorizar & 4) = 4) -- Autorizar Siempre
+			) BEGIN
+				SET @E=dbo.CS_VerificarMomento(@MomentoAutorizacion, @Sensando)  
+				IF @E<@Sensando BEGIN
+					SET @ErrInf = @ErrInf + '* Falta "Autorización" para ' + @Etapa + '.
+'
+		  			SET @EstadoPosible=@E
+				END
+			END
+
+		--PRINT 'EstadoPosible:' + CONVERT(VARCHAR, @EstadoPosible)
+		IF @EstadoPosible = 7 BEGIN
+			-- Verificar que se pueda cerrar
+			IF @Lista = 0 SET @EstadoPosible = 4													-- No esta Terminado
+			Declare @Entregar BIT = 0
+			IF @FechaRecepcion IS NOT NULL AND @FechaEntrega IS NULL SET @Entregar = 1				-- Si tiene Recepcion y no entrego, hay que entregar
+			IF @IDTipoCanje > 0 AND @RecibirUsado = 0 SET @Entregar = 0								-- Pero si esta en canje y no hay que recibir, se puede cerrar igual
+			IF @Cerrar = 2 AND @Entregar = 1 SET @EstadoPosible = 4    								-- Al entregar el equipo pero todavia hay que entregar
+
+			--SET @ErrInf = 'EstadoPosible:' + CONVERT(VARCHAR, @EstadoPosible) + ' Entregar:' + CONVERT(VARCHAR, @Entregar) + ' Fecha Recepcion:' + COALESCE(COnVERT(VARCHAR, @FechaRecepcion, 102), 'No') + ' Fecha Entrega:' + COALESCE(COnVERT(VARCHAR, @FechaEntrega, 102), 'No') 
+			--RAISERROR (@ErrInf, 16, 1)
+
+			IF @Cerrar = 0 AND @CierreManual = 0 AND @EstadoActual < 7 SET @EstadoPosible = 4		-- Cierre Manual solo en CierreManual y si ya no esta cerrada
+		END
+
+		-- Verificar que se pueda Liquidar (solo se liquidan automaticas cuando Liquidar = 1)
+		IF @EstadoPosible = 8 BEGIN
+			IF (@Liquidar = 0 OR @Liquidar = 3) AND @LiquidacionManual = 0 AND @EstadoActual < 8 SET @EstadoPosible = 7		-- Cuando es liquidacion Manual y no esta Liquidando, negar
+			IF @Liquidar = 2 SET @EstadoPosible = 7																			-- No se liquidan
+		END
+
+		-- Ver si subio de estado.... se quedó o retrocedió...
+		IF @EstadoPosible < @Sensando					-- No supera el estado sensado
+		OR @EstadoPosible = 8							-- Llego al estado maximo
+		OR (@EstadoPosible = 4 AND @Lista = 0) BREAK	-- Abierta pero no terminada...no avanza mas
+
+		SELECT @Sensando = CASE @Sensando	WHEN -1	THEN 4
+											WHEN 4	THEN 7 
+											WHEN 7  THEN 8 END
+	END
+
+
+IF @EstadoPosible >= 4 AND ((@Presupuestar = 1 or @PresupCliente = 1) OR (@PresupAgente = 1 OR @PresupuestadoAgente <> 0)) BEGIN		-- Si puede abrir...y hay presupuesto cliente o hay presupuestos pendientes agentes
+	-- Verificar que apruebe la logica de presupuesto
+	DECLARE @EpPc INT
+	DECLARE @EpPa INT
+	IF @Presupuestar = 1 or @PresupCliente = 1 BEGIN
+		-- Presupuesto al cliente
+		SELECT @EpPc = CASE WHEN COALESCE(@Presupuestado, 0) = 0 THEN 0																		-- Para Presupuestar (0)
+					        WHEN COALESCE(@Presupuestado, 0) = 1 AND COALESCE(@CliInformado, 0) = 0 THEN 1									-- Para Informar (1)
+							WHEN COALESCE(@Presupuestado, 0) = 1 AND COALESCE(@CliInformado, 0) = 1 AND @Respuesta = 0 THEN 2				-- En Aprobacion (2)
+							WHEN COALESCE(@Presupuestado, 0) = 1 AND COALESCE(@CliInformado, 0) = 1 AND @Respuesta = 2 THEN 5				-- Rechazado
+						ELSE @EstadoPosible END
+	END ELSE SET @EpPc = @EstadoPosible
+
+	--DECLARE @M VARCHAR(20) = CONVERT(VARCHAR, @EpPc)
+	--RAISERROR (@M, 16, 1)
+
+	IF (@PresupAgente = 1 OR @PresupuestadoAgente <> 0) AND COALESCE(@EstadoPresupAgentes, 0) = 0 BEGIN
+		-- Hay presupuestos de agentes pendientes
+		SELECT @EpPa = CASE WHEN @PresupuestadoAgente <= 1 THEN 0	-- Para Presupuestar (0)
+							WHEN @PresupuestadoAgente = 2 THEN 2	-- En Aprobación
+						ELSE @EstadoPosible END
+	END ELSE SET @EpPa = @EpPc	-- Si no hay del agente, igual que del cliente
+
+	-- El estado posible es el menor de los estados de los presupuestos
+	IF @EpPc > @EpPa SET @EstadoPosible = @EpPa ELSE SET @EstadoPosible = @EpPc
+END
+--PRINT 'EstadoPosible:' + CONVERT(VARCHAR, @EstadoPosible)
+--DECLARE @MSG VARCHAR(200) = '@Presupuestar: ' + COALESCE(CONVERT(VARCHAR, @Presupuestar), 'Nulo') + '@Presupuestado: ' + COALESCE(CONVERT(VARCHAR, @Presupuestado), 'Nulo') + '@PresupuestadoAgente: ' + COALESCE(CONVERT(VARCHAR, @PresupuestadoAgente), 'Nulo') + '@EstadoPresupAgentes: ' + COALESCE(CONVERT(VARCHAR, @EstadoPresupAgentes), 'Nulo') + '@EstadoPosible: ' + COALESCE(CONVERT(VARCHAR, @EstadoPosible), 'Nulo')
+--RAISERROR (@Msg, 16, 1)
+
+RETURN @EstadoPosible
+
+
+(1 rows affected)

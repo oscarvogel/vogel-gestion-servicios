@@ -1,0 +1,28 @@
+CREATE  VIEW  [dbo].[CS_OrdenesLiquidacionTecnico]
+AS
+--
+-- Para los informes de Liquidacion
+--
+SELECT T.IDTrabajo, T.IDPolitica, T.NroOtorgado, T.FechaAlta as FechaOrden,
+T.Cliente, CONVERT(Varchar(150), T.TrabajoRealizado) as TrabajoRealizado, T.Localidad, OL.Importe, T.Modelo, T.Equipo,
+COALESCE(I.ComisionProductos, 0) as ComisionProductos, COALESCE(I.ComisionPartes, 0) as ComisionPartes, COALESCE(I.ComisionServicios, 0) as ComisionServicios,
+COALESCE(ComisionOtros, 0) as ComisionOtros,
+OL.Importe as ComisionTotal,
+P.ComisionProd, P.ComisionRep, P.ComisionServ, P.ComisionOtro, L.ID, L.Fecha,
+P.NombreCompleto,
+Ag.ID as IDAgrupacion, COALESCE(Ag.Descripcion, 'Sin Agrupación') as Agrupacion, M.Codigo as IDMarca, COALESCE(M.Descripcion, 'Sin Marca') as Marca, COALESCE(C.Cuenta, 'Sin Cuenta') as Cuenta,
+OL.Tecnico, OL.Rechazada, OL.Liquidacion, T.FechaCerrada 
+FROM CS_OrdenesLiquidadasTecnicos OL WITH (NOLOCK)
+INNER JOIN CS_Trabajos T WITH (NOLOCK) ON T.IDTrabajo = OL.Orden
+INNER JOIN CS_LiquidacionesTecnicos L WITH (NOLOCK) ON L.ID = OL.Liquidacion
+INNER JOIN Intervienen I WITH (NOLOCK) ON I.Liquidacion = L.ID AND I.Orden = T.IDTrabajo AND I.Persona = COALESCE(OL.Tecnico, L.Tecnico)
+INNER JOIN CS_PoliticasxArea P WITH (NOLOCK) ON P.ID = T.IDPolitica
+LEFT JOIN CC_Articulos A WITH (NOLOCK) ON A.Codigo = T.Modelo
+LEFT JOIN CC_Marcas M WITH (NOLOCK) ON M.Codigo = A.Marca
+LEFT JOIN CC_Agrupaciones Ag WITH (NOLOCK) ON Ag.ID =  A.Agrupacion
+LEFT JOIN CS_CuentasAgrupacionMarca C WITH (NOLOCK) ON C.IDAgrupacion = Ag.ID AND C.IDMarca = A.Marca
+WHERE OL.Rechazada = 0
+
+
+
+(1 rows affected)

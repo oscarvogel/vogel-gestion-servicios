@@ -1,0 +1,47 @@
+
+CREATE   PROCEDURE [dbo].[CS_ObtenerTotalesTrabajo]
+@IDTrabajo INT
+AS
+DECLARE @Comision DECIMAL(19, 5)
+DECLARE @CostoTotal DECIMAL(19, 5)
+DECLARE @VentaTotal DECIMAL(19, 5)
+DECLARE @VentaTotalSin DECIMAL(19, 5)
+DECLARE @TotalConImpuestos DECIMAL(19, 5)
+DECLARE @CostoTotalPresupuesto DECIMAL(19, 5)
+
+DECLARE @Utilidad INT
+SELECT @Utilidad = Utilidad FROM CS_Trabajos T INNER JOIN CS_PoliticasxArea P with (nolock) ON P.ID = T.IDPolitica WHERE IDTrabajo = @IDTrabajo
+
+--Calcular el costo total consumido
+SELECT @CostoTotal =  SUM((CASE WHEN P.ComisionEsCosto = 1 THEN 0 ELSE COALESCE(P.CostoUnitario, 0) END * P.Cantidad * C.Importe) + COALESCE(P.CostoComision, 0))
+FROM CS_Partes P
+INNER JOIN CC_CotizacionesMonedas C with (nolock) ON C.ID = COALESCE(P.CotizacionCosto, 1)
+WHERE P.NroOrden = @IDTrabajo 
+
+-- Calcular la venta Total de Consumos
+SELECT 
+@VentaTotal = SUM(COALESCE(Facturado, 0) * Cantidad * C.Importe),
+@VentaTotalSin = SUM(COALESCE(Unitario, 0) * Cantidad * C.Importe),
+@TotalConImpuestos = SUM(COALESCE(UnitarioConImpuestos, 0) * Cantidad * C.Importe)
+FROM Partes 
+INNER JOIN CC_CotizacionesMonedas C with (nolock) ON C.ID = COALESCE(Partes.Cotizacion, 1)
+WHERE NroOrden = @IDTrabajo AND ((Tipo < 2 And (@Utilidad = 0 Or @Utilidad = 3)) or (Tipo = 2 AND (@Utilidad = 0 Or @Utilidad = 2)) or (Tipo = 3 AND @Utilidad <>1))
+
+--Calcular el costo total consumido
+SELECT @CostoTotalPresupuesto =  SUM(COALESCE(P.CostoUnitario, 0) * P.Cantidad * C.Importe)
+FROM PartesPresup P
+INNER JOIN CC_CotizacionesMonedas C with (nolock) ON C.ID = COALESCE(P.CotizacionCosto, 1)
+WHERE P.NroOrden = @IDTrabajo 
+
+--Ahora Actualizar los costos del trabajo..
+SELECT @Comision = Sum(coalesce(CostoComision,0)) From CS_Partes Where NroOrden = @IDTrabajo
+
+-- Actualizar Trabajo
+UPDATE CS_Trabajos SET FlagSuceso = 1, CostoTotal = @CostoTotal, VentaTotalSin = @VentaTotalSin, TotalConImpuestos = @TotalConImpuestos, VentaTotal = @VentaTotal, 
+CostoTotalPresupuesto = @CostoTotalPresupuesto, CostoTotalComisiones = @Comision
+WHERE IDTrabajo = @IDTrabajo
+
+
+
+
+(1 rows affected)

@@ -1,0 +1,36 @@
+CREATE Procedure [dbo].[INF_CG_ComisionVendedores]
+
+@fechadesde datetime = null,
+@fechahasta datetime = NULL,
+@vendedor int = NULL,
+@PorcentajeVendedorFijo int = 10,
+@PorcentajeVendedorNoFijo int = 3
+
+AS
+
+DECLARE @D DATETIME = DBO.FECHADESDE (@FECHADESDE)
+DECLARE @H DATETIME = DBO.FECHAHASTA (@FECHAHASTA)
+
+
+SELECT F.cliente AS [CLIENTE], F.numero AS [Factura],F.fecha AS [FECHA FACTURA],F.neto AS [Monto Neto], 
+case when f.numero like 'B%'then F.neto - DF.importe end as [Neto Fact B],
+--F.comentarios AS [ Comentarios ],
+REPLACE(REPLACE(REPLACE(convert(varchar(8000),F.comentarios), CHAR(10), ' '), CHAR(13), ' '), CHAR(9), ' ')  as [Comentarios],
+--replace(convert(varchar(8000),detalle),CHAR(11),'' )
+--REPLACE(REPLACE(REPLACE(REPLACE(F.comentarios, CHAR(10), ''), CHAR(13), ''), CHAR(9), ''),Char(160),'')  as [Comentarios],
+U.nombre AS [V Factura], 
+US.Nombre AS [V Cliente],
+CASE WHEN  C.vendedor = f.vendedor THEN ( F.neto * @PorcentajeVendedorFijo )/100  end as [% Vendedor Defecto], 
+CASE WHEN C.vendedor <> f.vendedor THEN (F.neto * @PorcentajeVendedorNoFijo) /100 else 0 end as [% Vendedor Casual]
+from CG_Facturas_Tabla F
+Left Join CG_Vistasaldos VS on VS.referenciaorigen = F.numero and VS.saldo =0
+left Join cc_usuarios U on U.codigo = F.vendedor
+left Join CC_clientes_tabla C on C.codcli = F.codcli
+left Join cc_usuarios Us on Us.codigo = c.vendedor
+left join CG_DtoRgoFacturas DF on DF.identificador = F.id and DF.DtoRgoID = 1
+where F.anulado =0
+And (F.vendedor = @vendedor or @vendedor is NULL)
+and (F.fecha >= @D OR @D IS NULL ) AND (F.Fecha <= @H OR @H IS NULL)
+
+
+(1 rows affected)

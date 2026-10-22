@@ -1,0 +1,6 @@
+CREATE VIEW CS_LiquidacionesTecnicos
+AS
+Select * from CS_LiquidacionesTecnicos_Tabla WHERE dbo.GetSucursalActual() = 0 OR EnSucursal = dbo.GetSucursalActual()
+
+
+(1 rows affected)

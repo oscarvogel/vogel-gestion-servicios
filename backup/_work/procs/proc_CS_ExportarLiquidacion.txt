@@ -1,0 +1,8 @@
+CREATE PROCEDURE [dbo].[CS_ExportarLiquidacion]
+@Tipo INT,
+@ID INT
+AS
+SELECT convert(image,'Hola este es el archivo') as Contenido, 'Archivo.txt' as Archivo
+
+
+(1 rows affected)

@@ -1,0 +1,15 @@
+
+CREATE Procedure CS_ObtenerPartesLiquidacion
+@IDLiquidacion int
+AS
+Select Articulos.ID, P.Tipo, P.NumeroParte, P.Descripcion, 
+Sum(P.Cantidad) as Cantidad, P.CostoUnitario, P.Unitario, CM.Moneda 
+From VistaPartes P 
+Left Join Articulos ON Articulos.Codigo = P.NumeroParte 
+Inner Join CotizacionesMonedas CM ON CM.ID = P.Cotizacion 
+Where Unitario > 0 AND NroOrden IN 
+(SELECT Orden FROM OrdenesLiquidadas Where Rechazada = 0 AND Liquidacion = @IDLiquidacion)
+Group By Articulos.ID, P.Tipo, P.NumeroParte, P.Descripcion, P.CostoUnitario, P.Unitario, CM.Moneda
+
+
+(1 rows affected)

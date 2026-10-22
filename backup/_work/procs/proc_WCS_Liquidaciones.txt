@@ -1,0 +1,9 @@
+
+CREATE  VIEW WCS_Liquidaciones
+AS 
+SELECT * FROM CS_LiquidacionesVisibles
+
+
+
+
+(1 rows affected)

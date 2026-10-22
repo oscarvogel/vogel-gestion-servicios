@@ -1,0 +1,5 @@
+Msg 105, Level 15, State 1, Server 35c774fc1d1d, Line 4
+Unclosed quotation mark after the character string '
+FROM sys.tables t JOIN sys.schemas s ON s.schema_id = t.schema_id WHERE t.is_ms_shipped = 0;
+IF LEN(@sql) > 0 BEGIN SET @sql = STUFF(@sql, 1, 10, N'); EXEC sp_executesql @sql; END
+'.

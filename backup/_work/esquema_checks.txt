@@ -1,0 +1,5 @@
+dbo.Campos|check_SinEspacios|(NOT [Campo] like '% %')
+dbo.CC_Articulos|CK_CC_Articulos|([dbo].[CK_BuscaCodigoOpcional]([Codigo], [CodigoOpcional], [ID]) = [ID])
+dbo.CC_Articulos|CK_CC_ArticulosOpcional|([DBO].[CK_BuscaCodigoOpcional]([Codigo],[CodigoOpcional],[ID])=[ID])
+dbo.CC_Articulos|CK_CC_TextoValido|([DBO].[CC_ValidarTexto](coalesce([Codigo]+[DescripcionReducida],char((31))))=(0))
+dbo.CS_Partes|CS_Partes_CHK_Cantidad|([Cantidad]>=(0))

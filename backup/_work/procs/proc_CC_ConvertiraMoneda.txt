@@ -1,0 +1,55 @@
+
+
+
+
+CREATE     FUNCTION [dbo].[CC_ConvertiraMoneda](@DeImporte DECIMAL(19,5), @DeMoneda INT, @aMoneda INT, @DeCotizacion INT, @aCotizacion INT)
+RETURNS DECIMAL(19,5)
+AS
+	BEGIN
+		DECLARE @Valor Decimal (19,5)
+		DECLARE @CotizacionDe Decimal(19,5), @CotizacionA Decimal(19,5)
+		DECLARE @Decimales INT
+		DECLARE @AImporte Decimal(19, 5)
+
+		if coalesce(@aCotizacion,0)<>0 
+			--A una Cotizacion
+			SELECT @aMoneda = C.Moneda, @CotizacionA = C.Importe, @Decimales = COALESCE(M.Decimales, 2) 
+			FROM CC_CotizacionesMonedas C  with (nolock)
+			INNER Join CC_Monedas M with (nolock) ON M.ID = C.Moneda
+			WHERE C.ID = @aCotizacion
+		else
+			--A una Moneda
+			SELECT @CotizacionA = C.Importe, @Decimales = COALESCE(M.Decimales, 2) 
+			FROM CC_Monedas M with (nolock)
+			INNER JOIN CC_CotizacionesMonedas C with (nolock) ON C.ID = M.Cotizacion 
+			WHERE M.ID = @aMoneda
+
+		IF COALESCE(@DeMoneda, 0) = 0 
+			SELECT @DeMoneda = C.Moneda, @CotizacionDe = C.Importe
+			FROM CC_CotizacionesMonedas C with (nolock)
+			INNER Join CC_Monedas M with (nolock) ON M.ID = C.Moneda
+			WHERE C.ID = @DeCotizacion
+		else
+			SELECT @CotizacionDe = C.Importe 
+			FROM CC_Monedas M with (nolock)
+			INNER JOIN CC_CotizacionesMonedas C with (nolock) ON C.ID = M.Cotizacion 
+			WHERE M.ID = @DeMoneda
+
+	
+		IF @DeMoneda <> @aMoneda begin
+			SET @Valor = (@DeImporte * @CotizacionDe) / @CotizacionA		--Siempre pasar a pesos...
+		end ELSE
+		SET @Valor = @DeImporte
+	
+		SET @AImporte=ROUND(@Valor, @Decimales)
+		RETURN @AImporte
+	END
+
+
+
+
+
+
+
+
+(1 rows affected)

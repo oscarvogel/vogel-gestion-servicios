@@ -1,0 +1,15 @@
+CREATE PROCEDURE CP_TraerDatosLiquidacionTecnico
+@IDLiquidacion INT
+AS
+SELECT P.CodProv, P.Proveedor, L.Factura, L.Anulado, L.Area as IDArea, CONVERT(DATE, L.Fecha) as Fecha, L.ID, 
+CASE WHEN COALESCE(L.Area, 0) = 0 THEN '[Todas las áreas]' ELSE COALESCE(A.Nombre, '[Inexistente]')  END as Area, 
+CASE WHEN COALESCE(L.IDPolitica, 0) = 0 THEN '[Todas las políticas]' ELSE COALESCE(Pa.Nombre, '[Inexistente]') END as Politica, L.IDPolitica,  L.Tecnico 
+FROM CS_LiquidacionesTecnicos L 
+INNER JOIN CC_RelacionesAgentes CP ON CP.Agente = L.Tecnico 
+INNER JOIN CP_Proveedores P ON P.CodProv = CP.CodProv 
+LEFT JOIN CS_Areas A ON A.ID = L.Area 
+LEFT JOIN CS_PoliticasxArea Pa ON Pa.ID = L.IDPolitica
+WHERE L.ID = @IDLiquidacion
+
+
+(1 rows affected)

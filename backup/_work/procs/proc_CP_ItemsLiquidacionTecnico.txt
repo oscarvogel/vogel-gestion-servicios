@@ -1,0 +1,16 @@
+CREATE    VIEW [dbo].[CP_ItemsLiquidacionTecnico]
+AS
+SELECT OL.Orden  as IDTrabajo, Ol.Liquidacion, P.ItemID as ID, P.Tipo, P.NumeroParte, P.Descripcion, Ol.Tecnico, P.Cantidad, COALESCE(CM.Moneda, 1) as Moneda, P.CostoComision as Comision 
+FROM CS_OrdenesLiquidadasTecnicos OL
+INNER JOIN CS_LiquidacionesTecnicos OT ON OT.ID = OL.Liquidacion
+INNER JOIN CS_Trabajos T ON T.IDTrabajo = OL.Orden 
+INNER JOIN CS_Partes P ON P.NroOrden = OL.Orden AND (P.LiquidaComision = -1											--Para todos
+													OR (P.LiquidaComision = -2 AND OL.Tecnico = T.Responsable)		--Para el Responsable
+													OR (P.LiquidaComision = -3 AND P.Provee = OT.Tecnico)			--Para quien provee
+													OR P.LiquidaComision = OT.Tecnico								--Para el técnico
+												  )
+LEFT JOIN CC_CotizacionesMonedas CM ON CM.ID = P.Cotizacion
+WHERE OL.Rechazada = 0
+
+
+(1 rows affected)

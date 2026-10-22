@@ -1,0 +1,14 @@
+CREATE TRIGGER CC_MantenerHistoricoComisiones ON dbo.CC_Comisiones
+FOR UPDATE, INSERT
+AS
+IF @@rowcount = 0 RETURN
+SET NOCOUNT ON
+
+INSERT INTO CC_Comisiones_Historico (IDArticulo, Esquema, Fecha, Heredar, Tipo, Valor)
+SELECT I.IDArticulo, I.Esquema, GETDATE() AS Fecha, I.Heredar, I.Tipo, I.Valor
+FROM Inserted I
+LEFT JOIN DELETED D ON D.IDArticulo = I.IDArticulo AND D.Esquema = I.Esquema
+WHERE I.Heredar <> D.Heredar OR I.Tipo <> D.Tipo OR I.Valor <> D.Valor
+
+
+(1 rows affected)

@@ -1,0 +1,22 @@
+CREATE PROCEDURE [dbo].[CS_CopiarPoliticasxArticulo] 
+@IDOrigen INT,
+@IDDestino INT
+AS
+DECLARE @Area INT, @Trabajo Varchar(10)
+-- Borra los registros de la politica anterior...
+DELETE FROM CS_PoliticasxArticulo WHERE IDPolitica = @IDDestino
+-- Inserta  los de la politica nueva copiando desde ella...
+INSERT INTO CS_PoliticasxArticulo (IDArticulo, Garantia, IDValor, TopeReparacion, MonedaTope, IDPolitica, Incluir, TarifaDiagnostico, Heredar, Productos, Repuestos, Servicios, Otros, Linea, TarifaCanje, MascaraNroSerie, ControlReservas, ExigirNroSerie, ServiciosAlCierre)
+SELECT IDArticulo, Garantia, IDValor, TopeReparacion, MonedaTope, @IDDestino as IDPolitica, Incluir, TarifaDiagnostico, Heredar, Productos, Repuestos, Servicios, Otros, Linea, TarifaCanje, MascaraNroSerie, ControlReservas, ExigirNroSerie, ServiciosAlCierre
+FROM CS_PoliticasxArticulo 
+WHERE IDPolitica = @IDOrigen
+-- Actualiza x las dudas el catalogo de propiedades...
+SELECT  @Area = Area, @Trabajo = TipoTrabajo FROM Aux_PoliticasxArea WHERE ID = @IDDestino
+IF @Trabajo IS NOT NULL 
+   UPDATE TiposTrabajos SET CatalogoDePropiedades = NULL WHERE Codigo = @Trabajo  AND Area = @Area
+ELSE
+   UPDATE Areas SET CatalogoDePropiedades = NULL WHERE Codigo = @Area
+
+
+
+(1 rows affected)

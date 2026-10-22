@@ -1,0 +1,1 @@
+dbo.CK_ItemsMovStock|Identificador|dbo.CK_MovimientosStock|ID|NO_ACTION

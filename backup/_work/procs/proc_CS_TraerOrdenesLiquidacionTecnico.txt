@@ -1,0 +1,28 @@
+CREATE PROCEDURE [dbo].[CS_TraerOrdenesLiquidacionTecnico]
+@CodTec INT = 0,
+@IDPolitica INT = 0,
+@PermiteAbiertos BIT = 0,
+@Suceso INT = 0,
+@Liquidacion INT = 0,
+@Sucursal INT = @CodTec
+AS
+SET NOCOUNT ON
+
+DECLARE @SucesoLiquidacionTecnico INT
+SELECT @SucesoLiquidacionTecnico = CONVERT(INT, CONVERT(VARCHAR, C.DatoAlfa)) FROM CC_ConfigData C WHERE C.Propiedad = 'SucesoLiquidacionTecnico'
+
+SELECT DISTINCT T.IDTrabajo, T.NroOtorgado, T.Politica, CONVERT(VARCHAR, T.FechaAlta, 103) as Alta, CONVERT(VARCHAR, T.FechaCerrada, 103) as Cierre, T.Comision, T.Cliente, T.Modelo, T.Equipo, T.TrabajoRealizado, T.IDTecnico, T.Tecnico, T.Accesorios
+FROM CS_TrabajosSinLiquidacionTecnico T WITH (NOLOCK)
+INNER JOIN dbo.CS_UsuariosDeSucursales(@CodTec) Us ON Us.Tecnico = T.IDTecnico			-- De los tecnicos que puede liquidar este...
+LEFT JOIN CS_OrdenesLiquidadasTecnicos OLT WITH (NOLOCK) ON OLT.Orden = T.IDTrabajo AND OLT.Liquidacion = @Liquidacion AND OLT.Tecnico = T.IDTecnico
+WHERE (	(@IDPolitica = 0 AND T.LiquidacionTecnico = 0)		-- Las Globales
+		OR (@IDPolitica < 0 AND ((T.IDPolitica = @IDPolitica AND T.LiquidacionTecnico = 1) OR (T.IDArea = ABS(@IDPolitica) AND T.LiquidacionTecnico = 2)))	-- Las de la politica
+		OR (@IDPolitica > 0 AND T.IDPolitica = @IDPolitica AND T.LiquidacionTecnico = 1))
+AND (T.Estado >= 7 OR (@PermiteAbiertos = 1 AND T.Estado >= 4 AND (@Suceso = 0 OR EXISTS(SELECT 1 FROM CS_SucesosTrabajo S WHERE S.IDTrabajo = T.IDTrabajo AND S.Suceso = @Suceso))))
+AND (COALESCE(@SucesoLiquidacionTecnico, 0) = 0 OR (COALESCE(@SucesoLiquidacionTecnico, 0) <> 0 AND EXISTS (Select 1 FROM CS_SucesosTrabajo S Where S.IDTrabajo = T.IDTrabajo AND S.Suceso = @SucesoLiquidacionTecnico )))
+AND (T.IDTecnico = @Sucursal OR @Sucursal = 0)
+AND (OLT.Liquidacion IS NULL)
+ORDER BY T.IDTrabajo
+
+
+(1 rows affected)

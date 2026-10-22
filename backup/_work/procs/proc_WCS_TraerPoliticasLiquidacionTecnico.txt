@@ -1,0 +1,22 @@
+CREATE PROCEDURE [dbo].[WCS_TraerPoliticasLiquidacionTecnico]
+@IDUsuario INT
+AS
+SELECT Id, '********************' as Nombre, Nombre as Area, -Id as Politica, 0 as Ppal, 1 as Orden 
+FROM CS_Areas 
+WHERE ID IN (	SELECT DISTINCT IDArea FROM CS_PoliticasxArea 
+				INNER JOIN CS_UsuariosxPolitica PU ON PU.IDPolitica = CS_PoliticasxArea.ID AND PU.IDUsuario = @IDUsuario
+				WHERE COALESCE(PU.Editar, 0) = 1 AND Codigo = 'Principal' Group by IDArea Having count(IDArea) > 0
+			) 
+UNION 
+SELECT Politicas.IDArea as Id, CASE WHEN Ppal = 1 THEN 'Principal del área' ELSE Politicas.Nombre END as Nombre, Politicas.Area, Politicas.ID as Politica, Ppal, 2 as Orden 
+FROM CS_PoliticasxArea Politicas 
+INNER JOIN CS_Areas Areas ON Areas.ID = Politicas.IDArea 
+INNER JOIN CS_UsuariosxPoliticaFULL PU ON PU.IDPolitica = Politicas.ID AND PU.IDUsuario = @IDUsuario
+AND COALESCE(PU.Editar, 0) = 1 
+WHERE Codigo = 'Principal'
+UNION 
+SELECT 0 as ID, '' as Nombre,  'TODAS LAS AREAS' as Area, 0 as Politica, 0 as Ppal, 1 as Orden 
+ORDER By Nombre ASC, ID, Orden ASC, Ppal DESC
+
+
+(1 rows affected)

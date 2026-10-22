@@ -1,0 +1,171 @@
+-- Stored Procedure
+
+CREATE PROCEDURE [dbo].[CS_CalcularComisionArticulo]
+@Codigo VARCHAR(25),
+@Cantidad DECIMAL(19, 6)=1,
+@Fecha DATETIME=NULL,
+@IDPolitica INT,
+@Responsable INT,
+@CodCli INT=Null,
+@VentaManual DECIMAL(19, 6)=NULL,
+@CotizacionVenta int=NULL,
+@CostoManual DECIMAL(19, 6) = NULL,
+@CotizacionCosto int=NULL,
+@ValorComision decimal(19,6) OUTPUT
+AS
+SET NOCOUNT ON
+
+DECLARE @IDArticulo INT
+DECLARE @Categoria smallint, @Costo decimal(19,6), @LiquidaComision INT
+DECLARE @ModoComision INT, @Comision decimal(19,6)
+DECLARE @Esquema INT
+DECLARE @ModoComisionEsquema smallint
+DECLARE @ValorComisionEsquema Decimal(19, 6)
+DECLARE @Area INT
+
+DECLARE @ComisionEsCosto BIT = 0
+DECLARE @VigenteaGeneracion BIT=0
+
+DECLARE @MontoComision DECIMAL(19,5) = NULL
+DECLARE @Msg VARCHAR(1000)
+
+SET @Fecha = COALESCE(@Fecha, GetDate())
+
+DECLARE @MonedaPrecio int
+DECLARE @Precio decimal(19,6)
+DECLARE @MonedaCosto int
+DECLARE @CotizacionPrecio int
+DECLARE @ImpExcento decimal(19,6)
+DECLARE @PrecioBase decimal(19,6)
+DECLARE @Dto decimal(9,4)
+
+-- Datos del articulo
+SELECT @IDArticulo = A.ID, @Categoria=A.Categoria FROM CC_Articulos A WHERE A.Codigo = @Codigo
+
+-- Configuracion segun politica
+SELECT @ComisionEsCosto = COALESCE(CASE	WHEN @Categoria = 0 THEN P.ComisionEsCosto0
+								WHEN @Categoria = 1 THEN P.ComisionEsCosto1
+								WHEN @Categoria = 2 THEN P.ComisionEsCosto2
+								WHEN @Categoria = 3 THEN P.ComisionEsCosto3 ELSE 0 END, 0),
+@VigenteaGeneracion = COALESCE(CASE WHEN @Categoria = 2 THEN P.ComisionSobreVigentesAlGenerar2
+							WHEN @Categoria = 3 THEN P.ComisionSobreVigentesAlGenerar3 ELSE 0 END, 0),
+@ModoComision = COALESCE(CASE WHEN @Categoria = 0 THEN P.ComisionProd 
+					 WHEN @Categoria = 1 THEN P.ComisionRep	
+					 WHEN @Categoria = 2 THEN P.ComisionServ
+					 WHEN @Categoria = 3 THEN P.ComisionOtro ELSE 0 END, 0),
+@Comision = COALESCE(CASE WHEN @Categoria = 0 THEN P.MontoComisionProd 
+				 WHEN @Categoria = 1 THEN P.MontoComisionRep	
+			     WHEN @Categoria = 2 THEN P.MontoComisionServ
+			     WHEN @Categoria = 3 THEN P.MontoComisionOtro ELSE 0 END, 0)
+FROM CS_PoliticasxArea P WITH (NOLOCK) WHERE P.ID = @IDPolitica					  	
+
+-- Precios segun catalogo
+EXEC CC_CalculaPrecioArticulo
+   @IDArticulo
+  ,@CodCli
+  ,NULL
+  ,@MonedaPrecio OUTPUT
+  ,@Costo OUTPUT
+  ,@Precio OUTPUT
+  ,@MonedaCosto OUTPUT
+  ,@CotizacionPrecio OUTPUT
+  ,@ImpExcento OUTPUT
+  ,@PrecioBase OUTPUT
+  ,@Dto OUTPUT
+
+-- Si son valores vigentes a la generacion, buscarlos
+IF @VigenteaGeneracion = 1 BEGIN
+	-- Solo para Servicios y Otros, viene en pesos y si no hay historico toma el actual (en pesos)
+	SET @Costo=dbo.CC_ObtenerCostoaFecha(@IDArticulo, @Fecha) 
+	SET @Precio=dbo.CC_ObtenerPrecioaFecha(@IDArticulo, @CodCli, @Fecha) 
+END ELSE BEGIN
+	-- Si vienen valores manuales, darles peso
+	IF @CostoManual IS NULL
+		SET @Costo = dbo.CC_ConvertiraMoneda(@Costo, @MonedaCosto, 1, NULL, NULL)	-- Llevar el Costo a Moneda Local, la comision siempre en moneda local
+	ELSE 
+		SET @Costo = dbo.CC_ConvertiraMoneda(@CostoManual, NULL, 1, @CotizacionCosto, NULL)	-- Llevar el Costo a Moneda Local, la comision siempre en moneda local
+
+	IF @VentaManual IS NULL	
+		SET @Precio = dbo.CC_ConvertiraMoneda(@Precio, @MonedaPrecio, 1, NULL, NULL)	-- Llevar el Precio a Moneda Local, la comision siempre en moneda local
+	ELSE
+		SET @Precio = dbo.CC_ConvertiraMoneda(@VentaManual, NULL, 1, @CotizacionVenta, NULL)	-- Llevar el Precio a Moneda Local, la comision siempre en moneda local
+END
+
+IF @ModoComision <> 0 BEGIN
+	if @ModoComision = 5 -- Comision segun esquema (Sobre TARIFA)
+		BEGIN
+			-- Obtener el esquema de comisiones del usuario... (Si tiene el Addin del calculo de comisiones, usa ese, sino el esquema 0)
+			SET @Esquema =  null
+
+			--Obtengo el area de la politica
+			SELECT @Area = IDArea FROM CS_PoliticasxArea WHERE ID = @IDPolitica
+
+			-- Obtener el esquema de comision del usuario (el de para todas o el especifico de la politica)
+			-- El esquema del usuario y de la politica
+			SELECT @Esquema = IDEsquema FROM CC_ComisionxUsuario E with (nolock) WHERE IDUsuario = @Responsable AND IDPolitica = @IDPolitica
+			-- El esquema del usuario y del AREA
+			IF @Esquema IS NULL SELECT @Esquema = IDEsquema FROM CC_ComisionxUsuario E with (nolock) WHERE IDUsuario = @Responsable AND IDPolitica = -@Area				
+			-- El esquema del usuario para cualquier politica
+			IF @Esquema IS NULL SELECT @Esquema = IDEsquema FROM CC_ComisionxUsuario E with (nolock) WHERE IDUsuario = @Responsable AND IDPolitica = 0
+			-- El esquema para todos los usuarios de esta politica
+			IF @Esquema IS NULL SELECT @Esquema = IDEsquema FROM CC_ComisionxUsuario E with (nolock) WHERE IDUsuario = 0 AND IDPolitica = @IDPolitica
+			-- El esquema para todos los usuarios de todas las politicas
+			IF @Esquema IS NULL SELECT @Esquema = IDEsquema FROM CC_ComisionxUsuario E with (nolock) WHERE IDUsuario = 0 AND IDPolitica = 0
+
+			set @ValorComision=NULL 					--Valor por defecto
+			set @ModoComisionEsquema = Null				--Modo segun esquema por defecto (Importe Fijo)
+
+			-- Calcular segun el modo de comision del esquema para el articulo...
+			Select @ModoComisionEsquema = Tipo, @ValorComisionEsquema=Valor  From CC_Comisiones with (nolock) Where IDArticulo = @IDArticulo AND Esquema = Coalesce(@Esquema,0)
+			-- Si no hay esquema para el articulo busca para la agrupacion
+			IF @ModoComisionEsquema IS NULL Select @ModoComisionEsquema = Tipo, @ValorComisionEsquema=Valor  From CC_Comisiones C with (nolock) INNER JOIN CC_Articulos A with (nolock) ON A.Agrupacion = ABS(C.IDArticulo) Where A.ID = @IDArticulo AND Esquema = Coalesce(@Esquema,0)
+			-- Si no hay esquema para el articulo O PARA la agrupacion, toma los defectos del esquema
+			IF @ModoComisionEsquema IS NULL
+				BEGIN
+					--OK.. ver como calcula comision
+					if @Categoria = 0 select @ModoComisionEsquema=TipoComisionProducto, @ValorComisionEsquema=ValorComisionProducto from CC_EsquemasComision with (nolock) where ID = Coalesce(@Esquema,0)
+					if @Categoria = 1 select @ModoComisionEsquema=TipoComisionRepuesto, @ValorComisionEsquema=ValorComisionRepuesto from CC_EsquemasComision with (nolock) where ID = Coalesce(@Esquema,0)
+					if @Categoria = 2 select @ModoComisionEsquema=TipoComisionServicio, @ValorComisionEsquema=ValorComisionServicio from CC_EsquemasComision with (nolock) where ID = Coalesce(@Esquema,0)
+					if @Categoria = 3 select @ModoComisionEsquema=TipoComisionOtros, @ValorComisionEsquema=ValorComisionOtros from CC_EsquemasComision with (nolock) where ID = Coalesce(@Esquema,0)
+				END
+
+			IF COALESCE(@ModoComisionEsquema, 1) = 4 BEGIN	-- Importe Fijo
+				-- Si calcula historico, buscar
+				IF @VigenteaGeneracion = 1 SET @ValorComisionEsquema = COALESCE(dbo.CC_ObtenerComisionaFecha(@IDArticulo, @Esquema, @Fecha), @ValorComisionEsquema)
+				SELECT @ValorComision = @ValorComisionEsquema * @Cantidad * (@Comision/100)
+			END ELSE IF @ModoComisionEsquema = 1			-- % Costo
+				SELECT @ValorComision = @Costo  * (@ValorComisionEsquema/100) * @Cantidad * (@Comision/100)
+			ELSE IF @ModoComisionEsquema = 2 			-- % Venta
+				SELECT @ValorComision = @Precio * (@ValorComisionEsquema/100) * @Cantidad  * (@Comision/100)
+			ELSE IF @ModoComisionEsquema = 3			-- % Utilidad
+				SELECT @ValorComision = (@Precio-@Costo) * (@ValorComisionEsquema/100) * @Cantidad * (@Comision/100)					
+		END
+	ELSE
+		BEGIN
+			set @ValorComision=NULL --Valor por defecto
+			if @ModoComision = 1		-- Importe Fijo
+				set @ValorComision=@Comision * @Cantidad 
+			else if @ModoComision = 2	-- % Venta sin Impuestos
+				set @ValorComision=@Precio * @Cantidad * (@Comision/100)
+			else if @ModoComision = 3	-- % Utilidad
+				set @ValorComision=(@Precio-@Costo) * @Cantidad * (@Comision/100)
+			else if @ModoComision = 4	-- % Costo
+				set @ValorComision=@Costo * @Cantidad * (@Comision/100)
+			ELSE IF @Modocomision = 5 BEGIN		-- % Venta con impuestos
+				SET @Precio = dbo.CC_CalcularPrecioArticulo(@IDArticulo, NULL, 1, 1, @CodCli)
+				SET @ValorComision=@Precio * @Cantidad * (@Comision/100)
+			END
+		END
+
+	SET @MontoComision = @ValorComision / @Cantidad
+	/*
+	IF (@ModoComisionEsquema = 4 or @ModoComisionEsquema = 2) begin
+		--Traslada solo en caso de que sea importe fijo o comision sobre la venta
+		SET @NuevoCosto = @ValorComision / @Cantidad
+	END
+	*/
+END
+SET @ValorComision = @MontoComision
+
+
+(1 rows affected)

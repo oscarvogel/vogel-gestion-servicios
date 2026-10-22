@@ -24,6 +24,49 @@ WITH MOVE 'CiberBase_Datos'    TO '/var/opt/mssql/data/CiberBase_Datos.mdf',
      RECOVERY;
 ```
 
+## Levantar el entorno (importador)
+
+El importador (`backend/scripts/import_cyberbrain.py`) lee la base por TCP, así que el
+SQL Server tiene que ser alcanzable **desde Windows**. El contenedor `cb-sql` se levantó
+sin `-p` (y recrearlo perdería la base restaurada, que vive en su volumen), así que el
+puerto se publica con un **túnel**:
+
+```bash
+# Red propia: el túnel apunta a cb-sql POR NOMBRE (DNS de Docker), no por IP.
+docker network create cibernet
+docker network connect cibernet cb-sql
+docker run -d --name cb-tunnel --restart unless-stopped --network cibernet \
+  -p 1433:1433 alpine/socat TCP-LISTEN:1433,fork,reuseaddr TCP:cb-sql:1433
+```
+
+Con eso, desde Windows: `localhost:1433` es CiberBase (WSL reenvía `localhost`).
+
+> **Por qué por nombre y no por IP:** al reiniciar Docker, `cb-sql` cambia de IP
+> (172.17.0.2 → 172.17.0.3) y el túnel queda apuntándose a sí mismo: parece que el
+> driver conecta, pero no llega a la base. Con el nombre no se rompe.
+
+El MySQL destino es otro contenedor, en el puerto **3307** de WSL:
+
+```bash
+wsl -d Ubuntu -- bash /mnt/c/Programacion/vogel-gestion/backup/_work/start_mysql.sh
+```
+
+### Si se crashea el runtime
+
+Se crasheó una vez el runtime local y con él el daemon de Docker de WSL: los tres
+contenedores quedaron en `Exited (255)` y la importación a medias. Después de un crash
+hay que **levantarlos a mano** (`--restart unless-stopped` solo aplica a los que estaban
+corriendo) y **mirar la base**, no solo el cuadre: el cuadre dice lo que se insertó, y
+en el crash se había insertado todo pero sin commit.
+
+```bash
+wsl -d Ubuntu -- docker start cb-sql
+wsl -d Ubuntu -- docker start vogel-mysql
+```
+
+La base restaurada no se pierde: vive en el volumen de `cb-sql` y el `.bak` está en
+`/home/oscar/cb_restore/`.
+
 ## Scripts
 
 | Archivo | Qué hace |

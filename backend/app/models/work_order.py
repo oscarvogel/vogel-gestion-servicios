@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base
 
@@ -52,6 +52,27 @@ class WorkOrder(Base):
     received_by_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"),nullable=False)
     status: Mapped[str] = mapped_column(String(30),nullable=False,default="RECEIVED",index=True)
     status_id: Mapped[int | None] = mapped_column(ForeignKey("work_order_statuses.id"),nullable=True,index=True)
+    # --- Importado de CiberBrain (ver docs/plan-importacion-ciberbrain.md) ---
+    # IDTrabajo en dbo.CS_Trabajos. Es la llave de idempotencia del importador.
+    legacy_id: Mapped[int | None] = mapped_column(Integer,nullable=True,index=True)
+    # dbo.CS_Trabajos.NumeroOrden. NO es unico en el legacy (hasta 60 repeticiones),
+    # asi que va como referencia y no como numero de OT.
+    legacy_number: Mapped[str | None] = mapped_column(String(20),nullable=True)
+    # La marca / area (dbo.Areas + dbo.TiposTrabajos a traves de dbo.Aux_PoliticasxArea).
+    work_area_id: Mapped[int | None] = mapped_column(ForeignKey("work_areas.id"),nullable=True,index=True)
+    work_bench_id: Mapped[int | None] = mapped_column(ForeignKey("work_benches.id"),nullable=True)
+    # 'warranty' | 'out_of_warranty' | 'own_warranty' (dbo.CS_PoliticasxArea.Garantia)
+    warranty_status: Mapped[str | None] = mapped_column(String(20),nullable=True,index=True)
+    # dbo.CS_Trabajos.Garantia crudo (0..2). El flag de la OT, que puede diferir del area.
+    legacy_guarantee: Mapped[int | None] = mapped_column(Integer,nullable=True)
+    # dbo.Aux_PoliticasxArea.ID (la politica real de la OT)
+    legacy_policy_id: Mapped[int | None] = mapped_column(Integer,nullable=True)
+    # dbo.CS_Trabajos.CostoTotal y .VentaTotal. El cierre mensual liquida el COSTO.
+    cost_total: Mapped[float] = mapped_column(Numeric(19,6),nullable=False,default=0)
+    sale_total: Mapped[float] = mapped_column(Numeric(19,6),nullable=False,default=0)
+    quoted_total: Mapped[float | None] = mapped_column(Numeric(19,6),nullable=True)
+    # dbo.CS_Trabajos.Comprobante: numero de factura o texto ('STOCK', 'NO CORRESPONDE', ...)
+    legacy_invoice_number: Mapped[str | None] = mapped_column(String(50),nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime,server_default=func.now(),nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime,server_default=func.now(),onupdate=func.now(),nullable=False)
 

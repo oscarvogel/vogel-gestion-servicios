@@ -245,6 +245,35 @@ def test_un_cliente_con_nombre_se_agrupa_por_nombre_normalizado():
 
 
 # ---------------------------------------------------------------------------
+# Los placeholders del legacy
+# ---------------------------------------------------------------------------
+def test_un_placeholder_de_email_no_llega_al_cliente():
+    """6.487 de los 14.730 clientes del legacy tienen "NO TIENE" (o similar) en el email.
+
+    El destino valida el email con ``EmailStr``: copiarlo tal cual hace fallar el
+    listado de clientes ENTERO con un 500. Un placeholder es la ausencia de dato.
+    """
+    for placeholder in ("NO TIENE", "NO SE", "NOTIENE", "TIENE", "NO", "NO TEINE", "."):
+        assert mappers.email_valido(placeholder) is None, placeholder
+    assert mappers.email_valido("") is None
+    assert mappers.email_valido(None) is None
+
+
+def test_un_email_valido_se_acepta():
+    assert mappers.email_valido("carlosronaldomeyer@hotmail.com") == "carlosronaldomeyer@hotmail.com"
+    assert mappers.email_valido("  info@electrotecniref.com.ar  ") == "info@electrotecniref.com.ar"
+    # Si el campo trae mas de una direccion, gana la primera que sea valida.
+    assert (
+        mappers.email_valido("NO TIENE info@electrotecniref.com.ar")
+        == "info@electrotecniref.com.ar"
+    )
+    assert (
+        mappers.email_valido("info@electrotecniref.com.ar; otro@ejemplo.com")
+        == "info@electrotecniref.com.ar"
+    )
+
+
+# ---------------------------------------------------------------------------
 # La comision y el tipo de documento
 # ---------------------------------------------------------------------------
 def test_la_comision_que_no_esta_es_cero_y_no_una_comision_inventada():

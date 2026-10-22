@@ -303,7 +303,9 @@ def _crear_maestro(ctx: Contexto, maestro: dict[str, object]) -> None:
                 "document": source.recortar("customers.document", documento, 30),
                 "phone": source.recortar("customers.phone", representante["telefonos"], 60),
                 "whatsapp": None,
-                "email": source.recortar("customers.email", representante["email"], 255),
+                "email": source.recortar(
+                    "customers.email", mappers.email_valido(representante["email"]), 255
+                ),
                 "address": source.recortar("customers.address", representante["direccion"], 250),
                 "notes": notas,
                 "active": True,
@@ -411,7 +413,7 @@ def _clientes_deducidos(ctx: Contexto) -> dict[str, object]:
                 "nombre": nombre,
                 "documento": documento_mas_frecuente,
                 "telefonos": telefonos.most_common(1)[0][0] if telefonos else "",
-                "email": email.most_common(1)[0][0] if email else "",
+                "email": mappers.email_valido(email.most_common(1)[0][0]) if email else "",
                 "direccion": direccion_principal,
                 "sucursales": otras,
                 "ots": len(datos),
@@ -462,7 +464,9 @@ def _crear_deducidos(ctx: Contexto, deducidos: dict[str, object]) -> None:
                 "document": source.recortar("customers.document", documento, 30),
                 "phone": source.recortar("customers.phone", cliente["telefonos"], 60),
                 "whatsapp": None,
-                "email": source.recortar("customers.email", cliente["email"], 255),
+                "email": source.recortar(
+                    "customers.email", mappers.email_valido(cliente["email"]), 255
+                ),
                 "address": source.recortar("customers.address", cliente["direccion"], 250),
                 "notes": notas,
                 "active": True,

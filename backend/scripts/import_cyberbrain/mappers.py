@@ -37,6 +37,32 @@ _SUFIJOS_SOCIETARIOS = re.compile(
 )
 
 
+#: Un email con la forma minima: local@dominio.tld. Sirve para descartar los
+#: placeholders del legacy ("NO TIENE", "NO SE", "TIENE", ".") que el destino
+#: rechaza con la validacion EmailStr.
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s.]+(?:\.[^@\s.]+)+$")
+
+
+def email_valido(valor: str | None) -> str | None:
+    """Email del legacy, o ``None`` si no es un email.
+
+    El legacy usa placeholders en el campo de email: 6.487 de los 14.730 clientes
+    tienen "NO TIENE" (o "NO SE", "NOTIENE", "."). El destino valida el email con
+    ``EmailStr``, asi que copiarlo tal cual hace fallar el listado de clientes
+    entero con un 500.
+
+    Un placeholder no es un email: se guarda como NULL, que es la ausencia de dato.
+    Si el campo trae mas de una direccion, se toma la primera que sea valida.
+    """
+    if not valor:
+        return None
+    for candidato in re.split(r"[\s,;]+", valor.strip()):
+        candidato = candidato.strip()
+        if candidato and _EMAIL_RE.match(candidato):
+            return candidato
+    return None
+
+
 def sin_acentos(valor: str) -> str:
     """Quita los acentos y pasa a mayusculas.
 

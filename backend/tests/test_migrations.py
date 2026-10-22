@@ -2,9 +2,25 @@ from pathlib import Path
 
 from alembic import command
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, inspect, text
 
-HEAD_REVISION = "20261004_0023"
+
+def _head_revision() -> str:
+    """La revision mas nueva del arbol de migraciones.
+
+    Se deriva de los scripts en vez de estar escrita a mano: con el literal, cada migracion
+    nueva dejaba los tests de migraciones en rojo con un error que decia "assert 20261022_0025
+    == 20261004_0023", que no dice nada del problema real. Paso dos veces.
+    """
+    config = Config(str(Path(__file__).parents[1] / "alembic.ini"))
+    config.set_main_option("script_location", str(Path(__file__).parents[1] / "alembic"))
+    head = ScriptDirectory.from_config(config).get_current_head()
+    assert head, "no se encontro ninguna migracion en backend/alembic/versions"
+    return head
+
+
+HEAD_REVISION = _head_revision()
 REVISION_BEFORE_EQUIPMENT_CATEGORIES = "20260925_0003"
 REVISION_EQUIPMENT_CATEGORIES = "20260925_0004"
 REVISION_BEFORE_ADMIN_BACKFILL = "20261003_0019"

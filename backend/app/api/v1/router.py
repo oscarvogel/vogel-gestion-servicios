@@ -10,6 +10,7 @@ from app.api.v1 import (
     equipment_documents,
     roles,
     users,
+    warranty_settlements,
     work_orders,
     work_order_imports,
     work_order_quotes,
@@ -28,3 +29,4 @@ router.include_router(equipment_documents.router, prefix="", tags=["equipment-do
 router.include_router(work_orders.router, prefix="/work-orders", tags=["work-orders"])
 router.include_router(work_order_quotes.router, prefix="/work-orders", tags=["work-order-quotes"])
 router.include_router(work_order_imports.router, prefix="/work-orders/import", tags=["work-order-imports"])
+router.include_router(warranty_settlements.router, prefix="/warranty-settlements", tags=["warranty-settlements"])

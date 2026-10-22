@@ -20,6 +20,7 @@ from decimal import Decimal
 import pytest
 
 from scripts.import_cyberbrain import mappers, source
+from scripts.import_cyberbrain.steps.customers import _clave_de_agrupacion, _nombre_sin_nombre
 
 
 # ---------------------------------------------------------------------------
@@ -214,6 +215,33 @@ def test_los_textos_que_no_entran_en_la_columna_se_recortan_y_se_cuentan():
 def test_un_texto_vacio_recortado_es_none_y_no_cadena_vacia():
     assert source.recortar("customers.phone", "", 60) is None
     assert source.recortar("customers.phone", None, 60) is None
+
+
+# ---------------------------------------------------------------------------
+# Los clientes sin nombre
+# ---------------------------------------------------------------------------
+def test_un_cliente_del_maestro_sin_nombre_recibe_un_nombre_que_lo_identifica():
+    """El maestro del legacy tiene 1 cliente sin nombre (CodCli 14658).
+
+    ``customers.name`` no puede quedar vacio: la API lo valida con ``min_length=1``, y
+    un solo cliente sin nombre hace fallar el listado ENTERO de clientes con un 500.
+    (Pasa: se importaba vacio y ``GET /api/v1/customers`` devolvia 500.)
+    """
+    fila = {"nombre": "", "codcli": "14658"}
+    assert _nombre_sin_nombre("14658") == "SIN NOMBRE (CodCli 14658)"
+    assert _clave_de_agrupacion(fila) == "__sin_nombre__14658"
+
+
+def test_dos_clientes_del_maestro_sin_nombre_no_se_fusionan():
+    """Sin la clave por CodCli, los dos clientes sin nombre del legacy serian uno solo."""
+    a = {"nombre": "  ", "codcli": "14658"}
+    b = {"nombre": "", "codcli": "99999"}
+    assert _clave_de_agrupacion(a) != _clave_de_agrupacion(b)
+
+
+def test_un_cliente_con_nombre_se_agrupa_por_nombre_normalizado():
+    fila = {"nombre": "  Whirlpool   Argentina  S.A. ", "codcli": "1"}
+    assert _clave_de_agrupacion(fila) == "WHIRLPOOL ARGENTINA S.A."
 
 
 # ---------------------------------------------------------------------------

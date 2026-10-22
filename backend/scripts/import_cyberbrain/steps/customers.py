@@ -48,6 +48,29 @@ MARCA_LEGACY = "[legacy CiberBrain]"
 #: coincide con ninguno del maestro.
 NOMBRE_SIN_IDENTIFICAR = "SIN IDENTIFICAR"
 
+
+def _clave_de_agrupacion(fila: dict[str, object]) -> str:
+    """Clave con la que se agrupan los clientes del maestro.
+
+    Es el nombre normalizado, salvo que el legacy no tenga nombre: en ese caso la clave
+    es el CodCli, para que dos clientes sin nombre no terminen fusionados en uno solo.
+    """
+    nombre = mappers.normalizar_nombre(str(fila["nombre"]))
+    if not nombre:
+        return f"__sin_nombre__{fila['codcli']}"
+    return nombre
+
+
+def _nombre_sin_nombre(codcli: str) -> str:
+    """Nombre para un cliente del maestro que el legacy no tiene.
+
+    ``customers.name`` no puede quedar vacio (la API lo valida con ``min_length=1``, y un
+    cliente sin nombre hace fallar el listado entero con un 500), asi que hace falta un
+    nombre que lo identifique. No se inventa una identidad: el nombre dice lo que es, y
+    el CodCli del legacy queda en el ``notes`` junto con la marca de importado.
+    """
+    return f"SIN NOMBRE (CodCli {codcli})"
+
 #: Documento de los clientes deducidos de la OT.
 #:
 #: D1 dice que, si el mismo nombre trae documentos distintos, "gana el mas
@@ -165,7 +188,7 @@ def _maestro(ctx: Contexto) -> dict[str, object]:
 
     por_nombre: dict[str, list[dict[str, object]]] = defaultdict(list)
     for fila in filas:
-        por_nombre[mappers.normalizar_nombre(fila["nombre"])].append(fila)
+        por_nombre[_clave_de_agrupacion(fila)].append(fila)
     # Orden estable por CodCli: define quien conserva el CUIT cuando hay colision.
     grupos_ordenados = [
         sorted(miembros, key=lambda f: (len(f["codcli"]), f["codcli"]))
@@ -254,7 +277,9 @@ def _crear_maestro(ctx: Contexto, maestro: dict[str, object]) -> None:
     for indice, miembros in enumerate(grupos):
         representante = miembros[0]
         absorbidas += len(miembros) - 1
-        nombre = mappers.normalizar_nombre(representante["nombre"])
+        nombre = mappers.normalizar_nombre(representante["nombre"]) or _nombre_sin_nombre(
+            str(representante["codcli"])
+        )
         existente = ya_importados.get(representante["codcli"])
         if existente is not None:
             cliente_id, nombre_guardado = existente

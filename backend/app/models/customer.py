@@ -11,6 +11,8 @@ class Customer(Base):
     customer_type: Mapped[str] = mapped_column(String(20), default="PERSON", nullable=False)
     name: Mapped[str] = mapped_column(String(180), nullable=False, index=True)
     document: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    # Vendedor del legacy (dbo.CC_Clientes_Tabla.Vendedor). Referencia, no es obligatorio.
+    seller_id: Mapped[int | None] = mapped_column(ForeignKey("sellers.id"), nullable=True)
     phone: Mapped[str | None] = mapped_column(String(60), nullable=True, index=True)
     whatsapp: Mapped[str | None] = mapped_column(String(60), nullable=True)
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)

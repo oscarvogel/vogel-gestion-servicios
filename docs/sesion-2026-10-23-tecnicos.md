@@ -139,8 +139,82 @@ sólo a quien está en el maestro). El maestro está en **Técnicos**, en el men
 
 ---
 
-## 5. Pendientes
+## 5. Los tres bugs que reportó el cliente (23/10/2026, tarde)
 
+Después del despliegue, el cliente reportó tres cosas: que no podía elegir un técnico, que
+desde el dashboard no podía abrir una nueva OT y que el listado mostraba "0 órdenes". Los tres
+eran reales y ninguno era de backend.
+
+### 5.1 El técnico de la recepción no se podía seleccionar (bug de CSS)
+
+**Síntoma:** el desplegable del campo "Técnico (opcional)" se veía, pero el clic no surtía
+efecto: no se podía elegir a nadie.
+
+**Causa raíz:** el contenedor del combo es `<div class="field technician-picker">`, y la regla
+que posiciona el desplegable es `.customer-picker{position:relative}`. La clase
+`technician-picker` **no** estaba en esa regla, así que el `.customer-picker__menu`
+(`position:absolute; top:100%; left:0; right:0`) se anclaba al ancestro posicionado más
+cercano: el `.modal-backdrop`, que es `position:fixed` y ocupa toda la pantalla. El menú
+aparecía en el borde inferior de la ventana, muy lejos del campo, y el usuario no lograba
+hacer clic en él.
+
+**Arreglo:** se agrega `.technician-picker{position:relative}` (y el `top:calc(100% + 4px)`
+para pegarlo al campo, como hace `.technician-assign` en el detalle de la OT).
+
+**Por qué no lo管理局 el test:** jsdom no calcula posiciones, así que en el test el menú
+"appears" donde debe. El test de regresión (`work-orders-deep-link.test.ts`) controla el
+**fuente** del componente: si alguien saca la regla, el test falla.
+
+### 5.2 "+ Nueva OT" del dashboard no abría el modal (dos causas)
+
+El botón del dashboard es un `RouterLink` a `/app/work-orders?new=1`. La vista de órdenes
+lee ese deep-link en `handleDeepLinks()`, pero:
+
+1. **El `Promise.all` del `onMounted` se rechazaba.** Las cinco cargas iniciales iban en un
+   `Promise.all` y `loadStatuses()` no tenía `try/catch`: si esa llamada fallaba (en staging
+   pasó: un 500 transitorio mientras la base se reiniciaba y el backend no resolvía el
+   nombre del contenedor de MySQL), el `Promise.all` rechazaba, el `onMounted` se cortaba y
+   **`handleDeepLinks()` nunca se ejecutaba**: el modal no abría y el toast decía "Ocurrió un
+   error interno".
+2. **El watcher solo miraba `query.open`.** Si el usuario ya estaba en `/app/work-orders`,
+   al cambiar la query la vista no se vuelve a montar (misma ruta, distinto query) y el
+   watcher de `open` no se disparaba: el `?new=1` quedaba sin leer.
+
+**Arreglo:** `Promise.allSettled` en el `onMounted` (que una carga falle no puede impedir el
+deep-link), `try/catch` en `loadStatuses`, y el watcher pasa a mirar
+`open, openId, id, new, action`. Además `newReception()` no vuelve a resetear el formulario si
+el modal ya está abierto.
+
+### 5.3 El listado mostraba "0 órdenes" (no era el backend)
+
+Lo primero que se hizo fue llamar a la API de staging **como el navegador**: login real
+(`admin@electrotecniref.com.ar`), `POST /auth/select-company` con la empresa 3 y después
+`GET /work-orders?page=1&page_size=25`. La respuesta fue **200 con `total: 9316` y 25
+ítems**: el backend estaba bien.
+
+Dos detalles que비용aron tiempo y conviene no repetir:
+
+- **El token del login no trae `company_id`**: sin `POST /auth/select-company`, todo lo que
+  sea de empresa responde **409 "Active company required"** (no 401). El login del frontend
+  es el que resuelve ese paso.
+- **El log de acceso de Coolify no muestra el cuerpo**, solo el estado. Para ver qué recibe
+  el navegador hay que llamar a la API con el mismo token (`backup/_work/probe_staging.py`).
+
+Entonces el "0 órdenes" del navegador fue la **ventana del incidente de la base**: el backend
+respondía 500 y el frontend se quedaba sin datos. Como defensa se puso la guarda
+`Array.isArray(r?.items)` en `load()` y `total` numérico, para que una respuesta inesperada
+muestre el estado vacío en vez de romper el render.
+
+**Arreglo:** `load()` ahora valida la forma de la respuesta; `loadStatuses()` tiene
+`try/catch`; el deep-link no depende de que las cargas tengan éxito.
+
+---
+
+## 6. Pendientes
+
+- [ ] **Cerrar el puerto público de la base de staging** (`is_public=true`, `public_port=33061`):
+      se abrió para diagnosticar el listado y hay que volver a cerrarlo
+      (`PATCH /api/v1/databases/diamcot1wyytezyasugd5biv {is_public=false; public_port=''}`).
 - [ ] Agregar `vue-tsc --noEmit` al frontend (no hay type-check en el build: por eso pasó el
       import faltante de `apiDelete`).
 - [ ] Merge de `feature/cyberbrain-migracion` a `main` y, después, restaurar staging a `main`

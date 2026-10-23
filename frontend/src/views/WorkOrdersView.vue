@@ -111,13 +111,13 @@ const quickCustomer=ref({customer_type:"PERSON",name:"",document:"",phone:"",wha
 interface EquipmentCategory{id:number;name:string;active:boolean}
 const showQuickEquipment=ref(false),categoryQuery=ref(""),categories=ref<EquipmentCategory[]>([]),categoryOpen=ref(false);
 const quickEquipment=ref({category_id:0,brand:"",model:"",serial_number:"",description:"",notes:""});
-async function loadStatuses(){statuses.value=await apiGet<OtStatus[]>("/work-orders/statuses")}
-async function load(){try{const r=await apiGet<{items:Order[];total:number;page:number;page_size:number}>("/work-orders",{params:{search:search.value||undefined,status_id:statusIds.value.length?statusIds.value:undefined,customer:customerFilter.value||undefined,date_from:dateFrom.value||undefined,date_to:dateTo.value||undefined,open_only:openOnly.value?true:undefined,page:page.value,page_size:pageSize.value}});orders.value=r.items;total.value=r.total;if(page.value>totalPages.value){page.value=totalPages.value;return load()}}catch(e){toast.push(getApiErrorMessage(e,"No se pudieron cargar las órdenes"),"error")}}
+async function loadStatuses(){try{statuses.value=await apiGet<OtStatus[]>("/work-orders/statuses")}catch(_){statuses.value=[]}}
+async function load(){try{const r=await apiGet<{items:Order[];total:number;page:number;page_size:number}>("/work-orders",{params:{search:search.value||undefined,status_id:statusIds.value.length?statusIds.value:undefined,customer:customerFilter.value||undefined,date_from:dateFrom.value||undefined,date_to:dateTo.value||undefined,open_only:openOnly.value?true:undefined,page:page.value,page_size:pageSize.value}});orders.value=Array.isArray(r?.items)?r.items:[];total.value=typeof r?.total==="number"?r.total:0;if(page.value>totalPages.value){page.value=totalPages.value;return load()}}catch(e){toast.push(getApiErrorMessage(e,"No se pudieron cargar las órdenes"),"error")}}
 function filtersChanged(){page.value=1;load()}
 function applyFilters(){page.value=1;load()}
 function clearFilters(){statusIds.value=[];customerFilter.value="";dateFrom.value="";dateTo.value="";page.value=1;load()}
 function changePage(next:number){if(next<1||next>totalPages.value)return;page.value=next;load();window.scrollTo({top:0,behavior:"smooth"})}
-async function newReception(){receptionFiles.value=[];form.value={customer_id:0,equipment_id:0,technician_id:0,reported_fault:"",physical_condition:"",accessories:"",notes:""};equipment.value=[];customers.value=[];customerQuery.value="";customerOpen.value=false;technicianQuery.value="";technicianOpen.value=false;await loadTechnicians();showReception.value=true}
+async function newReception(){if(showReception.value)return;receptionFiles.value=[];form.value={customer_id:0,equipment_id:0,technician_id:0,reported_fault:"",physical_condition:"",accessories:"",notes:""};equipment.value=[];customers.value=[];customerQuery.value="";customerOpen.value=false;technicianQuery.value="";technicianOpen.value=false;await loadTechnicians();showReception.value=true}
 async function findCustomers(){customerOpen.value=true;customers.value=(await apiGet<{items:Customer[]}>("/customers",{params:{search:customerQuery.value||undefined,active:true,page_size:20}})).items}
 async function chooseCustomer(c:Customer){form.value.customer_id=c.id;customerQuery.value=c.name;customerOpen.value=false;await customerChanged()}
 function openQuickCustomer(){quickCustomer.value={customer_type:"PERSON",name:customerQuery.value.trim(),document:"",phone:"",whatsapp:"",email:"",address:"",notes:""};showQuickCustomer.value=true;customerOpen.value=false}
@@ -264,10 +264,16 @@ function applyFilterQuery(){
 
 onMounted(async()=>{
   applyFilterQuery();
-  await Promise.all([load(),loadStatuses(),loadCompanyTimezone(),loadFeatureParams(),loadTechnicians()]);
+  // Cada carga va por separado y sin cortar el flujo: si una falla (por ejemplo, la base
+  // se reinicia y el backend responde 500), el deep-link se pierde igual. Con allSettled
+  // el modal de nueva recepcion abre siempre, y cada carga avisa su propio error.
+  await Promise.allSettled([load(),loadStatuses(),loadCompanyTimezone(),loadFeatureParams(),loadTechnicians()]);
   await handleDeepLinks();
 });
-watch(()=>route.query.open,async(v)=>{if(v)await handleDeepLinks()});
+// El deep-link tiene que reaccionar a cualquier cambio de la URL, no solo a "open": el
+// dashboard manda ?new=1 para abrir la recepcion, y si el usuario ya esta en esta pantalla
+// la vista no se vuelve a montar (misma ruta, distinta query) y el modal no abria nunca.
+watch(()=>[route.query.open,route.query.openId,route.query.id,route.query.new,route.query.action],async()=>{await handleDeepLinks()});
 watch(()=>[route.query.status_id,route.query.date_to,route.query.open_only],async()=>{
   applyFilterQuery();page.value=1;await load();
 });
@@ -334,6 +340,11 @@ watch(()=>[route.query.status_id,route.query.date_to,route.query.open_only],asyn
 .technician-assign{position:relative;margin-top:10px;max-width:320px}
 .technician-assign input{width:100%}
 .technician-assign .customer-picker__menu{top:calc(100% + 4px);left:0;right:0}
+/* El desplegable del técnico de la recepción necesita su propio contenedor posicionado:
+   sin esto el menu se ancla al .modal-backdrop (fixed, toda la pantalla) y aparece en el
+   borde inferior, lejos del campo: se ve la lista pero no se puede hacer clic en ella. */
+.technician-picker{position:relative}
+.technician-picker .customer-picker__menu{top:calc(100% + 4px);left:0;right:0}
 .receipt-print{display:none}
 @page{size:A4;margin:12mm}
 @media print{

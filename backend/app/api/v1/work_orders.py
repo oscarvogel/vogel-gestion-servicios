@@ -8,6 +8,8 @@ from app.models.company import Company
 from app.models.customer import Customer,Equipment,EquipmentCategory
 from app.models.user import User
 from app.models.work_order import WorkOrder,WorkOrderCounter,WorkOrderEvent,WorkOrderNotification,WorkOrderStatus
+from app.models.work_order_part import WorkOrderTechnician
+from app.models.work_area import Technician
 from app.services import credentials
 from app.services import work_orders as wo_service
 from app.services.notifications.channels import EMAIL,WHATSAPP
@@ -73,11 +75,20 @@ class WorkOrderInput(BaseModel):
     customer_id:int;equipment_id:int
     reported_fault:str=Field(min_length=1)
     physical_condition:str|None=None;accessories:str|None=None;notes:str|None=None
+    technician_id:int|None=None
+
+class TechnicianBrief(BaseModel):
+    """Un tecnico asignado a la orden (o disponible en el maestro)."""
+    id:int;name:str;active:bool
+
+class TechnicianAssignInput(BaseModel):
+    technician_id:int=Field(gt=0)
 
 class WorkOrderRead(BaseModel):
     id:int;company_id:int;number:int;customer_id:int;customer_name:str;customer_phone:str|None
     equipment_id:int;equipment_label:str;serial_number:str|None;received_at:datetime;expected_delivery_at:datetime|None;completed_at:datetime|None;delivered_at:datetime|None;reported_fault:str
     physical_condition:str|None;accessories:str|None;notes:str|None;received_by_user_id:int;received_by_name:str;status:str;status_id:int|None;status_name:str;status_color:str
+    technicians:list[TechnicianBrief]=[]
     model_config={"from_attributes":True}
 
 class WorkOrderList(BaseModel):
@@ -91,18 +102,38 @@ def _row(db:Session,company_id:int,work_order_id:int):
     if not row: raise HTTPException(404,"Orden de trabajo no encontrada.")
     return row
 
-def _read(db:Session,row:WorkOrder):
+def _tecnicos_de(db:Session,work_order_id:int)->list[Technician]:
+    """Tecnicos asignados a una orden."""
+    return (db.query(Technician)
+        .join(WorkOrderTechnician,WorkOrderTechnician.technician_id==Technician.id)
+        .filter(WorkOrderTechnician.work_order_id==work_order_id)
+        .order_by(Technician.name).all())
+
+def _tecnicos_de_varias(db:Session,work_order_ids:list[int])->dict[int,list[Technician]]:
+    """Los mismos tecnicos de varias ordenes, en una sola consulta (el listado no hace N+1)."""
+    if not work_order_ids: return {}
+    mapa:dict[int,list[Technician]]={}
+    filas=(db.query(WorkOrderTechnician.work_order_id,Technician)
+        .join(Technician,Technician.id==WorkOrderTechnician.technician_id)
+        .filter(WorkOrderTechnician.work_order_id.in_(work_order_ids))
+        .order_by(Technician.name).all())
+    for ot_id,tecnico in filas: mapa.setdefault(ot_id,[]).append(tecnico)
+    return mapa
+
+def _read(db:Session,row:WorkOrder,tecnicos:list[Technician]|None=None):
     customer=db.query(Customer).filter_by(id=row.customer_id,company_id=row.company_id).one()
     equipment=db.query(Equipment).filter_by(id=row.equipment_id,company_id=row.company_id).one()
     category=db.query(EquipmentCategory).filter_by(id=equipment.category_id,company_id=row.company_id).one()
     receiver=db.get(User,row.received_by_user_id)
     label=" ".join(x for x in (category.name,equipment.brand,equipment.model) if x)
+    if tecnicos is None: tecnicos=_tecnicos_de(db,row.id)
     return {"id":row.id,"company_id":row.company_id,"number":row.number,"customer_id":row.customer_id,"customer_name":customer.name,"customer_phone":customer.phone or customer.whatsapp,
         "equipment_id":row.equipment_id,"equipment_label":label,"serial_number":equipment.serial_number,"received_at":row.received_at,"expected_delivery_at":row.expected_delivery_at,"completed_at":row.completed_at,"delivered_at":row.delivered_at,"reported_fault":row.reported_fault,
         "physical_condition":row.physical_condition,"accessories":row.accessories,"notes":row.notes,"received_by_user_id":row.received_by_user_id,
         "received_by_name":receiver.full_name if receiver else "Usuario","status":row.status,
         "status_id":row.status_id,"status_name":(db.get(WorkOrderStatus,row.status_id).name if row.status_id and db.get(WorkOrderStatus,row.status_id) else row.status.title()),
-        "status_color":(db.get(WorkOrderStatus,row.status_id).color if row.status_id and db.get(WorkOrderStatus,row.status_id) else "#10B981")}
+        "status_color":(db.get(WorkOrderStatus,row.status_id).color if row.status_id and db.get(WorkOrderStatus,row.status_id) else "#10B981"),
+        "technicians":[{"id":t.id,"name":t.name,"active":t.active} for t in tecnicos]}
 
 def _is_final(db:Session,row:WorkOrder)->bool:
     """True cuando la OT está en un estado marcado como final (ej: entregada)."""
@@ -142,7 +173,8 @@ def list_orders(search:str|None=None,status_id:list[int]|None=Query(None),custom
             func.coalesce(WorkOrderStatus.is_final,False).is_(False),
             func.coalesce(WorkOrderStatus.marks_delivered,False).is_(False))
     total=q.count();rows=q.order_by(WorkOrder.received_at.desc(),WorkOrder.id.desc()).offset((page-1)*page_size).limit(page_size).all()
-    return {"items":[_read(db,r) for r in rows],"total":total,"page":page,"page_size":page_size}
+    tecnicos_por_ot=_tecnicos_de_varias(db,[r.id for r in rows])
+    return {"items":[_read(db,r,tecnicos_por_ot.get(r.id,[])) for r in rows],"total":total,"page":page,"page_size":page_size}
 
 @router.post("",response_model=WorkOrderRead,status_code=status.HTTP_201_CREATED)
 def create_order(payload:WorkOrderInput,company_id:int=Depends(get_current_company_id),actor:User=Depends(require_permission("work_orders.manage")),db:Session=Depends(get_db)):
@@ -211,6 +243,41 @@ def update_notification_settings(payload:NotificationSettingsInput,company_id:in
 @router.get("/{work_order_id}",response_model=WorkOrderRead)
 def get_order(work_order_id:int,company_id:int=Depends(get_current_company_id),_actor:User=Depends(require_permission("work_orders.view")),db:Session=Depends(get_db)):
     return _read(db,_row(db,company_id,work_order_id))
+
+@router.get("/{work_order_id}/technicians",response_model=list[TechnicianBrief])
+def list_order_technicians(work_order_id:int,company_id:int=Depends(get_current_company_id),_actor:User=Depends(require_permission("work_orders.view")),db:Session=Depends(get_db)):
+    _row(db,company_id,work_order_id)
+    return [{"id":t.id,"name":t.name,"active":t.active} for t in _tecnicos_de(db,work_order_id)]
+
+@router.post("/{work_order_id}/technicians",response_model=WorkOrderRead)
+def assign_technician(work_order_id:int,payload:TechnicianAssignInput,company_id:int=Depends(get_current_company_id),actor:User=Depends(require_permission("work_orders.manage")),db:Session=Depends(get_db)):
+    """Asigna un tecnico a la orden.
+
+    No se recalcula ninguna comision: el legacy traia el importe ya calculado y eso no se
+    toca. Lo unico que se escribe es el vinculo (y el evento del historial).
+    """
+    row=_row(db,company_id,work_order_id)
+    tecnico=db.query(Technician).filter_by(id=payload.technician_id,company_id=company_id).first()
+    if not tecnico: raise HTTPException(404,"Técnico no encontrado en esta empresa.")
+    if not tecnico.active: raise HTTPException(409,"El técnico está desactivado: activalo desde el maestro para poder asignarlo.")
+    ya_esta=db.query(WorkOrderTechnician).filter_by(work_order_id=row.id,technician_id=tecnico.id).first()
+    if not ya_esta:
+        db.add(WorkOrderTechnician(company_id=company_id,work_order_id=row.id,technician_id=tecnico.id))
+        db.add(WorkOrderEvent(company_id=company_id,work_order_id=row.id,user_id=actor.id,event_type="technician_assigned",detail=f"Técnico asignado: {tecnico.name}"))
+        db.commit();db.refresh(row)
+    return _read(db,row)
+
+@router.delete("/{work_order_id}/technicians/{technician_id}",response_model=WorkOrderRead)
+def unassign_technician(work_order_id:int,technician_id:int,company_id:int=Depends(get_current_company_id),actor:User=Depends(require_permission("work_orders.manage")),db:Session=Depends(get_db)):
+    """Saca un tecnico de la orden."""
+    row=_row(db,company_id,work_order_id)
+    vinculo=db.query(WorkOrderTechnician).filter_by(work_order_id=row.id,technician_id=technician_id,company_id=company_id).first()
+    if not vinculo: raise HTTPException(404,"El técnico no está asignado a esta orden.")
+    tecnico=db.get(Technician,technician_id)
+    db.delete(vinculo)
+    db.add(WorkOrderEvent(company_id=company_id,work_order_id=row.id,user_id=actor.id,event_type="technician_unassigned",detail=f"Técnico quitado: {tecnico.name if tecnico else technician_id}"))
+    db.commit();db.refresh(row)
+    return _read(db,row)
 
 @router.get("/{work_order_id}/events",response_model=list[EventRead])
 def events(work_order_id:int,company_id:int=Depends(get_current_company_id),_actor:User=Depends(require_permission("work_orders.view")),db:Session=Depends(get_db)):

@@ -163,6 +163,36 @@ def require_permission(permission_code: str):
     return _checker
 
 
+def require_any_permission(*permission_codes: str):
+    """Como ``require_permission``, pero alcanza con uno de los permisos.
+
+    Sirve para los listados que usan varias pantallas: el maestro de técnicos, por
+    ejemplo, lo necesita quien managea las órdenes (para asignar a alguien) y también
+    quien administra el maestro (para dar de alta gente).
+    """
+
+    def _checker(
+        authorization: str = Header(default=""),
+        user: User = Depends(get_current_user),
+        db: Session = Depends(get_db),
+    ) -> User:
+        if user.is_superadmin:
+            return user
+        company_id = get_current_company_id(
+            authorization=authorization, user=user, db=db
+        )
+        for code in permission_codes:
+            if user_has_permission(db, user, company_id, code):
+                return user
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Missing permission: " + " | ".join(permission_codes),
+        )
+        return user
+
+    return _checker
+
+
 def require_company_admin_or_superadmin(
     user: User = Depends(get_current_user),
     company_id: int = Depends(get_current_company_id),

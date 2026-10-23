@@ -108,7 +108,9 @@ function me(permissions: string[]): MeResponse {
 async function montar(permissions: string[]) {
   const pinia = createPinia();
   setActivePinia(pinia);
-  const session = useSessionStore();
+  // Se pide el store con el pinia explicito: en pinia 3, useSessionStore() sin argumento
+  // puede resolver otra instancia si hay contexto de app y el componente no ve los permisos.
+  const session = useSessionStore(pinia);
   session.$patch({
     me: me(permissions),
     token: "valid-access",

@@ -22,6 +22,8 @@ from sqlalchemy.orm import Session
 from app.models.company import Company, CompanyParameter, ParameterDefinition
 from app.models.customer import Customer, Equipment
 from app.models.work_order import WorkOrder, WorkOrderCounter, WorkOrderEvent, WorkOrderNotification, WorkOrderStatus
+from app.models.work_order_part import WorkOrderTechnician
+from app.models.work_area import Technician
 from app.models.work_order_quote import (
     WorkOrderDiagnosis,
     WorkOrderExecutionItem,
@@ -157,11 +159,15 @@ def crear_orden(
     physical_condition: str | None = None,
     accessories: str | None = None,
     notes: str | None = None,
+    technician_id: int | None = None,
 ) -> WorkOrder:
     """Crea la orden con su numero y su evento de recepcion.
 
     No hace commit: la transaccion la cierra quien la llama, que puede ser el endpoint o la
     aplicacion de una propuesta.
+
+    ``technician_id`` es opcional: el legacy asignaba el tecnico despues, en el taller. Si se
+    pasa, la OT queda con ese tecnico asignado desde el arranque.
     """
     cliente = db.query(Customer).filter_by(
         id=customer_id, company_id=company_id, active=True
@@ -209,6 +215,37 @@ def crear_orden(
         )
     )
     db.flush()
+    if technician_id is not None:
+        tecnico = db.query(Technician).filter_by(
+            id=technician_id, company_id=company_id
+        ).first()
+        if not tecnico:
+            raise ErrorDeDominio(
+                "El técnico no pertenece a esta empresa.", "tecnico_invalido", 422
+            )
+        if not tecnico.active:
+            raise ErrorDeDominio(
+                "El técnico está desactivado: activalo desde el maestro para poder asignarlo.",
+                "tecnico_inactivo",
+                409,
+            )
+        db.add(
+            WorkOrderTechnician(
+                company_id=company_id,
+                work_order_id=orden.id,
+                technician_id=tecnico.id,
+            )
+        )
+        db.add(
+            WorkOrderEvent(
+                company_id=company_id,
+                work_order_id=orden.id,
+                event_type="technician_assigned",
+                detail=f"Técnico asignado: {tecnico.name}",
+                user_id=user_id,
+            )
+        )
+        db.flush()
     return orden
 
 

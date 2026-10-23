@@ -14,3 +14,9 @@ output/
 # (regenerables con backup/_work/export.sh) no van al repo.
 backup/*.bak
 backup/_work/csv/
+
+# El dump de la base para cargar staging (16 MB con datos del cliente) y los
+# artefactos de las corridas de test tampoco.
+backup/_work/dump_*.sql
+backup/_work/pytest_tmp/
+backup/_work/scan_lan.sh

@@ -27,6 +27,7 @@ const toast = useToastStore();
 
 const technicians = ref<Technician[]>([]);
 const search = ref("");
+const filtroEstado = ref<"" | "active" | "inactive">("");
 const newName = ref("");
 const creating = ref(false);
 const editingId = ref<number | null>(null);
@@ -44,8 +45,12 @@ function normalizar(texto: string): string {
 
 const filtrados = computed<Technician[]>(() => {
   const query = normalizar(search.value);
-  if (!query) return technicians.value;
-  return technicians.value.filter((t) => normalizar(t.name).includes(query));
+  return technicians.value.filter((t) => {
+    if (filtroEstado.value === "active" && !t.active) return false;
+    if (filtroEstado.value === "inactive" && t.active) return false;
+    if (!query) return true;
+    return normalizar(t.name).includes(query);
+  });
 });
 
 const activos = computed(() => technicians.value.filter((t) => t.active).length);
@@ -138,6 +143,29 @@ onMounted(load);
         placeholder="Buscar técnico…"
         aria-label="Buscar técnico"
       />
+      <div class="toolbar__filters">
+        <button
+          :class="['toolbar__chip', { 'is-active': filtroEstado === '' }]"
+          type="button"
+          @click="filtroEstado = ''"
+        >
+          Todos
+        </button>
+        <button
+          :class="['toolbar__chip', { 'is-active': filtroEstado === 'active' }]"
+          type="button"
+          @click="filtroEstado = 'active'"
+        >
+          Activos ({{ activos }})
+        </button>
+        <button
+          :class="['toolbar__chip', { 'is-active': filtroEstado === 'inactive' }]"
+          type="button"
+          @click="filtroEstado = 'inactive'"
+        >
+          Desactivados ({{ technicians.length - activos }})
+        </button>
+      </div>
     </div>
   </div>
 

@@ -265,6 +265,36 @@ El paso 4 es el que cierra el círculo: sin empresa guardada, `bootstrap()` no l
 `select-company` y el token se quedaba en modo plataforma.
 
 ---
+### 5.5 Dos ajustes mas sobre los tecnicos (a pedido del cliente)
+
+**El input "Agregar un tecnico..." salia blanco.** En el detalle de la OT ese input no
+vive dentro de un `.field`, asi que no heredaba la regla `.field input{background:
+var(--color-surface); border: 1px solid var(--color-border); ...}` y se veia con el
+default del navegador: un rectangulo blanco en medio de la pantalla oscura. Ahora
+`.technician-assign input` lleva el mismo estilo (fondo, borde, radio, padding, color) y
+el mismo estado de foco (`.technician-assign input:focus`) que el resto del sitio. El
+input de la recepcion ya estaba bien: ese si esta dentro de un `.field`.
+
+**Ver cuales tecnicos estan activos.** El maestro ya mostraba el estado de cada fila y el
+contador ("44 activos de 44"), pero faltaba poder ver de un vistazo solo los activos, y
+en la OT no se distinguishia un tecnico desactivado de uno activo. Ahora:
+
+- El maestro tiene tres filtros con el mismo patron de chips de la pantalla de Empresas:
+  **Todos / Activos (44) / Desactivados (0)**.
+- Los chips de "Tecnicos asignados" en el detalle de la OT marcan **Inactivo** a los
+  desactivados (chip apagado, no azul). Un tecnico desactivado sigue en las ordenes que
+  ya tenia asignado (el historico no se toca), asi que hay que poder ver que ya no esta
+  activo.
+- Los selectores (recepcion y detalle de la OT) **solo ofrecen tecnicos activos**: el
+  backend tambien lo rechaza con 409 ("El tecnico esta desactivado: activalo desde el
+  maestro para poder asignarlo").
+- El texto del selector de la recepcion ahora dice que solo se ofrecen los activos.
+
+Test: `frontend/src/__tests__/tecnicos-activos.test.ts` (4 tests). Frontend: 60 tests en
+verde.
+
+---
+
 ## 6. Pendientes
 
 - [ ] **Cerrar el puerto público de la base de staging** (`is_public=true`, `public_port=33061`):

@@ -1,0 +1,34 @@
+CREATE PROCEDURE [dbo].[CS_TraerOrdenesLiquidacion]
+@IDPolitica INT = 0, 
+@ListaSucursales VARCHAR(2000) = '',
+@CodCli INT = 0,
+@Liquidacion INT = 0
+AS
+DECLARE @EnGarantia INT
+DECLARE @Area INT
+DECLARE @Principal Bit
+
+SET @Area = 0			-- Todas las Areas 
+SET @EnGarantia = 0		-- Por defecto = Fuera de Garantia
+SET @Principal = 0		-- Por defecto 
+
+SELECT @Area = IDArea, @EnGarantia = Garantia, @Principal = Ppal FROM CS_PoliticasxArea WHERE ID = @IDPolitica
+
+SELECT T.*
+FROM CS_TrabajosVisibles T 
+INNER JOIN CS_PoliticasxArea Pa ON Pa.ID = T.IDPolitica 
+LEFT JOIN OrdenesLiquidadas OL ON OL.Orden = T.IDTrabajo AND (OL.Rechazada = 0 OR OL.Liquidacion = @Liquidacion) -- Las ordenes ya incluidas
+WHERE
+COALESCE(T.Gestion, 0) = 0				-- Sin problemas de Auditoria
+AND COALESCE(T.Estado, -1) IN (5,6,7) AND COALESCE(T.Lista, 0) = 1  -- Estado Anulado, Cerrado Y LISTO PARA ENTREGAR
+AND (@EnGarantia <> 0 OR (@EnGarantia = 0 AND @CodCli <> 0 AND T.CodCli = @CodCli))		-- Si es fuera garantia, solo las del cliente, si no NO filtra por cliente
+AND (	T.IDPolitica = @IDPolitica				-- De la misma politica que pide....
+		OR (@Principal = 1 AND Pa.IDArea = @Area AND Pa.Garantia = @EnGarantia AND COALESCE(Pa.Liquidar, 0) = 0)	-- Pide de la principal y es una subpolitica del mismo area y de la mima garantina y se liquidan juntas...
+		OR (@IDPolitica = 0 AND T.CodCli = @CodCli)
+	)	
+AND OL.Orden IS NULL																																	-- Que ya no esten en otra liquidacion
+AND (COALESCE(T.EnSucursal, 0) IN (SELECT ID FROM dbo.Split_Int (@ListaSucursales)) OR COALESCE(@ListaSucursales, '') = '')											-- De la sucursal
+ORDER BY T.IDTrabajo
+
+
+(1 rows affected)

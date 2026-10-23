@@ -98,7 +98,10 @@ def select_company(
     return TokenBundle(
         access_token=create_access_token(
             user.id, company.id, superadmin=user.is_superadmin
-        )
+        ),
+        # El refresh token tambien lleva la empresa: si no, al renovar el access
+        # token el usuario caeria en modo plataforma y veria la empresa vacia.
+        refresh_token=create_refresh_token(user.id, company.id),
     )
 
 
@@ -106,7 +109,9 @@ def select_company(
 def leave_company(user: User = Depends(get_current_user)):
     """Devuelve al usuario al modo plataforma (sin empresa activa)."""
     return TokenBundle(
-        access_token=create_access_token(user.id, superadmin=user.is_superadmin)
+        access_token=create_access_token(user.id, superadmin=user.is_superadmin),
+        # El refresh token tambien vuelve al modo plataforma.
+        refresh_token=create_refresh_token(user.id),
     )
 
 

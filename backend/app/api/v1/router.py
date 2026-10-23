@@ -9,6 +9,7 @@ from app.api.v1 import (
     dashboard,
     equipment_documents,
     roles,
+    technicians,
     users,
     warranty_settlements,
     work_orders,
@@ -23,6 +24,7 @@ router.include_router(companies.router, prefix="/companies", tags=["companies"])
 router.include_router(company_parameters.router, prefix="/company-parameters", tags=["company-parameters"])
 router.include_router(users.router, prefix="/users", tags=["users"])
 router.include_router(roles.router, prefix="/roles", tags=["roles"])
+router.include_router(technicians.router, prefix="/technicians", tags=["technicians"])
 router.include_router(dashboard.router, prefix="/dashboard", tags=["dashboard"])
 router.include_router(customers.router, prefix="/customers", tags=["customers"])
 router.include_router(equipment_documents.router, prefix="", tags=["equipment-documents"])

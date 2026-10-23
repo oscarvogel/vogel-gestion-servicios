@@ -1,0 +1,416 @@
+CREATE PROCEDURE [dbo].[CS_InsertaConsumo]
+--
+-- Este store procedure se utiliza para insertar un registro en partes.-
+-- Se asume que si hubiera reserva asociada a este consumo, la misma ya se debe haber cancelado
+-- Si en partes se encuentra una parte "Esperando" se modifica ese registro, dandolo por consumido
+-- Se utiliza desde: 
+--			* El conector de Stock, al grabar el movimiento de stock para una orden de servicio
+-- 			* El Modulo Web Agentes  al grabar el item
+--			* El modulo Web Tecnicos al grabar el consumo
+
+@IDUsuario int, 				--ID del Usuario
+@IDOrden int,   				--Número Interno de la Orden
+@XMLDatos varchar(5000),		--Parte a consumir
+@Modulo TINYINT,				-- 1 = Descuento Inventario / 2 = Web Agentes / 4 = Web Tecnicos  / 255=Sistema (no controla si es valido)
+@NoCalcularTotales BIT = 0,		-- Si hay que esquivar el calculo de totales y comisiones
+@NoError BIT = 0,				-- Si hay que devolver error o solo Mensaje del error
+@ErrorMsg VARCHAR(2000) = '' OUTPUT
+AS
+DECLARE @idoc int
+DECLARE @HuboError int
+DECLARE @IDItem int
+DECLARE @Producto Varchar(25), @IDProducto INT
+DECLARE @Items INT , @EnDespiece INT   
+DECLARE @Area INT, @TipoTrabajo Varchar(10)
+DECLARE @IDConsumo INT, @Cantidad DECIMAL(19,6)
+DECLARE @Msg Varchar(1000)
+DECLARE @Categoria INT
+DECLARE @Codigo Varchar(25)
+DECLARE @Estado INT
+DECLARE @IDPolitica INT
+DECLARE @CodCli INT
+DECLARE @PoliticaImpositiva INT
+DECLARE @ProcesarCon TINYINT
+DECLARE @FechaProceso DATETIME
+DECLARE @AbrirOrdenAlConsumir TINYINT
+DECLARE @ImporteExento DECIMAL(19,6), @PrecioBase DECIMAL(19,6), @Dto DECIMAL(19,6)
+DECLARE @MonedaPrecio DECIMAL(19, 6), @MonedaCosto DECIMAL(19, 6)
+DECLARE @ItemReserva INT, @ItemStock INT
+DECLARE @NumeroParte Varchar(25), @ItemID INT, @CantidadParte DECIMAL(19,6)
+DECLARE @NumeroSerie VARCHAR(25)
+DECLARE @Decimales INT
+DECLARE @PorcTasa DECIMAL (9,4)
+DECLARE @IDPartes INT
+DECLARE @LiquidaComision INT
+DECLARE @PorcUtil decimal(9,4), @Garantia smallint
+DECLARE @Stock DECIMAL(19, 6)
+DECLARE @Reservado REAL
+DECLARE @Asignado REAL 
+DECLARE @Sucursal INT
+DECLARE @PartesTercero BIT
+DECLARE @CostoManual DECIMAL(19,5)			-- Costo
+DECLARE @VentaManual DECIMAL(19, 5)			-- Venta
+DECLARE @CostoFinal DECIMAL(19, 5)
+DECLARE @CostoTercero BIT = 0
+DECLARE @AnulaReserva bit=0
+DECLARE @FechaAlta DATETIME
+DECLARE @NewID INT = 0
+DECLARE @IDTipoCanje INT = 0
+DECLARE @pConsumo INT = 1
+DECLARE @Consignacion BIT
+DECLARE @Provee INT = @IDUsuario
+DECLARE @Inserta INT = @IDUsuario
+
+IF @Modulo = 255 SET @Inserta = -255
+
+SET NOCOUNT ON
+
+-- Errores a retornar:
+-- -1	--> No tiene esa cantidad
+-- -100 --> Falta el nro de serie en el consumo
+-- -1001 --> Producto no valido
+-- -1002 --> Sin propiedades para el producto (Catalogo x Politica)
+-- -1003 --> No existe el codigo del material consumido
+-- -1004 --> Supera la cantidad de servicios permitida
+-- -109 --> Sin permisos para reservar
+-- -110 --> Sin permisos para consumir productos
+-- -111 --> Sin permisos para consumir Repuestos
+-- -112 --> Sin permisos para consumir Servicios
+-- -113 --> Sin permisos para consumir Otros
+
+
+BEGIN TRY
+	SET @HuboError = 0
+	EXEC @HuboError = sp_xml_preparedocument @idoc OUTPUT, @XMLDatos
+
+	IF @HuboError = 0 BEGIN
+
+		-- Traer datos de lo que hay que consumir...
+		SELECT @Codigo = C.Codigo, @IDConsumo = A.ID, @Categoria = A.Categoria, @Cantidad = dbo.fn_Redondear(Cantidad, COALESCE(A.Decimales, 0)), @ItemReserva = C.ItemReserva, @ItemStock = C.ItemStock,
+		@CostoManual = C.CostoManual, @VentaManual = C.VentaManual, @PoliticaImpositiva = C.PoliticaImpositiva, @NumeroSerie = C.NumeroSerie, @AnulaReserva=coalesce(C.AnulaReserva,0)
+		FROM OPENXML (@idoc, '/R/I',1) WITH (Codigo Varchar(25), Cantidad Decimal(19,5), NumeroSerie VARCHAR(25), ItemReserva INT, ItemStock INT, CostoManual Decimal(19,5), VentaManual Decimal(19,5), PoliticaImpositiva INT, AnulaReserva bit) C 
+		INNER JOIN CC_Articulos A with (nolock) ON A.Codigo = C.Codigo
+
+		-- Obtiene el ID del producto y Datos de la politica y del trabajo
+		SELECT @Producto = A.Codigo, @IDProducto = A.ID, @Area = O.Area, @TipoTrabajo = O.Clasificacion, @Estado = COALESCE(O.Estado, -1), 
+		@IDPolitica = O.IDPolitica, @CodCli = O.CodCli, @Sucursal = COALESCE(EnSucursal, 0), @Garantia = Garantia, @FechaAlta = O.FechaAlta,
+		@IDTipoCanje = IDTipoCanje
+		FROM CS_Trabajos O 
+		INNER JOIN Articulos A with (nolock) ON A.Codigo = O.Modelo 
+		WHERE O.IDTrabajo = @IDOrden
+
+		-- Obtiene el modo de consignacion del movimiento de stock
+		SELECT @Consignacion = Ms.Consignar
+		FROM CK_MovimientosStock Ms 
+		INNER JOIN CK_ItemsMovStock Ims ON Ims.Identificador = Ms.ID
+		WHERE Ims.ID = @ItemStock
+
+		-- Si no encontro modo de consignacion, determinar en base a la cuenta de stock de la politica
+		IF @Consignacion IS NULL SET @Consignacion = dbo.CS_ConsignacionPolitica(@IDOrden, 0)
+
+		-- si no es consignacion, la parte la provee "Otros"
+		--IF @Categoria < 2 AND @Consignacion = 0 SET @Provee = -2
+
+		-- Configuracion segun politica
+		DECLARE @ComisionEsCosto BIT = 0
+		DECLARE @ExigirComisionProveedor BIT = 0
+		DECLARE @PrioridadCosto TINYINT = 0
+		DECLARE @PrioridadVenta TINYINT = 0
+
+		SELECT	@ComisionEsCosto = COALESCE(CASE WHEN @Categoria = 0 THEN P.ComisionEsCosto0
+										WHEN @Categoria = 1 THEN P.ComisionEsCosto1
+										WHEN @Categoria = 2 THEN P.ComisionEsCosto2
+										WHEN @Categoria = 3 THEN P.ComisionEsCosto3 ELSE 0 END, 0),
+				@PrioridadCosto = COALESCE(CASE	WHEN @Categoria = 0 THEN P.PrioridadCosto0
+												WHEN @Categoria = 1 THEN P.PrioridadCosto1
+												WHEN @Categoria = 2 THEN P.PrioridadCosto2
+												WHEN @Categoria = 3 THEN P.PrioridadCosto3 ELSE 0 END, 0),
+				@PrioridadVenta = COALESCE(CASE WHEN @Categoria = 0 THEN P.PrioridadVenta0
+												WHEN @Categoria = 1 THEN P.PrioridadVenta1
+												WHEN @Categoria = 2 THEN P.PrioridadVenta2
+												WHEN @Categoria = 3 THEN P.PrioridadVenta3 ELSE 0 END, 0),
+				@ExigirComisionProveedor = COALESCE(CASE WHEN @Categoria = 0 THEN P.ExigirComisionProveedor0
+												WHEN @Categoria = 1 THEN P.ExigirComisionProveedor1
+												WHEN @Categoria = 2 THEN P.ExigirComisionProveedor2
+												WHEN @Categoria = 3 THEN P.ExigirComisionProveedor3 ELSE 0 END, 0),
+				@LiquidaComision = COALESCE(CASE WHEN @Categoria = 0 AND P.ComisionProd <> 0 THEN -coalesce(P.ComisionParaProd,1)
+										WHEN @Categoria = 1 AND P.ComisionRep <> 0 THEN -coalesce(P.ComisionParaRep,1)
+										WHEN @Categoria = 2 AND P.ComisionServ <> 0 THEN -coalesce(P.ComisionParaServ,1)
+										WHEN @Categoria = 3 AND P.ComisionOtro <> 0 THEN -coalesce(P.ComisionParaOtro,1)
+										ELSE 0 END, 0),
+				@PorcUtil = COALESCE(P.DescuentoValores, 0),
+				@PartesTercero = COALESCE(ProveePartes, 0),
+				@CodCli = COALESCE(CASE WHEN P.Garantia = 1 AND COALESCE(P.CodCli, 0) > 0 THEN P.CodCli ELSE NULL END, @CodCli)	-- El cliente es en realidad el cliente del area cuando se trata de garantia de terceros...
+		FROM CS_PoliticasxArea P WITH (NOLOCK) WHERE ID = @IDPolitica		
+
+		-- Si el cliente es invalido, Transparentar
+		IF NOT EXISTS(SELECT * FROM CC_Clientes WHERE CodCli = @CodCli) SET @CodCli = NULL
+
+		-- Si esta en canje, lo informo
+		IF @IDTipoCanje > 0 SET @pConsumo = 101
+		
+		--Obtiene el ID del item que sigue...
+		SELECT @IDItem = COALESCE(MAX(Item), 0) + 1 FROM CS_Partes WHERE NroOrden = @IDOrden   --Por ahora siempre es un item a la vez...
+
+		--Determinar con que fecha se abre la orden...
+		SELECT @ProcesarCon = CONVERT(TINYINT, CONVERT(Varchar(1), DatoAlfa)) FROM CC_ConfigData with (nolock) WHERE Propiedad = 'CS_FechaApertura'
+		SET @ProcesarCon = COALESCE(@ProcesarCon, 0)
+
+		--Determinar si se abre la orden ante el consumo...
+		-- 0 = No Abrir
+		-- 1 = Abrir Si viene desde descuento de inventario
+		-- 2 = Abrir si viene desde la web del agente
+		-- 4 = Abrir si viene desde la web del tecnico
+		-- Se puede combiar Ej: 2 & 4 = 6
+
+		SELECT @AbrirOrdenAlConsumir = CONVERT(TINYINT, CONVERT(Varchar(1), DatoAlfa)) FROM CC_ConfigData with (nolock) WHERE Propiedad = 'CS_AbrirOrdenAlConsumir'
+		SET @AbrirOrdenAlConsumir = COALESCE(@AbrirOrdenAlConsumir, 0)
+
+		--Si hay que abrir con fecha de la ruta, buscarla...
+		IF @ProcesarCon <> 0 SELECT @FechaProceso = Fecha FROM CS_HojaRuta WHERE IDTrabajo = @IDOrden
+		SET @FechaProceso = COALESCE(@FechaProceso, GETDATE())
+
+		-- Ver si Hay que controlar nro de serie, via campo adicional
+		IF EXISTS(SELECT * FROM CC_CamposAdicionales_Definicion WHERE Nombre = 'Serie' AND AplicableA = 2) BEGIN
+			-- Si Tiene Serie por articulo
+			DECLARE @Serie BIT = 0
+			EXEC sp_executesql N'SELECT @Serie = Serie FROM CC_caArticulos WHERE ID = @IDConsumo AND Serie = 1', N'@IDConsumo INT, @Serie BIT OUTPUT', @IDConsumo = @IDConsumo, @Serie = @Serie OUT
+			IF COALESCE(@Serie, 0) = 1 AND COALESCE(@NumeroSerie, '') = '' BEGIN
+				SET @HuboError = -100
+				RAISERROR ('Debe Ingresar Nro de Serie', 16, 1)
+			END
+		END
+		
+		-- Si lo esta metiendo el sistema, no validar
+		SET @HuboError=1		-- Porque el validar consumo retorna el ID del material como resultado
+		IF @Modulo <> 255 EXEC CS_ValidarConsumoTrabajo @IDTrabajo = @IDOrden, @in_Consumo = @Codigo, @in_Cantidad = @Cantidad, @ParaConsumo = @pConsumo, @Resultado = @HuboError OUTPUT
+
+		IF @HuboError <= 0 
+			BEGIN
+				SET @Msg = 'Codigo ' + @Codigo + ', Trabajo ' + CONVERT(Varchar(10), @IDOrden) + ', Cantidad ' + CONVERT(Varchar, @Cantidad) + ' no es válido (' + CONVERT(Varchar(20), @HuboError) + ')'
+				RAISERROR (@Msg,16,1)
+			END
+		ELSE
+			BEGIN			
+				SET @HuboError = 0
+				IF @Categoria < 2 AND @Consignacion = 1 AND @Provee > 0 BEGIN		-- Si es repuesto y si es consignado
+					-- Consultar el Stock
+					DECLARE @Etr DECIMAL(19,6) = 0
+					SELECT @Stock = COALESCE(Stock,0) + COALESCE(EnTransito,0), @Etr = COALESCE(Entransito, 0)
+					FROM CK_ArticulosxDeposito WHERE IDDeposito = -@Provee AND IDArticulo = @IDConsumo
+					
+					IF COALESCE(@Stock, 0) < @Cantidad BEGIN
+						SET @HuboError = -1
+						SET @Msg = 'No tiene esa cantidad para proveer, Stock actual:' + CONVERT(VARCHAR(10), @Stock) + ' En Tránsito:' + CONVERT(VARCHAR(10), @Etr)
+						RAISERROR (@Msg, 16,1)
+					END
+				END
+
+				IF @HuboError = 0 BEGIN
+					-- Si la configuracion lo requiere, abrir el trabajo...
+					IF @Estado < 0 AND (@AbrirOrdenAlConsumir & @Modulo = @Modulo) EXEC CS_AbrirOrden @IDOrden, @IDUsuario, @FechaProceso
+				END
+
+				IF @HuboError = 0  BEGIN
+					DECLARE @Unitario Decimal(19, 6), @Costo Decimal(19, 6), @CotizacionPrecio INT, @CotizacionCosto INT, @Facturado Decimal(19, 6), @UnitarioConImpuestos Decimal(19, 6)
+					DECLARE @IDItemPresup int
+					SET @IDItemPresup=null
+				
+					EXEC CC_CalculaPrecioArticulo @IDConsumo, @CodCli, Null, @MonedaPrecio OUTPUT, @Costo OUTPUT, @Unitario OUTPUT, @MonedaCosto OUTPUT, @CotizacionPrecio OUTPUT, @ImporteExento OUTPUT, @PrecioBase OUTPUT, @Dto OUTPUT
+
+					-- Buscar la Cotizacion del Costo
+					SELECT @CotizacionCosto = Cotizacion FROM CC_Monedas WHERE ID = @MonedaCosto		--Traigo la cotizacion del costo
+						
+					--Buscar los decimales de la moneda local 
+					SELECT @Decimales = Decimales FROM CC_Monedas WHERE ID = @MonedaPrecio
+
+					-- Transparentar valores "CERO"
+					IF @Costo = 0 SET @Costo = NULL
+					IF @Unitario = 0 SET @Unitario = NULL
+					IF @CostoManual = 0 SET @CostoManual = NULL
+					IF @VentaManual = 0 SET @VentaManual = NULL
+
+					IF @Modulo = 2 BEGIN
+						-- En el portal de agentes, puede invertirse el peso utilizando "PrioridadCosto" y "PrioridadVenta" de la politica
+						IF @PrioridadCosto = 1 SET @Costo = COALESCE(@Costo, @CostoManual, 0) ELSE SET @Costo = COALESCE(@CostoManual, @Costo, 0)				
+						IF @PrioridadVenta = 1 SET @Unitario = COALESCE(@Unitario, @VentaManual, 0) ELSE SET @Unitario = COALESCE(@VentaManual, @Unitario, 0)
+					END ELSE BEGIN
+						-- Por defecto y fuera del Portal de Agentes, si viene costo manual, manda ese
+						SET @Costo = COALESCE(@CostoManual, @Costo, 0)				
+						SET @Unitario = COALESCE(@VentaManual, @Unitario, 0)
+					END
+
+					SET @CostoFinal  = @Costo
+
+					-- Garantia de Terceros con porcentaje de utilidad (se cobra con plus) CAMBIA PRECIO DE VENTA @UNITARIO
+					IF @Garantia = 1 and @Categoria < 2 and coalesce(@PorcUtil, 0)>0 BEGIN	
+						SELECT @PorcUtil = coalesce(Porcentaje, @PorcUtil) FROM UtilidadPartes WHERE Area = @Area AND @Costo <= Hasta Order by Hasta
+						SELECT @Unitario = @Costo * (1+(@PorcUtil/100)), @MonedaPrecio = @MonedaCosto
+					END
+
+					-- Si es un item presupuestado por un tecnico, Tomar costo tercero
+					IF @Garantia = 2 AND COALESCE(@PorcUtil, 0) > 0 AND @PartesTercero = 1 AND @Categoria < 2 BEGIN
+						-- Garantia Propia y las partes las pone el tercero...puede pagarse un plus CAMBIA EL COSTO
+						SELECT @PorcUtil = coalesce(Porcentaje, @PorcUtil) FROM UtilidadPartes WHERE Area = @Area AND @Costo <= Hasta Order by Hasta
+						SELECT @CostoFinal = @Costo * (1+(@PorcUtil/100)), @MonedaPrecio = @MonedaCosto
+					END 
+
+					DECLARE @PrecioPresup BIT = 0
+					IF coalesce(@ItemReserva,0) <> 0 BEGIN
+						--está cancelando una reserva, ver si esa reserva es de algún item de presupuesto
+						SELECT @IDItemPresup=IDItemPresup FROM CK_ItemsReservas where IDItem = @ItemReserva
+						IF EXISTS (select 1 FROM CS_PartesPresup Where ID = coalesce(@IDItemPresup,0)) BEGIN
+							SELECT @Unitario=Unitario, @UnitarioConImpuestos=UnitarioConImpuestos, @PoliticaImpositiva = PoliticaImpositiva,
+							@PrecioBase = PrecioBase, @ImporteExento = 0, @CotizacionPrecio = Cotizacion
+							FROM CS_PartesPresup 
+							WHERE ID = @IDItemPresup
+							IF @@ROWCOUNT > 0 SET @PrecioPresup = 1
+						END ELSE
+							SET @IDItemPresup=0 
+					END ELSE BEGIN
+						
+						-- El consumo No esta cancelando reserva, ver si hay una reserva pendiente de este código en la Orden y anularla
+						-- 31/05/2018
+
+						DECLARE Res CURSOR LOCAL STATIC FOR 
+						SELECT Ir.IDItem, Ir.Cantidad - Ir.Anulado - Ir.Cumplido as Pendiente 
+						FROM CK_ItemsReservas Ir WHERE Ir.Tipo = 1 AND Ir.pOrden = @IDOrden AND Ir.Cantidad - Ir.Anulado - Ir.Cumplido > 0
+							AND Ir.IDArticulo = @IDConsumo
+						Order by IR.IDItem
+						
+						DECLARE @IDItemReserva INT, @CantidadReservaPendiente DECIMAL(19, 5), @CantidadConsumidaPendiente Decimal(19,5), @Anular Decimal(19, 5)
+						OPEN Res
+						
+						SET @CantidadConsumidaPendiente = @Cantidad
+						FETCH NEXT FROM Res INTO @IDItemReserva, @CantidadReservaPendiente
+						WHILE @@FETCH_STATUS = 0 AND @CantidadConsumidaPendiente > 0
+							BEGIN
+								IF @CantidadConsumidaPendiente > @CantidadReservaPendiente SET @Anular = @CantidadReservaPendiente ELSE SET @Anular = @CantidadConsumidaPendiente
+								
+								-- Insertar registros de anulacion en CK_EvolucionReservas...un trigger ahi se encarga de anular...
+								INSERT INTO CK_EvolucionReservas (TipoIDOrigen, IDOrigen, IDItemReserva, Cantidad, Fecha)		
+								VALUES(3, -@IDOrden, @IDItemReserva, @Anular, GETDATE())
+
+								SET @CantidadConsumidaPendiente = @CantidadConsumidaPendiente - @Anular
+								FETCH NEXT FROM Res INTO @IDItemReserva, @CantidadReservaPendiente
+							END
+
+						CLOSE Res
+						DEALLOCATE Res
+
+					END
+
+					-- Verificar si hay presupuesto de tercero  de IDUsuario y tomar ese Costo
+					SELECT @CostoFinal = CostoUnitario, @Costo = CostoTercero 
+					FROM CS_PartesPresup
+					WHERE PresupuestadoPor = @IDUsuario AND Activo = 1 AND NumeroParte = @Codigo AND NroOrden = @IDOrden
+
+					-- Verificar si hay presupuesto al cliente y tomar ese precio
+					IF @PrecioPresup = 0 
+						SELECT @Unitario=Unitario, @UnitarioConImpuestos=UnitarioConImpuestos, @PoliticaImpositiva = PoliticaImpositiva,
+						@PrecioBase = PrecioBase, @ImporteExento = 0, @CotizacionPrecio = Cotizacion
+						FROM CS_PartesPresup 
+						WHERE PresupuestadoPor IS null AND NumeroParte = @Codigo AND NroOrden = @IDOrden
+						
+					IF @PoliticaImpositiva = 0 SET @PoliticaImpositiva = NULL
+					IF @PoliticaImpositiva IS NULL SELECT @PoliticaImpositiva = Categoria FROM CC_ImpuestosxArticulo with (nolock) WHERE IDArticulo = @IDConsumo AND Impuesto = 1
+					SELECT @PorcTasa = It.Porcentaje FROM IVA_Tasas It WHERE It.ID = @PoliticaImpositiva
+
+					IF COALESCE(@IDItemPresup,0)=0 BEGIN
+						EXEC CC_AplicarImpuesto @PoliticaImpositiva out, @CodCli, @Unitario, @ImporteExento, @PorcTasa out, @Facturado out, @UnitarioConImpuestos out
+						SET @Facturado=dbo.fn_Redondear(@Facturado,@Decimales)
+					END 
+
+					-- Determinar que va con importe y que no...
+					EXEC CS_PonerPrecioConsumo @IDPolitica, @Categoria, @CostoFinal OUTPUT, @Unitario OUTPUT
+
+					IF COALESCE(@Unitario, 0) = 0
+						BEGIN	
+							-- Si no precio unitario, tampoco Precio Base y Descuento
+							--SET @PrecioBase = 0
+							SET @Dto = 0
+							SET @Facturado = 0
+							SET @UnitarioConImpuestos = 0
+						END
+
+					-- Buscar partes pendientes y modificarlas por lo entregado, o si no generar partes nuevas...
+					DECLARE Partes CURSOR LOCAL FAST_FORWARD FOR SELECT ID, NumeroParte, ItemID, Cantidad 
+					FROM Partes WHERE COALESCE(Provee, -1) < 0 AND NroOrden = @IDOrden AND (ItemReserva = @ItemReserva OR (@ItemReserva = 0 AND NumeroParte = @Codigo AND COALESCE(ItemReserva, 0) = 0)) Order by Cantidad
+					OPEN Partes
+					FETCH NEXT FROM Partes INTO @IDPartes, @NumeroParte, @ItemID, @CantidadParte
+					WHILE @@FETCH_STATUS = 0 AND @Cantidad > 0
+						BEGIN
+							IF @Cantidad >= @CantidadParte
+								BEGIN
+									UPDATE CS_Partes SET NumeroParte = @Codigo, ItemID = @IDConsumo, Provee = @Provee, Fecha = Getdate(), ItemStockConsumo = @ItemStock, 
+									CostoUnitario = @CostoFinal, CostoTercero = CASE WHEN @CostoTercero = 1 THEN @Costo ELSE Null END, CotizacionCosto = @CotizacionCosto, 
+									PrecioBase = @PrecioBase, Unitario = @Unitario, Facturado = @Facturado, Cotizacion = @CotizacionPrecio, 
+									ImpExcento = @ImporteExento, PorcImpuesto = @PorcTasa, PorcBase = 100, UnitarioConImpuestos = @UnitarioConImpuestos, PoliticaImpositiva = @PoliticaImpositiva, 
+									Decimales = @Decimales,
+									ComisionEsCosto = @ComisionEsCosto,
+									LiquidaComision = @LiquidaComision,
+									Consignacion = @Consignacion
+									WHERE ID = @IDPartes
+									SET @Cantidad = @Cantidad - @CantidadParte
+								END
+							ELSE
+								BEGIN
+									UPDATE CS_Partes SET NumeroParte = @Codigo, ItemID = @IDConsumo, Provee = @Provee, Fecha = Getdate(), ItemStockConsumo = @ItemStock, 
+									Cantidad = Cantidad - @Cantidad, 
+									CostoUnitario = @CostoFinal,  CostoTercero = CASE WHEN @CostoTercero = 1 THEN @Costo ELSE Null END, CotizacionCosto = @CotizacionCosto, 
+									PrecioBase = @PrecioBase, Unitario = @Unitario, Facturado = @Facturado, Cotizacion = @CotizacionPrecio, 
+									ImpExcento = @ImporteExento, PorcImpuesto = @PorcTasa, PorcBase = 100, UnitarioConImpuestos = @UnitarioConImpuestos, PoliticaImpositiva = @PoliticaImpositiva,
+									Decimales = @Decimales, 
+									ComisionEsCosto = @ComisionEsCosto,
+									LiquidaComision = @LiquidaComision,
+									Consignacion = @Consignacion
+									WHERE ID = @IDPartes
+									SET @Cantidad = 0
+								END
+							FETCH NEXT FROM Partes INTO @IDPartes, @NumeroParte, @ItemID, @CantidadParte
+						END
+					CLOSE Partes
+					DEALLOCATE Partes
+
+					IF @Cantidad > 0 BEGIN						
+						INSERT INTO CS_Partes (NroOrden, Item, NumeroParte, Cantidad, Descripcion, CostoUnitario, CostoTercero, Unitario, LiquidaComision, 
+						Provee, Tipo, ItemID, Cotizacion, CotizacionCosto, Uso, PoliticaImpositiva, PorcImpuesto, PorcBase, UnitarioConImpuestos, PrecioBase, Facturado, Fecha, 
+						ImpExcento, ItemStockConsumo, NumeroSerie, AnulaReserva, Inserta, ComisionEsCosto, Decimales, Consignacion, ItemReserva) 
+						SELECT @IDOrden as NroOrden, @IDItem as Item, A.Codigo as NumeroParte, @Cantidad, A.DescripcionReducida as Descripcion, 
+							@CostoFinal as CostoUnitario,  @Costo as CostoTercero,  
+							@Unitario as Unitario, @LiquidaComision as LiquidaComision, @Provee as Provee, A.Categoria as Tipo, 
+							@IDConsumo as ItemID, @CotizacionPrecio as Cotizacion, @CotizacionCosto as CotizacionCosto, 
+							1 as Uso, @PoliticaImpositiva as PoliticaImpositiva, PorcImpuesto = @PorcTasa, PorcBase = 100, @UnitarioConImpuestos as UnitarioConImpuestos,
+							@PrecioBase as PrecioBase, @Facturado as Facturado, getdate() as Fecha, @ImporteExento as ImpExcento, @ItemStock as ItemStockConsumo,
+							@NumeroSerie, @AnulaReserva, @Inserta, @ComisionEsCosto, @Decimales, @Consignacion, @ItemReserva
+						FROM CC_Articulos A with (nolock) WHERE ID = @IDConsumo
+						SET @NewID = SCOPE_IDENTITY();
+					END
+
+					IF @NoCalcularTotales = 0 BEGIN
+						-- Calcular totales del trabajo
+						EXEC CS_ObtenerTotalesTrabajo @IDOrden 
+
+						-- Calcular comisiones
+						EXEC CS_CalcularComisionesTrabajo @IDOrden
+					END	
+				END
+			END
+			EXEC sp_xml_removedocument @idoc 
+	   END
+	ELSE
+	   RAISERROR('Error en los datos XML',16,1)
+END TRY
+BEGIN CATCH
+	SET @ErrorMsg = ERROR_MESSAGE()
+	IF @HuboError = 0 SET @HuboError = ERROR_NUMBER()
+	IF @NoError = 0 OR XACT_STATE() = -1  RAISERROR (@ErrorMsg, 16, 1) -- Informar con error
+END CATCH
+
+IF @HuboError <> 0
+	RETURN -ABS(@HuboError)
+ELSE
+	RETURN @NewID
+
+
+(1 rows affected)

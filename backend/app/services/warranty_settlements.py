@@ -179,14 +179,23 @@ def calcular_cierre(db: Session, company_id: int, period: str) -> dict:
                 "warranty_amount": Decimal(0),
                 "out_of_warranty_works_count": 0,
                 "out_of_warranty_amount": Decimal(0),
+                "own_warranty_works_count": 0,
+                "own_warranty_amount": Decimal(0),
                 "works": [],
             },
         )
         empresa["works_count"] += 1
         empresa["total_amount"] += importe
+        # warranty_type: 0 = fuera de garantia, 1 = garantia de terceros,
+        # 2 = garantia propia / de service. Los tres van en su propio casillero: la
+        # garantia propia (Alladio) es garantia, pero no de terceros, y meterla en
+        # "fuera de garantia" seria mostrar como trabajo no cubierto lo que si cubre.
         if warranty_type == 1:
             empresa["warranty_works_count"] += 1
             empresa["warranty_amount"] += importe
+        elif warranty_type == 2:
+            empresa["own_warranty_works_count"] += 1
+            empresa["own_warranty_amount"] += importe
         else:
             empresa["out_of_warranty_works_count"] += 1
             empresa["out_of_warranty_amount"] += importe
@@ -234,6 +243,8 @@ def calcular_cierre(db: Session, company_id: int, period: str) -> dict:
         "warranty_amount": sum((e["warranty_amount"] for e in companies), Decimal(0)),
         "out_of_warranty_works_count": sum(e["out_of_warranty_works_count"] for e in companies),
         "out_of_warranty_amount": sum((e["out_of_warranty_amount"] for e in companies), Decimal(0)),
+        "own_warranty_works_count": sum(e["own_warranty_works_count"] for e in companies),
+        "own_warranty_amount": sum((e["own_warranty_amount"] for e in companies), Decimal(0)),
     }
     return {"period": period, "companies": companies, "totals": totales}
 
@@ -267,6 +278,8 @@ def _cerrar_una_empresa(
     cierre.warranty_amount = empresa["warranty_amount"]
     cierre.out_of_warranty_works_count = empresa["out_of_warranty_works_count"]
     cierre.out_of_warranty_amount = empresa["out_of_warranty_amount"]
+    cierre.own_warranty_works_count = empresa["own_warranty_works_count"]
+    cierre.own_warranty_amount = empresa["own_warranty_amount"]
     cierre.generated_at = datetime.now()
     if cierre not in db:
         db.add(cierre)
@@ -392,6 +405,8 @@ def detalle_cierre(db: Session, company_id: int, settlement_id: int) -> dict:
         "warranty_amount": cierre.warranty_amount,
         "out_of_warranty_works_count": cierre.out_of_warranty_works_count,
         "out_of_warranty_amount": cierre.out_of_warranty_amount,
+        "own_warranty_works_count": cierre.own_warranty_works_count,
+        "own_warranty_amount": cierre.own_warranty_amount,
         "invoice_number": cierre.invoice_number,
         "notes": cierre.notes,
         "generated_at": cierre.generated_at,

@@ -233,6 +233,70 @@ def test_el_trabajo_fuera_de_garantia_de_la_marca_tambien_se_liquida(escenario):
     assert empresa["out_of_warranty_amount"] == Decimal("100")
 
 
+def test_la_garantia_propia_del_service_va_en_su_propio_casillero(escenario):
+    """La garantia propia (Gt = 2) es garantia, pero no de terceros: no va con "fuera de garantia".
+
+    Es el caso de Alladio (``CodCli = 7634``), que no es una marca de fabrica sino un service
+    oficial / representante: sus politicas de "Garantia de Service" tienen ``Gt = 2``, o sea
+    que la garantia la da el service. Si eso cayera en "fuera de garantia", el cierre
+    mostraria como trabajo no cubierto lo que si cubre, y el service oficial quedaria con un
+    numero que no es el real.
+    """
+    db = escenario["db"]
+    alladio = _cliente(db, escenario["company"], "ALLADIO")
+    area = _area(
+        db, escenario["company"], billing_customer=alladio, warranty_type=2,
+        area_code="60", area_name="ALLADIO SERVICE",
+    )
+    _ot(db, escenario["company"], escenario["cliente"], escenario["equipo"], area, escenario["user"])
+
+    reporte = service.calcular_cierre(db, escenario["company"].id, "2025-06")
+    empresa = reporte["companies"][0]
+
+    assert reporte["totals"]["works_count"] == 1, "la garantia propia del service no entra al cierre"
+    assert empresa["billing_customer_name"] == "ALLADIO"
+    assert empresa["own_warranty_works_count"] == 1
+    assert empresa["own_warranty_amount"] == Decimal("100")
+    assert empresa["warranty_works_count"] == 0
+    assert empresa["out_of_warranty_works_count"] == 0, "la garantia propia no es trabajo fuera de garantia"
+    assert reporte["totals"]["own_warranty_works_count"] == 1
+
+
+def test_los_tres_casilleros_no_se_pisan(escenario):
+    """Garantia de terceros, garantia propia y fuera de garantia son tres cosas distintas.
+
+    Es el error de desglose mas probable: si los tres caen en dos casilleros, el total
+    sigue cuadrando (por eso el cuadre del importe no lo detecta) pero el reparto por
+    naturaleza del trabajo queda mal, y es justo el numero que se usa para negociar.
+    """
+    db = escenario["db"]
+    company = escenario["company"]
+    marca = escenario["marca"]
+
+    area_terceros = _area(db, company, billing_customer=marca, warranty_type=1, area_code="1")
+    area_propia = _area(db, company, billing_customer=marca, warranty_type=2, area_code="60")
+    area_fuera = _area(db, company, billing_customer=marca, warranty_type=0, area_code="2")
+    _ot(db, company, escenario["cliente"], escenario["equipo"], area_terceros, escenario["user"], numero=1)
+    _ot(db, company, escenario["cliente"], escenario["equipo"], area_propia, escenario["user"], numero=2)
+    _ot(db, company, escenario["cliente"], escenario["equipo"], area_fuera, escenario["user"], numero=3)
+
+    reporte = service.calcular_cierre(db, company.id, "2025-06")
+    empresa = reporte["companies"][0]
+
+    assert empresa["works_count"] == 3
+    assert empresa["warranty_works_count"] == 1
+    assert empresa["own_warranty_works_count"] == 1
+    assert empresa["out_of_warranty_works_count"] == 1
+    # El total no se pisa: los tres casilleros suman el total liquidado.
+    assert (
+        empresa["warranty_amount"]
+        + empresa["own_warranty_amount"]
+        + empresa["out_of_warranty_amount"]
+        == empresa["total_amount"]
+        == Decimal("300")
+    )
+
+
 def test_la_garantia_sin_empresa_a_liquidar_no_entra(escenario):
     """Garantia si, pero sin empresa a liquidar no: no hay a quien liquidarle."""
     db = escenario["db"]
@@ -390,6 +454,34 @@ def test_generar_registra_el_periodo_y_regenerar_no_duplica(escenario):
     assert cierres[0].status == "draft"
     assert cierres[0].works_count == 1
     assert cierres[0].total_amount == Decimal("100")
+
+
+def test_el_cierre_registrado_conserva_el_casillero_de_garantia_propia(escenario):
+    """El cierre guardado tiene que traer los tres casilleros, no solo dos.
+
+    El detalle por OT ya guardaba ``warranty_type = 2``; lo que faltaba era el resumen. Si
+    el resumen no lo tiene, el cierre emitido muestra un reparto que no se corresponde con
+    las OTs que lo componen, y el resumen es lo que se manda a la marca.
+    """
+    db = escenario["db"]
+    company = escenario["company"]
+    alladio = _cliente(db, company, "ALLADIO")
+    area = _area(db, company, billing_customer=alladio, warranty_type=2, area_code="60")
+    _ot(db, company, escenario["cliente"], escenario["equipo"], area, escenario["user"])
+
+    service.generar_cierre(db, company.id, "2025-06")
+
+    from app.models.warranty_settlement import WarrantySettlement, WarrantySettlementOrder
+
+    cierre = db.query(WarrantySettlement).filter_by(company_id=company.id).one()
+    assert cierre.own_warranty_works_count == 1
+    assert cierre.own_warranty_amount == Decimal("100")
+    assert cierre.out_of_warranty_works_count == 0
+
+    detalle = db.query(WarrantySettlementOrder).filter_by(
+        warranty_settlement_id=cierre.id
+    ).one()
+    assert detalle.warranty_type == 2
 
 
 def test_el_cierre_emitido_no_se_regenera(escenario):

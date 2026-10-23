@@ -28,6 +28,9 @@ class CierreEmpresaRead(BaseModel):
     warranty_amount: Decimal
     out_of_warranty_works_count: int
     out_of_warranty_amount: Decimal
+    # garantia propia / de service (Alladio). Es garantia, pero no de terceros.
+    own_warranty_works_count: int = 0
+    own_warranty_amount: Decimal = Decimal(0)
     works: list[dict] = Field(default_factory=list)
 
 
@@ -38,6 +41,8 @@ class CierreTotalesRead(BaseModel):
     warranty_amount: Decimal
     out_of_warranty_works_count: int
     out_of_warranty_amount: Decimal
+    own_warranty_works_count: int = 0
+    own_warranty_amount: Decimal = Decimal(0)
 
 
 class CierreReporteRead(BaseModel):
@@ -70,6 +75,8 @@ class CierreRead(BaseModel):
     warranty_amount: Decimal
     out_of_warranty_works_count: int
     out_of_warranty_amount: Decimal
+    own_warranty_works_count: int = 0
+    own_warranty_amount: Decimal = Decimal(0)
     invoice_number: str | None = None
     notes: str | None = None
     generated_at: datetime

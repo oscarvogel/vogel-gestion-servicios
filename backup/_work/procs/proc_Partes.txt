@@ -1,0 +1,27 @@
+
+
+
+
+CREATE  VIEW [dbo].[Partes]
+AS
+SELECT [NroOrden], [Item], [NumeroParte], [Cantidad], [Descripcion], [CostoUnitario], 
+[Unitario], [LiquidaComision], [Uso], [Remito], [Referencia], [NumeroSerie], [Recepcion], 
+[Tipo], [FechaRecepcion], [Provee], [Fecha], [PedidoParte], ID, [ItemID], 
+[PoliticaImpositiva], [PorcImpuesto], [PorcBase], [Cotizacion], 
+CASE WHEN dbo.CS_ModoImpuestos([NroOrden]) = 1 THEN [Unitario] ELSE [UnitarioConImpuestos] END AS [Facturado], 
+[PrecioBase], [ImpExcento], [CotizacionCosto], [Decimales], [ItemReserva], 
+[ItemStockRecepcion], [ItemStockConsumo], [ItemStockRecupero], 
+[ItemStockDevolucion], [ItemPedidoParte], [AnulaReserva], 
+[UnitarioConImpuestos], [CostoComision], [IDTemp], Devolucion, Reposicion, CostoTercero, Inserta, ComisionEsCosto, ComisionVigenteAlta, Consignacion
+FROM CS_Partes
+
+
+
+
+
+
+
+
+
+
+(1 rows affected)

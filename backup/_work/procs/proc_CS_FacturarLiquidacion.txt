@@ -1,0 +1,25 @@
+CREATE procedure [dbo].[CS_FacturarLiquidacion]
+@ID int, 
+@Factura varchar(20), 
+@Fecha datetime
+AS
+DECLARE @IDTrabajo INT
+DECLARE @F DateTime = @Fecha
+IF COALESCE(@Factura, '') = '' SET @F = Null
+
+-- Actualizar Liquidacion
+Update Liquidaciones SET Factura = @Factura, FechaFactura = @F Where ID = @ID
+
+-- Facturar las ordenes de la liquidacion
+DECLARE Ordenes CURSOR LOCAL STATIC FOR SELECT Orden FROM OrdenesLiquidadas WHERE Liquidacion = @ID AND Rechazada = 0
+OPEN Ordenes
+FETCH NEXT FROM Ordenes INTO @IDTrabajo
+WHILE @@FETCH_STATUS = 0 BEGIN
+	EXEC CS_FacturarOrden @ID = @IDTrabajo, @Factura = @Factura, @Fecha = @F
+	FETCH NEXT FROM Ordenes INTO @IDTrabajo
+END
+CLOSE Ordenes
+DEALLOCATE Ordenes
+
+
+(1 rows affected)

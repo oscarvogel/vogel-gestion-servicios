@@ -1,0 +1,32 @@
+CREATE Procedure CS_ActualizarPoliticasxArticuloFull
+as
+
+
+CREATE
+    TABLE CS_SincroPoliticasxArticulo
+    (
+        ID INT NOT NULL IDENTITY(1,1),
+        IDArticulo INT,
+        Garantia INT,
+        IDValor INT,
+        TopeReparacion DECIMAL(19,6),
+        MonedaTope INT,
+        Devolver TINYINT,
+        Recuperar TINYINT,
+        IDPolitica INT DEFAULT 0 NOT NULL,
+        Incluir TINYINT,
+        TarifaDiagnostico INT,
+        Heredar TINYINT,
+        Repuestos TINYINT,
+        Servicios TINYINT,
+        Otros TINYINT,
+        Linea INT,
+        TarifaCanje INT,
+        MascaraNroSerie VARCHAR(50) COLLATE Modern_Spanish_CI_AI,
+        ControlReservas INT,
+        ExigirNroSerie SMALLINT,
+        CONSTRAINT PK_CS_SincroPoliticasxArticulo PRIMARY KEY (IDPolitica, IDArticulo)
+    )
+
+
+(1 rows affected)

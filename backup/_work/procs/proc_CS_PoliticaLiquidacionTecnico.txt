@@ -1,0 +1,18 @@
+CREATE FUNCTION [dbo].[CS_PoliticaLiquidacionTecnico](@IDPolitica INT)
+RETURNS @tmp TABLE(IDPolitica INT, Nombre VARCHAR(100), IDArea INT, Ppal Bit)
+AS
+BEGIN
+	IF @IDPolitica < 0 
+		INSERT INTO @Tmp (IDPolitica, Nombre, IDArea, Ppal)
+		SELECT -ID as IDPolitica, Nombre, ID as IDArea, 0 as Ppal FROM CS_Areas WHERE ID = ABS(@IDPolitica)
+	ELSE IF @IDPolitica > 0
+		INSERT INTO @Tmp (IDPolitica, Nombre, IDArea, Ppal)
+		SELECT ID as IDPolitica, NombreCompleto, IDArea, Ppal FROM CS_PoliticasxArea WHERE ID = @IDPolitica
+	ELSE
+		INSERT INTO @Tmp (IDPolitica, Nombre, IDArea, Ppal)
+		SELECT 0, 'GLOBAL (Todas las áreas)', 0, 0 
+	RETURN 
+END
+
+
+(1 rows affected)

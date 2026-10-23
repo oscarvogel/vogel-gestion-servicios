@@ -1,0 +1,30 @@
+
+CREATE VIEW [dbo].[CS_TrabajosVisibles]  
+AS
+SELECT T.*
+FROM CC_UsuarioActual UA
+INNER JOIN CS_UsuariosxPoliticaFULL PU ON PU.IDUsuario = UA.IDUsuario AND PU.Sucursal = UA.Sucursal
+INNER JOIN CS_Trabajos T ON T.IDPolitica = PU.IDPolitica AND (T.EnSucursal = UA.Sucursal OR UA.Sucursal = 0)
+LEFT JOIN CC_PermisosUsuarioSucursal P1 with (nolock) ON P1.Objeto = 501200 AND P1.Sucursal=PU.Sucursal AND P1.IDUsuario=PU.IDUsuario	-- Solo las propias
+LEFT JOIN CC_PermisosUsuarioSucursal P2 with (nolock) ON P2.Objeto = 501201 AND P2.Sucursal=PU.Sucursal AND P2.IDUsuario=PU.IDUsuario   -- Ver la de las sucursales del cliente
+LEFT JOIN CC_PermisosUsuarioSucursal P3 with (nolock) ON P3.Objeto = 501202 AND P3.Sucursal=PU.Sucursal AND P3.IDUsuario=PU.IDUsuario   -- Ver en las que interviene
+LEFT JOIN CC_PermisosUsuarioSucursal P4 with (nolock) ON P4.Objeto = 501220 AND P4.Sucursal=PU.Sucursal AND P4.IDUsuario=PU.IDUsuario	-- Solo sin Terminar
+LEFT JOIN CS_AgentesDelCliente Ac with (nolock) ON  Ac.Agente = T.Responsable    
+WHERE UA.IDProceso = @@SPID AND UA.IDUsuario <> -255
+		AND (P4.Objeto IS NULL OR COALESCE(T.Lista, 0) = 0)   
+		   AND
+		   (P1.Objeto IS NULL											-- Todas
+			OR T.Responsable = UA.IDUsuario								-- O en las que es responsable
+			OR (P2.Objeto IS NOT NULL AND Ac.Agente = T.Responsable)	-- O en las que es responsable alguno de sus agentes
+			OR (1= case when P3.Objeto is null then 0					-- No incluye las que intervienen
+						when exists (									-- O las incluye
+								SELECT 1 
+								FROM Intervienen I
+								WHERE I.Orden = T.IDTrabajo AND I.Persona = UA.IDUsuario) THEN 1
+						else 0 end )
+			)
+Union ALL
+SELECT T.* FROM CS_Trabajos T WHERE dbo.GetUsuarioActual()=-255
+
+
+(1 rows affected)

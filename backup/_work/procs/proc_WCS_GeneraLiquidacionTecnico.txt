@@ -1,0 +1,169 @@
+CREATE PROCEDURE [dbo].[WCS_GeneraLiquidacionTecnico]
+@Accion TINYINT,
+@Fecha smalldatetime,
+@Tecnico INT,
+@RazonSocial Varchar(50),
+@Area INT,
+@Total Decimal(19,5),
+@GeneradaPor SMALLINT,
+@Remito Varchar(20),
+@FechaRemito smalldatetime,
+@Factura Varchar(20),
+@FechaFactura smalldatetime,
+@TipoTrabajo Varchar(10)=Null,
+@IDPolitica INT,
+@Ordenes Ntext,
+@ID INT OUTPUT
+AS
+
+SET NOCOUNT ON
+
+DECLARE @IDoc int
+DECLARE @HuboError int
+DECLARE @Txt VARCHAR(500)
+DECLARE @IDTrabajo int
+DECLARE @Importe Decimal(19, 5)
+
+SET @IDoc = 0 
+IF DATALENGTH(@Ordenes) <> 0 
+	BEGIN
+		EXEC @HuboError = sp_xml_preparedocument @IDoc OUTPUT, @Ordenes
+		IF @HuboError <> 0 
+			BEGIN
+	    				RAISERROR ('Formato inválido en XML de Ordenes', 16, 1)
+						GOTO SALIR
+			END
+	END
+ELSE
+	BEGIN
+		RAISERROR('No ha incluído ningún Trabajo',16, 1)
+		GOTO SALIR
+	END
+
+-- Verificar que no esta tratando de liquidar ordenes ya liquidadas...
+IF EXISTS(SELECT * FROM Intervienen WHERE Persona = @Tecnico AND Orden IN (SELECT IDTrabajo FROM OPENXML (@idoc, '/R/I',1) WITH (IDTrabajo int)) AND COALESCE(Liquidacion, 0) <> 0)
+	BEGIN
+		RAISERROR ('Esta intentando liquidar órdenes ya liquidadas', 16, 1)
+		GOTO SALIR
+	END
+
+
+IF @Accion = 2 
+	BEGIN
+		-- ALTA
+		INSERT INTO CS_LiquidacionesTecnicos(	Fecha, Tecnico, RazonSocial, Area, Remito, FechaRemito, Factura, FechaFactura, GeneradaPor, Total, 
+												Anulado, Trabajo, IDPolitica)
+		VALUES (@Fecha, @Tecnico, @RazonSocial, @Area, @Remito, @FechaRemito, @Factura, @FechaFactura, @GeneradaPor, @Total, 0,
+												@TipoTrabajo, @IDPolitica)
+		IF @@ERROR <> 0 GOTO SALIR
+		SET @ID = SCOPE_IDENTITY()
+	
+		INSERT INTO CS_OrdenesLiquidadasTecnicos (Liquidacion, Orden, Importe, Rechazada)
+		SELECT @ID as Liquidacion, P.Orden, P.Importe, 0 as Rechazada FROM OPENXML (@idoc, '/R/I',1) WITH (Orden INT, Importe Decimal(19, 5), Rechazada bit) P
+		IF @@ERROR <> 0 GOTO SALIR
+
+		-- Actualizar intervienen....
+		UPDATE Intervienen SET Liquidacion = @ID, FechaLiquidacionTecnico = Getdate() WHERE Persona = @Tecnico AND Orden IN (SELECT * FROM OPENXML (@idoc, '/R/I',1) WITH (Orden int))
+		IF @@ERROR <> 0 GOTO SALIR
+
+		-- Generar sucesos de liquidacion...
+		Declare ALiquidar Cursor LOCAL STATIC FOR Select Orden FROM OPENXML (@idoc, '/R/I',1) WITH (Orden int) P
+		Open ALiquidar
+		FETCH NEXT FROM ALiquidar INTO @IDTrabajo
+			WHILE @@FETCH_STATUS = 0 AND @HuboError=0
+				BEGIN
+					SET @Txt = 'Se incluye la orden en la liquidación del técnico Nro ' + CONVERT(VARCHAR, @ID) + ' (Desde CSWeb)'
+					EXEC CS_GeneraSucesoTrabajo null, 40, @IDTrabajo, @Tecnico, @Txt, 2
+					IF @@ERROR <> 0 GOTO SALIR
+					FETCH NEXT FROM ALiquidar INTO @IDTrabajo
+				END
+		CLOSE ALiquidar
+		DEALLOCATE ALiquidar
+	END
+ELSE
+	BEGIN
+		--MODIFICACION
+		UPDATE Liquidaciones SET Total = @Total, Remito = @Remito, FechaRemito = @FechaRemito, Factura = @Factura, FechaFactura = @FechaFactura
+		WHERE ID = @ID
+		IF @@ERROR <> 0 GOTO SALIR
+		-- Generar sucesos de liquidacion...
+		Declare ALiquidar Cursor  LOCAL STATIC
+		FOR Select Orden, Importe FROM OPENXML (@idoc, '/R/I',1) WITH (Orden INT, Importe Decimal(19, 5), Rechazada bit) P
+		Open ALiquidar
+		FETCH NEXT FROM ALiquidar INTO @IDTrabajo, @Importe
+		WHILE @@FETCH_STATUS = 0 AND @HuboError=0
+			BEGIN
+				IF NOT EXISTS(SELECT * FROM dbo.CS_OrdenesLiquidadasTecnicos WHERE Liquidacion = @ID AND Orden = @IDTrabajo)
+					BEGIN
+						-- Agregarla a la liquidacion...
+						INSERT INTO CS_OrdenesLiquidadasTecnicos (Liquidacion, Orden, Importe, Rechazada)
+						SELECT @ID as Liquidacion, @IDTrabajo as Orden, @Importe, 0 as Rechazada 
+						IF @@ERROR <> 0 GOTO SALIR2
+						-- Suceso de Liquidacion...
+						SET @Txt = 'Se incluye la orden en la liquidación del técnico Nro ' + CONVERT(VARCHAR, @ID) + ' (Desde CSWeb)'
+						EXEC CS_GeneraSucesoTrabajo null, 40, @IDTrabajo, @Tecnico, @Txt, 2
+						IF @@ERROR <> 0 GOTO SALIR2
+						-- Intervienen
+						UPDATE Intervienen SET Liquidacion = @ID, FechaLiquidacionTecnico = Getdate(), NroFactura = @Factura WHERE Persona = @Tecnico AND Orden = @IDTrabajo
+						IF @@ERROR <> 0 GOTO SALIR2
+					END
+				ELSE
+					BEGIN
+						--Actualizarla
+						UPDATE CS_OrdenesLiquidadastecnicos SET Importe = @Importe, Rechazada = 0
+						WHERE Liquidacion = @ID AND  Orden = @IDTrabajo
+						IF @@ERROR <> 0 GOTO SALIR2
+						-- Suceso de Liquidacion...
+						-- Suceso de Liquidacion...
+						SET @Txt = 'Se vuelve a incluir la orden en la liquidación del técnico Nro ' + CONVERT(VARCHAR, @ID) + ' (Desde CSWeb)'
+						EXEC CS_GeneraSucesoTrabajo null, 40, @IDTrabajo, @Tecnico, @Txt, 2
+						IF @@ERROR <> 0 GOTO SALIR2
+						-- Intervienen					
+						UPDATE Intervienen SET Liquidacion = @ID, FechaLiquidacionTecnico = Getdate(), NroFactura = @Factura WHERE Persona = @Tecnico AND Orden = @IDTrabajo
+						IF @@ERROR <> 0 GOTO SALIR2						
+					END				
+				FETCH NEXT FROM ALiquidar INTO @IDTrabajo, @Importe
+			END
+		CLOSE ALiquidar
+		DEALLOCATE ALiquidar
+
+		-- Generar sucesos de DESLIQUIDACION
+		Declare ALiquidar Cursor  LOCAL STATIC FOR Select Orden, Importe FROM dbo.CS_OrdenesLiquidadasTecnicos
+		WHERE Liquidacion = @ID AND Rechazada = 0 AND Orden NOT IN (SELECT Orden FROM OPENXML (@idoc, '/R/I',1) WITH (Orden INT, Importe Decimal(19, 5), Rechazada bit) )
+		Open ALiquidar
+		FETCH NEXT FROM ALiquidar INTO @IDTrabajo, @Importe
+		WHILE @@FETCH_STATUS = 0 AND @HuboError=0
+			BEGIN
+				UPDATE dbo.CS_OrdenesLiquidadasTecnicos SET Rechazada = 1
+				WHERE Liquidacion = @ID AND  Orden = @IDTrabajo
+				SET @Txt = 'Se excluye la orden de la liquidación del técnico Nro ' + CONVERT(VARCHAR, @ID) 
+				EXEC CS_GeneraSucesoTrabajo null, 24, @IDTrabajo, @GeneradaPor, @Txt, 2
+				IF @@ERROR <> 0 GOTO SALIR2
+                --Descontar esta comision del total de la orden
+                Update CS_Trabajos SET CostoTotalComisiones = CostoTotalComisiones - @Importe WHERE IDTrabajo = @IDTrabajo
+                IF @@ERROR <> 0 GOTO SALIR2
+                --Sacar marca de liquidacion...
+                Update Intervienen SET Liquidacion = Null, FechaLiquidacionTecnico = Null, NroFactura = Null WHERE Orden = @IDTrabajo AND Persona = @Tecnico			
+                IF @@ERROR <> 0 GOTO SALIR2
+				FETCH NEXT FROM ALiquidar INTO @IDTrabajo
+			END
+		CLOSE ALiquidar
+		DEALLOCATE ALiquidar
+	END
+IF @@ERROR <> 0 GOTO SALIR
+GOTO FINAL
+
+SALIR:
+GOTO FINAL
+
+SALIR2:
+		CLOSE ALiquidar
+		DEALLOCATE ALiquidar
+
+FINAL:
+EXEC sp_xml_removedocument @idoc 
+
+
+
+
+(1 rows affected)

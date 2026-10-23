@@ -1,0 +1,15 @@
+CREATE Procedure CS_ResumenLiquidacionTecnico
+@IDLiquidacion int
+as
+Select L.Liquidacion, P.numeroParte as Codigo, A.DescripcionReducida as Descripcion,
+sum(P.Cantidad) as Cantidad, CP.Comision / convert(decimal(19,6),P.Cantidad) as Unitario, SUM(CP.Comision) as Total
+FROM CS_OrdenesLiquidadasTecnicos L
+INNER JOIN CS_Trabajos T ON T.IDTrabajo = L.Orden
+inner JOIN CS_Partes P ON P.NroOrden = T.IDTrabajo 
+inner join CS_ComisionPartexInterviene CP on P.ID = CP.ID AND CP.IDUsuario = L.Tecnico 
+left join CC_Articulos A on A.ID = P.ItemID 
+Where L.Liquidacion = @IDLiquidacion and L.Rechazada=0
+group by L.Liquidacion, P.numeroParte, CP.Comision / convert(decimal(19,6),P.Cantidad), A.DescripcionReducida 
+
+
+(1 rows affected)

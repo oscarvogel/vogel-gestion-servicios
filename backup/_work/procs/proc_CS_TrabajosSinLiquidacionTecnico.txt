@@ -1,0 +1,18 @@
+
+CREATE VIEW [dbo].[CS_TrabajosSinLiquidacionTecnico]
+AS
+SELECT T.IDTrabajo, T.NroOtorgado, Pa.ID as IDPolitica, Pa.NombreCompleto as Politica, Pa.IDArea, CONVERT(DATE, T.FechaAlta) as FechaAlta, T.Cliente, T.Modelo, T.Equipo, T.NroSerie, 
+T.Comercio, CONVERT(DATE, T.FechaCerrada) as FechaCerrada, T.Estado, I.Persona as IDTecnico, dbo.GetNombreUsuario(I.Persona) as Tecnico,  T.Accesorios, CONVERT(Varchar(150), T.TrabajoRealizado) as TrabajoRealizado,
+COALESCE(I.ComisionProductos, 0) + COALESCE(I.ComisionPartes, 0) + COALESCE(I.ComisionServicios, 0) + COALESCE(I.ComisionOtros, 0) as Comision,
+Pa.LiquidacionTecnico 
+FROM Intervienen I WITH (NOLOCK)
+INNER JOIN CS_TrabajosVisibles T with (NOLOCK) ON T.IDTrabajo = I.Orden
+INNER JOIN CS_PoliticasxArea Pa WITH (NOLOCK) ON Pa.ID = T.IDPolitica
+WHERE COALESCE(I.Liquidacion, 0) = 0	-- Sin Liquidacion
+AND (COALESCE(I.ComisionProductos, 0) + COALESCE(I.ComisionPartes, 0) + COALESCE(I.ComisionServicios, 0) + COALESCE(I.ComisionOtros, 0)) <> 0 
+AND (COALESCE(T.EnSucursal, 0) = dbo.GetSucursalActual() OR ( dbo.HaySucursales() = 0))
+AND Pa.LiquidacionTecnico <> 3
+
+
+
+(1 rows affected)

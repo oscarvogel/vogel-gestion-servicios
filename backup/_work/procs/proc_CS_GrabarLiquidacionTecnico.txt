@@ -1,0 +1,139 @@
+CREATE PROCEDURE [dbo].[CS_GrabarLiquidacionTecnico]
+@IDTecnico INT=Null, 
+@IDGenera INT=Null,
+@IDPolitica INT,
+@Fecha DATETIME = Null,
+@Remito VARCHAR(20)=NULL,
+@FechaRemito DATETIME = Null,
+@Factura VARCHAR(20)=NULL,
+@FechaFactura DATETIME=Null,
+@Liquidacion INT OUT,
+@XMLOrdenes xml,
+@Sucursal INT = @IDTecnico
+AS
+
+SET NOCOUNT ON
+
+DECLARE @Suma Decimal(19,5)
+DECLARE @IDTrabajo INT
+DECLARE @Tecnico INT
+DECLARE @IDOrdenLiquidada INT
+DECLARE @EstadoOrdenBase Bit
+DECLARE @EstadoOrdenRecibido Bit
+DECLARE @IDArea INT
+
+-- Cargar las ordenes en una tabla
+DECLARE @Ordenes TABLE (Orden INT, Rechazada Bit, Tecnico INT)
+INSERT INTO @Ordenes(Orden, Rechazada, Tecnico)
+SELECT Registro.value('./@Orden', 'INT') as Orden, Registro.value('./@Rechazada', 'Bit') as Rechazada, Registro.value('./@Tecnico', 'INT') as Tecnico
+FROM @XMLOrdenes.nodes('Conjunto/Registro') Conjunto(Registro)
+
+IF @@ROWCOUNT = 0 BEGIN
+	RAISERROR('No ha incluído ningún trabajo en la liquidación',16, 1)
+	RETURN
+END
+
+-- Calcular el total de la liquidacion y los valores por ausencia
+SELECT @Suma = SUM(dbo.CC_ConvertiraMoneda(COALESCE(I.ComisionProductos, 0),1,1,Null,Null) + dbo.CC_ConvertiraMoneda(COALESCE(I.ComisionPartes, 0),1,1,Null,Null) + dbo.CC_ConvertiraMoneda(COALESCE(I.ComisionServicios, 0),1,1,null,null) + dbo.CC_ConvertiraMoneda(COALESCE(I.ComisionOtros, 0),1,1,null,null)) 
+FROM @Ordenes Oa
+INNER JOIN Intervienen I WITH (NOLOCK) ON I.Orden = Oa.Orden AND I.Persona = Oa.Tecnico  
+WHERE COALESCE(Oa.Rechazada, 0) = 0
+
+SET @IDTecnico = COALESCE(@IDTecnico, dbo.GetUsuarioActual())
+SET @IDGenera = COALESCE(@IDGenera, dbo.GetUsuarioActual())
+SET @Fecha = COALESCE(@Fecha, GetDate())
+SET @IDarea = 0 
+IF COALESCE(@IDPolitica, 0)  > 0 SELECT @IDArea = IDArea FROM CS_PoliticasxArea WHERE ID = @IDPolitica
+
+IF COALESCE(@Liquidacion, 0) = 0 BEGIN
+	-- Nueva Liquidacion
+	INSERT INTO CS_LiquidacionesTecnicos (Fecha, Tecnico, RazonSocial, IDPolitica, Area, Remito, FechaRemito, Factura, FechaFactura, GeneradaPor, Total, Sucursal)
+	SELECT @Fecha, @IDTecnico, dbo.GetNombreUsuario(@IDTecnico), @IDPolitica, @IDArea, @Remito, @FechaRemito, @Factura, @FechaFactura, @IDGenera, @Suma, @Sucursal
+	
+	SET @Liquidacion = SCOPE_IDENTITY()
+
+	-- Liquidar de a una
+	DECLARE ALiquidar CURSOR LOCAL STATIC FOR Select Tecnico, Orden FROM @Ordenes
+	OPEN ALiquidar
+
+	FETCH NEXT FROM ALiquidar INTO @Tecnico, @IDTrabajo
+	WHILE @@FETCH_STATUS = 0
+		BEGIN
+			-- Grabar la orden
+			INSERT INTO CS_OrdenesLiquidadasTecnicos(Liquidacion, Orden, Importe, Rechazada, Tecnico)
+			SELECT @Liquidacion, Oa.Orden, dbo.CC_ConvertiraMoneda(COALESCE(I.ComisionProductos, 0),1,1,null,null) + dbo.CC_ConvertiraMoneda(COALESCE(I.ComisionPartes, 0),1,1,null,null) + dbo.CC_ConvertiraMoneda(COALESCE(I.ComisionServicios, 0),1,1,null,null) + dbo.CC_ConvertiraMoneda(COALESCE(I.ComisionOtros, 0),1,1,null,null), 0, Oa.Tecnico 
+			FROM @Ordenes Oa
+			INNER JOIN Intervienen I WITH (NOLOCK) ON I.Orden = Oa.Orden AND I.Persona = Oa.Tecnico AND COALESCE(I.Liquidacion, 0) = 0
+			WHERE Oa.Orden = @IDTrabajo AND Oa.Tecnico = @Tecnico
+			
+			-- Liquidarla
+			EXEC CS_LiquidarOrdenTecnico @IDTrabajo = @IDTrabajo, @Tecnico = @Tecnico, @Liquidacion = @Liquidacion, @FechaLiquidacion = @Fecha, @Factura = @Factura
+			FETCH NEXT FROM ALiquidar INTO @Tecnico, @IDTrabajo
+		END
+	CLOSE ALiquidar
+	DEALLOCATE ALiquidar
+END ELSE BEGIN
+	-- Esta modificando una liquidacion
+	UPDATE CS_LiquidacionesTecnicos SET Factura = @Factura, FechaFactura = @FechaFactura, Remito = @Remito, FechaRemito = @FechaRemito, Total = @Suma
+	WHERE ID = @Liquidacion
+
+	-- Procesar de a una
+	DECLARE ALiquidar CURSOR LOCAL STATIC FOR Select Tecnico, Orden FROM @Ordenes
+	OPEN ALiquidar
+
+	FETCH NEXT FROM ALiquidar INTO @Tecnico, @IDTrabajo
+	WHILE @@FETCH_STATUS = 0
+		BEGIN
+			-- Buscar Registro en la base
+			SET @IDOrdenLiquidada = Null
+			SET @EstadoOrdenBase = 0
+			SELECT @IDOrdenLiquidada = ID, @EstadoOrdenBase = COALESCE(Rechazada, 0) FROM CS_OrdenesLiquidadasTecnicos 
+			WHERE Liquidacion = @Liquidacion AND Orden = @IDTrabajo AND Tecnico = @Tecnico
+			-- En los parametros
+			SELECT @EstadoOrdenRecibido = COALESCE(Rechazada, 0) FROM @Ordenes WHERE Orden = @IDTrabajo AND Tecnico = @Tecnico
+
+			IF @IDOrdenLiquidada IS NULL BEGIN
+				-- Grabar la orden nueva
+				INSERT INTO CS_OrdenesLiquidadasTecnicos(Liquidacion, Orden, Importe, Rechazada, Tecnico)
+				SELECT @Liquidacion, Oa.Orden, dbo.CC_ConvertiraMoneda(COALESCE(I.ComisionProductos, 0),1,1,null,null) + dbo.CC_ConvertiraMoneda(COALESCE(I.ComisionPartes, 0),1,1,null,null) + dbo.CC_ConvertiraMoneda(COALESCE(I.ComisionServicios, 0),1,1,null,null) + dbo.CC_ConvertiraMoneda(COALESCE(I.ComisionOtros, 0),1,1,null,null), 0, Oa.Tecnico 
+				FROM @Ordenes Oa
+				INNER JOIN Intervienen I WITH (NOLOCK) ON I.Orden = Oa.Orden AND I.Persona = OA.Tecnico AND COALESCE(I.Liquidacion, 0) = 0
+				WHERE Oa.Orden = @IDTrabajo AND Oa.Tecnico = @Tecnico
+			
+				-- Liquidarla
+				EXEC CS_LiquidarOrdenTecnico @IDTrabajo = @IDTrabajo, @Tecnico = @Tecnico, @Liquidacion = @Liquidacion, @FechaLiquidacion = @Fecha, @Factura = @Factura
+			END ELSE BEGIN
+				-- Ya está
+				IF @EstadoOrdenRecibido = 1 AND @EstadoOrdenBase = 0 BEGIN
+					-- Esta rechazando esta orden
+					UPDATE CS_OrdenesLiquidadasTecnicos SET Rechazada = 1 WHERE ID = @IDOrdenLiquidada
+
+					-- Rechazar
+					EXEC CS_RechazarOrdenLiquidacionTecnico @IDTrabajo = @IDTrabajo, @Tecnico = @Tecnico, @Liquidacion = @Liquidacion
+				END
+				IF @EstadoOrdenRecibido = 0 AND @EstadoOrdenBase = 1 BEGIN
+					-- Esta Reincluyendo la orden
+					UPDATE Ol SET Ol.Rechazada = 0, Ol.Importe = dbo.CC_ConvertiraMoneda(COALESCE(I.ComisionProductos, 0),1,1,null,null) + dbo.CC_ConvertiraMoneda(COALESCE(I.ComisionPartes, 0),1,1,null,null) + dbo.CC_ConvertiraMoneda(COALESCE(I.ComisionServicios, 0),1,1,null,null) + dbo.CC_ConvertiraMoneda(COALESCE(I.ComisionOtros, 0),1,1,null,null)
+					FROM CS_OrdenesLiquidadasTecnicos Ol
+					INNER JOIN Intervienen I WITH (NOLOCK) ON I.Orden = Ol.Orden AND I.Persona = Ol.Tecnico AND COALESCE(I.Liquidacion, 0) = 0
+					WHERE Ol.ID = @IDOrdenLiquidada
+
+					-- Liquidar
+					EXEC CS_LiquidarOrdenTecnico @IDTrabajo = @IDTrabajo, @Tecnico = @Tecnico, @Liquidacion = @Liquidacion, @FechaLiquidacion = @Fecha, @Factura = @Factura
+				END
+				IF @EstadoOrdenRecibido = @EstadoOrdenBase BEGIN
+					-- No se cambio estado, tal vez importe
+					UPDATE Ol SET Ol.Importe = dbo.CC_ConvertiraMoneda(COALESCE(I.ComisionProductos, 0),1,1,null,null) + dbo.CC_ConvertiraMoneda(COALESCE(I.ComisionPartes, 0),1,1,null,null) + dbo.CC_ConvertiraMoneda(COALESCE(I.ComisionServicios, 0),1,1,null,null) + dbo.CC_ConvertiraMoneda(COALESCE(I.ComisionOtros, 0),1,1,null,null)
+					FROM CS_OrdenesLiquidadasTecnicos Ol
+					INNER JOIN Intervienen I WITH (NOLOCK) ON I.Orden = Ol.Orden AND I.Persona = Ol.Tecnico AND COALESCE(I.Liquidacion, 0) = @Liquidacion
+					WHERE Ol.ID = @IDOrdenLiquidada
+				END
+			END
+			FETCH NEXT FROM ALiquidar INTO @Tecnico, @IDTrabajo
+		END
+	CLOSE ALiquidar
+	DEALLOCATE ALiquidar
+END
+
+
+(1 rows affected)

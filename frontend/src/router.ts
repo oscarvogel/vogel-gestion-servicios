@@ -16,6 +16,8 @@ import ParametersView from "./views/ParametersView.vue";
 import WorkOrderStatusesView from "./views/WorkOrderStatusesView.vue";
 import AssistantView from "./views/AssistantView.vue";
 import AiConsumoView from "./views/AiConsumoView.vue";
+import CierreMarcasView from "./views/CierreMarcasView.vue";
+import TecnicosView from "./views/TecnicosView.vue";
 
 declare module "vue-router" {
   interface RouteMeta {
@@ -111,6 +113,24 @@ const routes: RouteRecordRaw[] = [
         name: "work-order-statuses",
         component: WorkOrderStatusesView,
         meta: { requiresAuth: true, companyAdminOnly: true },
+      },
+      {
+        path: "cierre-marcas",
+        name: "cierre-marcas",
+        component: CierreMarcasView,
+        alias: ["/cierre-marcas"],
+        // Ver el cierre y emitirlo no es lo mismo: el permiso de ver habilita la pantalla,
+        // y el de administrar habilita generar, emitir y liquidar.
+        meta: { requiresAuth: true, permission: "warranty_settlements.view" },
+      },
+      {
+        path: "tecnicos",
+        name: "tecnicos",
+        component: TecnicosView,
+        alias: ["/tecnicos"],
+        // El maestro de técnicos: verlo lo puede cualquiera que administration órdenes, y
+        // dar de alta gente o desactivarla es tarea de quien administra el maestro.
+        meta: { requiresAuth: true, permission: "technicians.view" },
       },
       {
         path: "assistant",

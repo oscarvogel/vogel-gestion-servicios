@@ -401,35 +401,61 @@ backend/scripts/import_cyberbrain/
   report.py        # cuadre importado vs origen
 ```
 
-**Cómo leer el origen — dos caminos, y hay que elegir uno:**
+**Cómo leer el origen — DECIDIDO: opción A, directo a la base.**
 
-El contenedor `cb-sql` **no publica puerto** (se levantó sin `-p`), así que desde Windows no
-hay acceso directo por TCP. Las dos opciones:
+El contenedor `cb-sql` se levantó sin `-p`, así que desde Windows no había acceso por TCP.
+Había dos caminos:
 
 | Opción | Cómo | Ventaja | Inconveniente |
 |---|---|---|---|
-| **A — publicar el puerto + driver Python** (recomendada) | recrear el contenedor con `-p 1433:1433` y agregar `pymssql` a `pyproject.toml` (o a un extra `[project.optional-dependencies] import`) | El importador lee paginado y con tipos reales; se puede re-ejecutar fácil | Hay que instalar el driver en el venv de Windows |
-| **B — exportar CSV desde el contenedor** | `sqlcmd -o` / `bcp` por tabla, y el importador lee los CSV | Cero dependencias nuevas | Un paso más; los CSV de `CS_Partes` (128.561) y `CG_ItemsFacturas` (457.197) son pesados |
+| **A — publicar el puerto + driver Python** ✅ | recrear el contenedor con `-p 1433:1433` y agregar `pymssql` a `pyproject.toml` (o a un extra `[project.optional-dependencies] import`) | El importador lee paginado y con tipos reales; se puede re-ejecutar fácil | Hay que instalar el driver en el venv de Windows |
+| **B — exportar CSV desde el contenedor** ❌ | `sqlcmd -o` / `bcp` por tabla, y el importador lee los CSV | Cero dependencias nuevas | Un paso más; los CSV de `CS_Partes` (128.561) y `CG_ItemsFacturas` (457.197) son pesados |
 
-Las dependencias del backend están en **`backend/pyproject.toml`** (no hay
-`requirements.txt`): `fastapi, uvicorn, sqlalchemy, pymysql, alembic, pydantic-settings,
-python-jose, passlib, bcrypt, python-multipart, email-validator, tzdata, httpx`.
-**No hay driver de SQL Server**: hay que agregarlo o ir por la opción B.
+**Va la opción A.** El importador lee **CiberBase**, no los archivos: lo que hay que
+importar es la base, y un export intermedio entre la base y el importador es un punto de
+falla más (y un snapshot que envejece). Las exportaciones de `backup/_work/csv/` quedan
+como **snapshot auditable contra el cual se cuadra la importación**, no como su fuente.
+
+**Cómo se resolvió sin recrear el contenedor** (recrearlo habría perdido la base
+restaurada, que está en el volumen del contenedor):
+
+- `cb-sql` (SQL Server 2022) queda intacto, con la base restaurada y `/bak` montado.
+- `cb-tunnel` (`alpine/socat`) publica el 1433 del host WSL y lo reenvía a
+  `cb-sql:1433`. WSL reenvía `localhost` a Windows, así que desde el venv de Windows
+  `localhost:1433` es CiberBase.
+- `pymssql` 2.4.5 en el venv del backend, como extra opcional
+  (`[project.optional-dependencies] import`), para que el deploy normal no la exija.
+- Conexión por entorno: `CB_SQLSERVER_HOST` / `_PORT` / `_USER` / `_PASSWORD` /
+  `_DB`. **La password nunca en el código.**
+
+Verificado el 22/10/2026 contra la base real: `CS_Trabajos` 56.619 · desde 2020 **9.316**
+· `CC_Clientes_Tabla` 14.730 · `CG_Facturas_Tabla` 83.164 · políticas **126** ·
+`MAX(FechaAlta)` = **2026-10-21** (la base está al día, no es un dump vencido).
+
+**Lo que se discovers después al medir la base, y que cambia el mapeo** (estos números
+salen de consultas a CiberBase, no de leer el código del legacy):
+
+| Hallazgo | Dato | Consecuencia en el diseño |
+|---|---|---|
+| El 64 % de las OTs del corte no tiene cliente | 5.969 de 9.316 con `CodCli = 0` | `work_orders.customer_id` es NOT NULL ⇒ hay que **crear el cliente desde el snapshot de la OT** (`CS_Trabajos.Cliente`), no descartar esas OTs |
+| Los clientes no tienen documento utilizable | sólo **197 de 14.730** tienen CUIT válido (derivado de las facturas); 14.533 no; **13 CUITs repetidos** entre clientes distintos | `customers.document` se puebla **sólo** con CUIT de 11 dígitos **único**; el resto NULL. El `NroDocumento` de la OT **no** sirve (1.308 de 1.360 tienen 10 caracteres) |
+| No hay maestro de equipos | `DatosEquipos` tiene 56.619 filas = una por OT; el 87 % de las series son `ILEGIBLE` / `S/N` / `FALTA`; 92 pares (equipo+serie) comparten clientes distintos | **un `equipment` por OT**, tomado de `CS_Trabajos.Equipo/Modelo/NroSerie`. Deduplicar por serie sería inventar datos que el legacy no tiene |
 
 - **Destino**: SQLAlchemy contra `DATABASE_URL`, con `company_id` fijo (la empresa nueva).
 - **Idempotencia**: cada lote escribe en `work_order_import_rows` (ya existe) con
   `legacy_id` + `legacy_fields` crudo, para poder re-ejecutar sin duplicar y auditar.
-- **Velocidad**: 10.079 OTs + 26.150 equipos + 128.561 líneas ⇒ batch inserts de 1.000,
+- **Velocidad**: el corte son 9.316 OTs + 9.316 equipos + 29.799 líneas + 18.383
+  intervinientes + 10.509 comisiones + facturas ⇒ batch inserts de 1.000,
   `executemany`, y las referencias resueltas por un mapa en memoria (`CodCli → id`,
-  `(CodCli, NroSerie) → id`).
+  nombre normalizado → id).
 
 **Restricciones NOT NULL del destino que condicionan el mapeo** (verificadas en los
 modelos):
 
 | Tabla | Campo | Origen legacy |
 |---|---|---|
-| `work_orders` | `customer_id`, `equipment_id`, `reported_fault`, `received_by_user_id`, `status` | `CodCli`, `(CodCli, NroSerie)`, `Falla`, `Responsable`, `Estado` |
-| `equipment` | `customer_id`, `category_id` | `(CodCli, NroSerie)`, categoría curada de `Equipo` |
+| `work_orders` | `customer_id`, `equipment_id`, `reported_fault`, `received_by_user_id`, `status` | `CodCli` (o el `Cliente` de la OT si es 0), el equipo de la OT, `Falla`, `Usuario`, `Estado` |
+| `equipment` | `customer_id`, `category_id` | cliente de la OT, categoría curada de `Equipo` (un equipo por OT: el legacy no tiene maestro) |
 | `customers` | `name`, `customer_type` | `Cliente`, derivado (decisión 1.2) |
 
 ### 4.2 Mapeos clave (ya determinados)
@@ -678,17 +704,25 @@ Además: **muestra de 20 registros por entidad**, lado a lado (legacy vs destino
 
 ---
 
-## 9. Las 4 decisiones que faltan (esperando tu respuesta)
+## 9. Las decisiones que faltaban (RESUELTAS el 22/10/2026)
 
-Las contestadas están en §1. Estas cuatro cambian el resultado y **no puedo elegir por vos sin
-confirmar**, porque el número que se ve a fin de mes depende de ellas:
+Las contestadas están en §1. Estas cuatro cambian el resultado, así que no se podían
+elegir sin confirmación. **Ya están contestadas:**
 
-| # | Decisión | Recomendación | Impacto si cambia |
+| # | Decisión | **Resuelto** | Consecuencia en el código |
 |---|---|---|---|
-| **9.1** | **Alcance del cierre**: ¿sólo garantía (`Gt = 1`) o también la rama `FUERA` de cada marca? | **Las dos** (todo lo que tiene empresa a liquidar) | 2.853 OTs / 25,4 M contra 6.418 OTs / 73,2 M en 2020+. Es la diferencia entre liquidar el 35 % o el 100 % del trabajo de marca |
-| **9.2** | **Alladio** (`CodCli = 7634`): ¿se liquida como marca de fábrica o como *service oficial*? | Liquidarlo **sí**, pero con su propio criterio (tiene `Gt = 2` en "Garantía de Service") | 304 OTs / 174.081,12 en 2020+. Hoy su trabajo fuera de garantía no se le liquida (cae en el área genérica) |
-| **9.3** | **Persona vs. empresa**: ¿CUIT válido + sufijo societario y **consolidar los 288 nombres repetidos**, o dejar cada sucursal como cliente aparte? | Consolidar | Define cuántos clientes quedan en `customers` (14.730 filas crudas contra ~1.300 reales) |
-| **9.4** | **Mesas**: ¿maestro normalizado (`work_benches`) o texto libre? | Maestro normalizado | Permite medir carga por mesa después |
+| **9.1** | **Alcance del cierre**: ¿sólo garantía (`Gt = 1`) o también la rama `FUERA` de cada marca? | **Las dos**: entra toda OT cuya política pertenece a un área con empresa a liquidar | El flag de garantía **categoriza** pero no decide la inclusión. 6.418 OTs / 73,2 M en 2020+ |
+| **9.2** | **Alladio** (`CodCli = 7634`): ¿marca de fábrica o *service oficial*? | **Se liquida, con su propio criterio** | `Gt = 2` (garantía propia / de service) pasa a tener **tercer casillero** en el cierre: `own_warranty_works_count` / `own_warranty_amount` (migración `20261022_0026`). No va mezclado con "fuera de garantía": es garantía, pero no de terceros |
+| **9.3** | **Persona vs. empresa**: ¿consolidar los 288 nombres repetidos o dejar cada sucursal aparte? | **Pendiente, y no bloquea** | La primera importación deja las 14.730 filas del legacy tal cual (más los clientes deducidos de las OTs). Consolidar es un paso posterior y reversible; no se pierde nada por no hacerlo ahora |
+| **9.4** | **Mesas**: ¿maestro normalizado (`work_benches`) o texto libre? | **Maestro normalizado** | Permite medir carga por mesa después |
+
+**El detalle de 9.2 que conviene tener a mano:** Alladio es un *service oficial*, no una
+marca. Sus políticas de "Garantía de Service" tienen `Gt = 2`: la garantía la da el service.
+Con dos casDlleros (garantía / fuera de garantía) ese trabajo se reportaba como "fuera de
+garantía", o sea como trabajo que la marca no cubre — que no es lo que pasa, y además
+implicaría liquidarle al service oficial un número que no es el real. Por eso el desglose
+tiene **tres** casilleros, y el total sigue cuadrando: garantía + garantía propia + fuera de
+garantía = total liquidado.
 
 **Lo que este plan no cubre (a la espera, sin decisión pendiente):**
 

@@ -1,0 +1,35 @@
+CREATE PROCEDURE [dbo].[CS_LiquidarOrdenTecnico]
+@IDTrabajo INT,
+@Tecnico INT,
+@Liquidacion INT,
+@FechaLiquidacion DATETIME,
+@Factura Varchar(50)=null
+AS
+SET NOCOUNT ON
+DECLARE @LiquidacionExistente INT
+DECLARE @Comentarios VARCHAR(8000)
+
+SELECT @LiquidacionExistente = Liquidacion FROM Intervienen WHERE Orden = @IDTrabajo AND Persona = @Tecnico 
+IF COALESCE(@LiquidacionExistente, 0) > 0 BEGIN
+	SET @Comentarios = 'El trabajo ' + CONVERT(VARCHAR, @IDTrabajo) + ' del técnico ' + dbo.GetNombreUsuario(@Tecnico) + ' ya se encuentra en la liquidación ' + CONVERT(VARCHAR, @LiquidacionExistente)
+	RAISERROR (@Comentarios, 16, 1)
+	RETURN
+END ELSE BEGIN
+	UPDATE Intervienen SET Liquidacion = @Liquidacion, FechaLiquidacionTecnico = @FechaLiquidacion, NroFactura = @Factura WHERE Orden = @IDTrabajo AND Persona = @Tecnico
+
+	-- Generar Sucesos de Liquidacion
+	SET @Comentarios = 'Se incluye en la liquidación Nro ' + CONVERT(VARCHAR, @Liquidacion) + ' del técnico ' + dbo.GetNombreUsuario(@Tecnico)
+
+	EXEC CS_GeneraSucesoTrabajo @Fecha = Null, @Suceso = 40, @IDTrabajo = @IDTrabajo, @Genera = Null, @Comentarios = @Comentarios, @Tipo = 2
+
+	-- Generar Suceso de Facturación
+	If COALESCE(@Factura, '') <> '' BEGIN
+		SET @Comentarios = 'Liquidación Nro ' + CONVERT(VARCHAR, @Liquidacion) + ' del técnico ' + dbo.GetNombreUsuario(@Tecnico) + ' incluída en Factura ' + @Factura
+		EXEC CS_GeneraSucesoTrabajo @Fecha = Null, @Suceso = 41, @IDTrabajo = @IDTrabajo, @Genera = Null, @Comentarios = @Comentarios, @Tipo = 2
+	END
+
+	EXEC CSP_EVENTO_TRABAJO_LiquidacionTecnico @IDTrabajo, @Tecnico, @Liquidacion, @FechaLiquidacion, @Factura
+END
+
+
+(1 rows affected)

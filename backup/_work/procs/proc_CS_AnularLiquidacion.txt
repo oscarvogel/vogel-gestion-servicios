@@ -1,0 +1,39 @@
+CREATE PROCEDURE [dbo].[CS_AnularLiquidacion] 
+@ID INT
+AS
+SET NOCOUNT ON
+DECLARE @IDTrabajo INT
+DECLARE @IDUsuario INT
+DECLARE @Msg Varchar(500)
+DECLARE @IDOL INT
+
+SELECT @IDUsuario = IDUsuario FROM CC_UsuarioActual WHERe IDProceso = @@SPID
+SET @Msg = 'Anulación Liquidación Nro ' + CONVERT(Varchar, @ID)
+
+-- Volver a poner "Cerradas" todas las ordenes, blanquear la fecha y la factura emitida
+UPDATE CS_Trabajos SET Estado = 7, FechaLiquidacion = Null, LiquidacionNro = Null, Liquidada = 0, FacturaEmitida = Null, FlagSuceso = 1
+FROM OrdenesLiquidadas O
+WHERE CS_Trabajos.IDTrabajo = O.Orden AND O.Liquidacion = @ID AND coalesce(O.Rechazada,0) = 0
+
+-- Marcar la liquidacion como anulada
+UPDATE Liquidaciones SET Anulado = 1, AnuladoPor = @IDUsuario, FechaAnulacion = GetDate() WHERE ID = @ID
+
+-- Generar Sucesos de Anulacion
+DECLARE Trabajos Cursor Local FAST_FORWARD FOR SELECT Orden, ID FROM OrdenesLiquidadas WHERE Liquidacion = @ID AND coalesce(Rechazada,0) = 0
+OPEN Trabajos 
+FETCH NEXT FROM Trabajos INTO @IDTrabajo, @IDOL
+WHILE @@FETCH_STATUS = 0 BEGIN
+	-- Generar Suceso de Anulacion en cada orden
+	EXEC CS_GeneraSucesoTrabajo Null, 24, @IDTrabajo, @IDUsuario, @Msg, 2
+
+	-- Poner como rechazada cada orden individual
+	UPDATE OrdenesLiquidadas SET Rechazada = 1 WHERE ID= @IDOL
+
+	FETCH NEXT FROM Trabajos INTO @IDTrabajo, @IDOL
+END
+Close Trabajos
+Deallocate Trabajos
+
+
+
+(1 rows affected)

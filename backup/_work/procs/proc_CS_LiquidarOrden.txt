@@ -1,0 +1,135 @@
+CREATE PROCEDURE [dbo].[CS_LiquidarOrden]
+@IDTrabajo int, 
+@Fecha datetime=null,
+@LiquidacionNro INT= NULL,
+@FacturaEmitida VARCHAR(50) = NULL,
+@DesdeRuta BIT=0,
+@LiquidacionManual BIT=1,
+@Forzozo BIT = 1,
+@Errores VARCHAR(4000) = '' OUTPUT
+AS
+SET NOCOUNT ON
+
+DECLARE @Txt VARCHAR(1000)
+DECLARE @Gestion INT
+DECLARE @Liquidar INT
+DECLARE @EstadoPosible INT
+
+DECLARE @IDPolitica INT
+DECLARE @Comprobante varchar(50)
+DECLARE @NroOtorgado VARCHAR(50)
+DECLARE @Faxeada BIT
+DECLARE @Autorizacion VARCHAR(20)
+	DECLARE @Lista BIT
+DECLARE @Cerrar smallint
+DECLARE @TotalPresupuesto DECIMAL(19,6)
+DECLARE @MontoAutorizar DECIMAL(19,5)
+DECLARE @Presupuestar bit
+DECLARE @Presupuestado bit
+DECLARE @CliInformado BIT
+DECLARE @Respuesta TINYINT
+DECLARE @ErrInf varchar(5000)
+DECLARE @EstadoActual INT 
+DECLARE @FechaEntrega DATETIME
+DECLARE @IDTipoCanje INT
+DECLARE @FechaRecepcion DATETIME
+DECLARE @EstadoPresupAgentes INT
+
+SELECT 	@Gestion = COALESCE(T.Gestion, 0),
+		@Comprobante = COALESCE(T.Comprobante, ''),
+		@NroOtorgado = COALESCE(T.NroOtorgado, ''),
+		@Faxeada = COALESCE(T.Faxeada, 0),
+		@Autorizacion = COALESCE(T.Autorizacion, ''),
+		@TotalPresupuesto = COALESCE(T.TotalPresupuesto, 0),
+		@EstadoActual = COALESCE(T.Estado, -1),
+		@Lista = COALESCE(T.Lista, 0),
+		@Respuesta = COALESCE(T.Respuesta, 0), 
+		@IDPolitica = T.IDPolitica,
+		@MontoAutorizar = COALESCE(P.MontoAutorizar, 0), 
+		@Cerrar = COALESCE(P.Cerrar, 0),
+		@Liquidar = COALESCE(P.Liquidar, 0),
+		@FechaEntrega = T.FechaEntrega,
+		@IDTipoCanje = T.IDTipoCanje,
+		@EstadoPresupAgentes = T.EstadoPresupAgentes,
+		@FechaRecepcion = T.FechaRecepcion
+FROM CS_TrabajosVisibles T
+INNER JOIN CS_PoliticasxArea P ON P.ID = T.IDPolitica
+WHERE T.IDTrabajo = @IDTrabajo
+
+if @Liquidar=2 return --No se liquidan, no hace falta ver mas nada!!!
+
+DECLARE @HayPresupuestosAgentes TINYINT = 0
+-- Consolidar resultado presupuestos agentes
+IF EXISTS(SELECT * FROM Intervienen I WITH (NOLOCK) WHERE I.Orden = @IDTrabajo AND COALESCE(I.EstadoPresupuesto, 0) <> 0) SET @HayPresupuestosAgentes = 1		-- Hay Presupuestos
+IF NOT EXISTS(SELECT * FROM Intervienen I WITH (NOLOCK) WHERE I.Orden = @IDTrabajo AND COALESCE(I.EstadoPresupuesto, 0) > 0) AND @HayPresupuestosAgentes = 1 SET @HayPresupuestosAgentes = 2		-- Estan todos terminados
+
+-- Ver si esta todo para liquidar...
+EXEC @EstadoPosible = CS_EstadoPosible @IDPolitica = @IDPolitica, 
+									   @Comprobante = @Comprobante, 
+									   @NroOtorgado = @NroOtorgado, 
+									   @Faxeada = @Faxeada, 
+									   @Autorizacion = @Autorizacion, 
+									   @Lista = @Lista, 
+									   @TotalPresupuesto = @TotalPresupuesto, 
+									   @MontoAutorizar = @MontoAutorizar, 
+									   @Presupuestar = @Presupuestar, 
+									   @Presupuestado = @Presupuestado, 
+									   @CliInformado = @CliInformado,
+									   @Respuesta = @Respuesta, 
+									   @FechaEntrega = @FechaEntrega,
+									   @CierreManual =  0, 
+									   @LiquidacionManual = @LiquidacionManual, 
+									   @EstadoActual = @EstadoActual, 
+									   @FechaRecepcion = @FechaRecepcion, 
+									   @PresupuestadoAgente = @HayPresupuestosAgentes,
+									   @EstadoPresupAgentes = @EstadoPresupAgentes,
+									   @IDTipoCanje = @IDTipoCanje,
+									   @ErrInf = @ErrInf OUT
+
+IF COALESCE(@ErrInf, '') <> '' BEGIN
+	SET @Errores = @ErrInf
+	EXEC CS_GeneraSucesoTrabajo NULL, 12, @IDTrabajo, Null, @ErrInf, 2
+END
+
+IF (@LiquidacionManual=1 OR @Liquidar = 1 OR COALESCE(@LiquidacionNro, 0) > 0) AND @EstadoActual = 7 AND @EstadoPosible > 7
+	BEGIN
+		-- Solo liquidar si el area dice liquidar o si es una liquidacion manual	
+		IF EXISTS(SELECT 1 From CS_Trabajos T WHERE IDTrabajo = @IDTrabajo AND COALESCE(Gestion, 0) = 0) 
+			BEGIN
+				UPDATE CS_Trabajos SET Estado = 8, 
+				Liquidada = 1,
+				FechaLiquidacion = COALESCE(@Fecha, GetDate()), 
+				LiquidacionNro = COALESCE(@LiquidacionNro, LiquidacionNro) ,
+				FacturaEmitida = COALESCE(@FacturaEmitida, FacturaEmitida), 
+				FlagSuceso = 1
+				Where IDTrabajo = @IDTrabajo
+
+				IF COALESCE(@LiquidacionNro, 0) > 0
+					BEGIN
+						SET @Txt = 'Se incluye la orden en la liquidación  Nro ' + CONVERT(VARCHAR, @LiquidacionNro) 
+						EXEC CS_GeneraSucesoTrabajo null, 9, @IDTrabajo, Null, @Txt, 2
+
+						IF COALESCE(@FacturaEmitida, '') <> '' BEGIN
+							SET @Txt = 'Información de Factura, Liquidación Nro ' + CONVERT(VARCHAR, @LiquidacionNro) 
+							EXEC CS_GeneraSucesoTrabajo null, 10, @IDTrabajo, Null, @Txt, 2
+						END
+					END
+				ELSE IF @LiquidacionManual=0
+					BEGIN
+						-- Liquidacion Automatica
+						IF @DesdeRuta = 0
+							EXEC CS_GeneraSucesoTrabajo  Null, 9, @IDTrabajo, Null, 'Liquidación de la orden por reglas del área', 2
+						ELSE
+							EXEC CS_GeneraSucesoTrabajo  Null, 9, @IDTrabajo, Null, 'Liquidación de la orden por reglas del área (desde hoja de ruta)', 2
+					END
+				ELSE
+				    EXEC CS_GeneraSucesoTrabajo  Null, 9, @IDTrabajo, Null, 'Liquidación manual de la orden', 2
+			END
+		ELSE BEGIN
+			set @Errores='No es posible Liquidar el Trabajo, está detenido por una auditoría.'
+			EXEC CS_GeneraSucesoTrabajo NULL, 12, @IDTrabajo, Null, @Errores, 2
+			IF @Forzozo = 1 RAISERROR (@Errores, 16, 1)
+		END
+	END
+
+(1 rows affected)

@@ -15,6 +15,7 @@ import SettingsView from "./views/SettingsView.vue";
 import ParametersView from "./views/ParametersView.vue";
 import WorkOrderStatusesView from "./views/WorkOrderStatusesView.vue";
 import AssistantView from "./views/AssistantView.vue";
+import CierreMarcasView from "./views/CierreMarcasView.vue";
 
 declare module "vue-router" {
   interface RouteMeta {
@@ -110,6 +111,15 @@ const routes: RouteRecordRaw[] = [
         name: "work-order-statuses",
         component: WorkOrderStatusesView,
         meta: { requiresAuth: true, companyAdminOnly: true },
+      },
+      {
+        path: "cierre-marcas",
+        name: "cierre-marcas",
+        component: CierreMarcasView,
+        alias: ["/cierre-marcas"],
+        // Ver el cierre y emitirlo no es lo mismo: el permiso de ver habilita la pantalla,
+        // y el de administrar habilita generar, emitir y liquidar.
+        meta: { requiresAuth: true, permission: "warranty_settlements.view" },
       },
       {
         path: "assistant",

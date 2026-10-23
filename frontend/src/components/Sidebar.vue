@@ -9,6 +9,7 @@ import IconUsers from "./IconUsers.vue";
 import IconRoles from "./IconRoles.vue";
 import IconSettings from "./IconSettings.vue";
 import IconAssistant from "./IconAssistant.vue";
+import IconCierre from "./IconCierre.vue";
 
 defineProps<{ open?: boolean }>();
 const emit = defineEmits<{ (e: "close"): void }>();
@@ -55,6 +56,15 @@ const links = computed<NavLink[]>(() => {
       to: "/app/work-orders",
       icon: IconSettings,
       visible: session.activeCompany !== null && session.hasPermission("work_orders.view"),
+    },
+    {
+      id: "cierre-marcas",
+      label: "Cierre a marcas",
+      to: "/app/cierre-marcas",
+      icon: IconCierre,
+      // Junto a las ordenes de trabajo: el cierre de mes es el cierre de esas OTs.
+      visible:
+        session.activeCompany !== null && session.hasPermission("warranty_settlements.view"),
     },
     {
       id: "users",

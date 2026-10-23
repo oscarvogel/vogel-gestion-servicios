@@ -161,7 +161,7 @@ hacer clic en él.
 **Arreglo:** se agrega `.technician-picker{position:relative}` (y el `top:calc(100% + 4px)`
 para pegarlo al campo, como hace `.technician-assign` en el detalle de la OT).
 
-**Por qué no lo管理局 el test:** jsdom no calcula posiciones, así que en el test el menú
+**Por qué no lo traduce el test:** jsdom no calcula posiciones, así que en el test el menú
 "appears" donde debe. El test de regresión (`work-orders-deep-link.test.ts`) controla el
 **fuente** del componente: si alguien saca la regla, el test falla.
 
@@ -387,16 +387,116 @@ nombre (una IP fija horneada en la imagen queda vieja en cada deploy).
    muestra ni el cuerpo.
 3. **Un 502/499 en el log del proxy explica una pantalla vacia.** `499` es el cliente
    que corta la peticion; `connect() failed (111)` es el upstream que no acepta.
+4. **Un test que pasa no siempre prueba el fix.** El test del proxy daba 20/20
+   *con* el bug del IPv6, porque nginx reintenta la misma peticion contra otra
+   direccion del AAAA y termina respondiendo igual. Lo que prueba el fix es el log:
+   cero lineas con IPv6.
+
+### 5.10 Subir todo a GitHub y desplegarlo en Coolify
+
+**Qué se subió.** Primero las herramientas de la sesión, que hasta ahora vivían
+sueltas en `backup/_work/` (commit `f4222b2`): los scripts de verificación
+(`probar_proxy.py`, `verificar_sesion.py`, `probe_staging.py`, `repro_*.py`,
+`ver_*.py`) y los de despliegue (`deploy_*.ps1`, `monitor_deploy*.ps1`,
+`esperar_*.ps1`, `logs_*.ps1`, `ver_*.ps1`, `cerrar_puerto_base.ps1`).
+
+Antes de commitearlos se limpiaron **credenciales**: los tres scripts que
+tenían la contraseña de staging hardcodeada ahora la leen de
+`STAGING_PASSWORD` / `STAGING_DATABASE_URL`, y el mail a Electrotecniref
+lleva la contraseña reemplazada por la nota de que se envía aparte. Se
+**quedaron fuera** el volcado de la app de Coolify (`front_app.json`, trae los
+secretos de los webhooks) y los scripts de parcheo de un solo uso.
+
+**El trabajo del otro worker ya estaba en `main`.** El working tree tenía
+cambios sin commitear de "Consumo de IA" (`ai.py`, `companies.py`, `usage.py`,
+`Sidebar.vue`, `router.ts`, `AiConsumoView.vue`, `test_ai_consumo.py`). Al
+auditarlo:
+- `ai.py`, `companies.py` y `usage.py` son **byte a byte iguales** a `main`.
+- Los otros tres son iguales a `main` salvo el fin de línea (CRLF vs LF).
+- Esos cambios entraron a `main` por el PR #112 (`483e84c`), que ya está
+  mergeado, y la rama `feat/ia-consumo` ya no existe en el remoto.
+
+O sea: **no había nada suyo pendiente de subir** y no se commiteó nada suyo.
+Lo que sí se commiteó es el trabajo propio, que estaba en la rama.
+
+**El merge a `main` (8 conflictos).** `main` ya traía el cierre a marcas
+(#113) y mi rama traía el mismo trabajo con otra historia, así que los dos
+lados tenían los mismos archivos, pero con commits distintos. Conflictos:
+
+| Archivo | Cómo se resolvió |
+|---|---|
+| `frontend/src/router.ts` | **Unión**: `main` traía la ruta de Consumo de IA y la rama las de Cierre a marcas y Técnicos. Se quedaron las tres. |
+| `frontend/src/components/Sidebar.vue` | Auto-merge, y se verificó que quedaron los tres links (`cierre-marcas`, `tecnicos`, `consumo-ia`). |
+| `backend/app/core/permissions.py` | Versión de la rama: `main` + `technicians.view` / `technicians.manage`. |
+| `backend/app/models/warranty_settlement.py`, `api/v1/warranty_settlements.py`, `services/warranty_settlements.py`, `tests/test_cierre_marcas.py` | Versión de la rama: es la de `main` **más** la garantía propia como tercer casillero (`warranty_type = 2`, migración 0026, que `main` todavía no tenía). |
+| `.gitignore`, `docs/plan-importacion-ciberbrain.md` | Versión de la rama (superconjunto de `main`). |
+
+El merge se hizo en un **worktree aparte** (`C:\Programacion\_worktrees\vogel-merge`),
+no en el directorio de trabajo: así el working tree del otro worker quedó
+intacto y el merge se pudo probar antes de subirlo.
+
+**Verificación del resultado del merge** (no sólo de la rama):
+- Backend **325 tests en verde** sobre el merge.
+- Frontend **62 tests en verde** (12 archivos) y `npm run build` OK.
+- **CI de GitHub Actions en verde sobre `main`**: jobs `backend`,
+  `mysql-migrations` y `frontend` los tres `success` en el commit `22a2f14`.
+
+**El despliegue.** Las dos apps de staging (`...-staging-backend` y
+`...-staging-frontend`) se apuntaron a `main` y se re-desplegaron. La cola de
+deploys de Coolify es **compartida entre proyectos**: delante de los nuestros
+había deploys de `vogel-gestion-servicios-production` y de
+`registro-produccion`, y hubo que esperar.
+
+El backend salió bien a la primera (deploy 1680). El frontend **no**: el deploy
+1681 dejó el contenedor viejo sirviendo (el bundle seguía siendo
+`index-DODAW9H1.js`, el anterior) y, peor, el nginx de ese contenedor seguía
+resolviendo el backend por IPv6 (`upstream: "http://[fd04:36e8:6aaa::17]:8000"`),
+con `connect() failed (111)` y algún 500. Al re-desplegar (1683) sí: bundle
+`index-COx7kMJw.js` y **cero** upstreams IPv6 en el log del nginx.
+
+**Verificado en el navegador** (después del deploy final):
+
+- "9316 órdenes en esta empresa" en el listado (no "0 órdenes").
+- Maestro de técnicos: "45 activos de 45", con los filtros Todos / Activos /
+  Desactivados y las acciones Renombrar / Desactivar.
+- El combo de técnico de la recepción **abre debajo del campo** con los
+  técnicos activos, y filtrando "allad" aparece "Alladio".
+- El menú tiene las tres secciones juntas: Cierre a marcas, Técnicos y
+  Consumo de IA (la que traía `main`).
+- La sesión sobrevive a una recarga completa de la página (por el refresh token
+  con empresa), y el listado sigue con las OTs de CiberBrain (#9316, #9315, ...).
+
+
+**Ojo con producción.** Las apps de producción de este repo
+(`api.servicios.vogelconsultoria.com.ar` y `servicios.vogelconsultoria.com.ar`)
+siguen la rama `main`, así que **el merge a `main` también llegó a producción**
+(ya había un deploy de producción en la cola). Lo que llega:
+
+- Migraciones **0026** (dos columnas con default 0) y **0027** (dos
+  permisos nuevos). Las dos son **aditivas**: no recalculan ni borran nada.
+- La tabla `technicians` la crea la 0024, que ya estaba en `main`.
+- El menú **"Técnicos"** va a aparecer para los Administradores, con el
+  maestro **vacío**: los datos de CiberBrain están sólo en la base de
+  staging, en producción no se importó nada.
+
+Lo que **no** cambia en producción: el `nginx.conf` con `ipv6=off` ya estaba
+en `main` (es idéntico al de la rama), y el destino del backend se inyecta
+en build por app, así que cada entorno sigue apuntando a su propio alias.
 
 ---
+
 
 ## 6. Pendientes
 
 - [x] **Puerto público de la base de staging cerrado** (`is_public=false`, `public_port=''`): se abrió para diagnosticar el listado y quedó cerrado al terminar.
 - [ ] Agregar `vue-tsc --noEmit` al frontend (no hay type-check en el build: por eso pasó el
       import faltante de `apiDelete`).
-- [ ] Merge de `feature/cyberbrain-migracion` a `main` y, después, restaurar staging a `main`
-      (la base de staging ya está en `20261023_0027`; `main` sólo llega a `0025`).
+- [x] Merge de `feature/cyberbrain-migracion` a `main` (commit `22a2f14`, CI en verde) y staging
+      restaurado a `main`: la base de staging quedó en `20261023_0027` y `main` ahora también
+      llega a `0027`.
 - [ ] Limpiar las variables duplicadas de `staging-backend` (`CORS_ORIGINS` con dos valores).
 - [ ] Decidir qué hacer con el `datadir` viejo de la base de staging.
-- [ ] La base de producción sigue sin tocar.
+- [x] La base de producción: nadie la tocó a mano, pero el deploy de producción tomó `main`
+      y aplicó las migraciones 0026 y 0027 (las dos aditivas). El menú **Técnicos** queda
+      visible para los Administradores pero con el maestro **vacío**: los datos de CiberBrain
+      sólo están en la base de staging.

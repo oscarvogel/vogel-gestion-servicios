@@ -1,11 +1,15 @@
-"""Prueba la estabilidad del proxy del frontend contra el backend.
+r"""Prueba la estabilidad del proxy del frontend contra el backend.
 
 Antes del fix (resolver sin ipv6=off) nginx elegia al azar entre la A y la AAAA del
 contenedor del backend, y como el backend solo escucha en IPv4, la mitad de las
 peticiones fallaban con "connection refused".
 
+Ojo: este test da 20/20 *con* el bug, porque nginx reintenta la peticion contra
+otra direccion y al final responde igual. Lo que prueba el fix es el log del
+nginx: cero lineas con IPv6.
+
 Uso:
-    .\\backend\\.venv\\Scripts\\python.exe backup\\_work\probar_proxy.py [n]
+    .\backend\.venv\Scripts\python.exe backup\_work\probar_proxy.py [n]
 """
 from __future__ import annotations
 

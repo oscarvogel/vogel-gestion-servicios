@@ -183,15 +183,36 @@ export const useSessionStore = defineStore("session", () => {
         // company_id. Re-select the persisted company before any tenant view mounts.
         if (activeCompany.value) {
           try {
-            const response = await apiPost<{ access_token: string; token_type: string }>(
-              "/auth/select-company",
-              { company_id: activeCompany.value.id }
-            );
-            setToken(response.access_token);
+            const response = await apiPost<{
+              access_token: string;
+              refresh_token?: string;
+              token_type: string;
+            }>("/auth/select-company", { company_id: activeCompany.value.id });
+            setToken(response.access_token, response.refresh_token);
             token.value = response.access_token;
             await loadMe();
           } catch (_) {
             persistActiveCompany(null);
+          }
+        } else if (me.value && !me.value.is_superadmin) {
+          // Sesion recargada sin empresa guardada (se perdio el localStorage, o el
+          // token quedo en modo plataforma). Antes la app entraba igual a las vistas
+          // de empresa y todas las consultas respondian 409: la pantalla quedaba en
+          // cero sin explicar nada. Si el usuario tiene una sola empresa activa, se
+          // elige sola; si tiene varias, se lo manda al selector.
+          const activas = me.value.memberships.filter((m) => m.active && m.company_active);
+          if (activas.length === 1) {
+            try {
+              await selectCompany({
+                id: activas[0].company_id,
+                name: activas[0].company_name,
+                slug: activas[0].company_slug,
+                active: true,
+                is_admin: activas[0].is_admin,
+              });
+            } catch (_) {
+              // Si no se puede elegir, se deja la sesion como estaba.
+            }
           }
         }
         authStatus.value = "authenticated";
@@ -206,11 +227,12 @@ export const useSessionStore = defineStore("session", () => {
           // refreshAccessToken restores the persisted tenant when possible. If
           // another refresh implementation returned platform mode, normalize it.
           if (activeCompany.value) {
-            const response = await apiPost<{ access_token: string; token_type: string }>(
-              "/auth/select-company",
-              { company_id: activeCompany.value.id }
-            );
-            setToken(response.access_token);
+            const response = await apiPost<{
+              access_token: string;
+              refresh_token?: string;
+              token_type: string;
+            }>("/auth/select-company", { company_id: activeCompany.value.id });
+            setToken(response.access_token, response.refresh_token);
             token.value = response.access_token;
             await loadMe();
           }
@@ -230,21 +252,26 @@ export const useSessionStore = defineStore("session", () => {
   }
 
   async function selectCompany(company: CompanyOption) {
-    const response = await apiPost<{ access_token: string; token_type: string }>(
-      "/auth/select-company",
-      { company_id: company.id }
-    );
-    setToken(response.access_token);
+    const response = await apiPost<{
+      access_token: string;
+      refresh_token?: string;
+      token_type: string;
+    }>("/auth/select-company", { company_id: company.id });
+    // El refresh token tambien viene con la empresa: sin guardarlo, la proxima
+    // renovacion del access token dejaba la sesion sin empresa y todo daba 409.
+    setToken(response.access_token, response.refresh_token);
     token.value = response.access_token;
     persistActiveCompany(company);
     await loadMe();
   }
 
   async function leaveCompany() {
-    const response = await apiPost<{ access_token: string; token_type: string }>(
-      "/auth/leave-company"
-    );
-    setToken(response.access_token);
+    const response = await apiPost<{
+      access_token: string;
+      refresh_token?: string;
+      token_type: string;
+    }>("/auth/leave-company");
+    setToken(response.access_token, response.refresh_token);
     token.value = response.access_token;
     persistActiveCompany(null);
     await loadMe();

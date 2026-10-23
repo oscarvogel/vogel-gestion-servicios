@@ -50,12 +50,20 @@ export async function refreshAccessToken(): Promise<string> {
           try {
             const company = JSON.parse(rawCompany) as { id?: number };
             if (company.id) {
-              const selected = await axios.post<{ access_token: string }>(
+              const selected = await axios.post<{
+                access_token: string;
+                refresh_token?: string;
+              }>(
                 `${baseURL}/auth/select-company`,
                 { company_id: company.id },
                 { headers: { Authorization: `Bearer ${accessToken}` } },
               );
               accessToken = selected.data.access_token;
+              // El refresh token nuevo ya viene con la empresa: hay que guardarlo,
+              // sino la proxima renovacion vuelve al modo plataforma.
+              if (selected.data.refresh_token) {
+                localStorage.setItem(REFRESH_KEY, selected.data.refresh_token);
+              }
             }
           } catch (_) {
             localStorage.removeItem(ACTIVE_COMPANY_KEY);

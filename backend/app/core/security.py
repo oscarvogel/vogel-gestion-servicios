@@ -48,9 +48,16 @@ def create_access_token(user_id: int, company_id: int | None = None, *, superadm
     )
 
 
-def create_refresh_token(user_id: int) -> str:
+def create_refresh_token(user_id: int, company_id: int | None = None) -> str:
+    """Refresh token.
+
+    Lleva la empresa activa para que, al renovar el access token, el usuario no
+    vuelva al modo plataforma: sin esto, cada renovacion dejaba el token sin
+    `company_id` y toda consulta de empresa respondia 409 "Active company required".
+    """
     return create_token(
         user_id,
         "refresh",
         timedelta(days=settings.refresh_token_days),
+        company_id,
     )

@@ -262,6 +262,8 @@ class FlexxusClient:
                 seleccion.append("a.BLOQUEADO")
 
             joins = []
+            tiene_rubro = False
+            tiene_marca = False
             if columnas_stock and "CODIGOARTICULO" in columnas_stock:
                 if "STOCKACTUAL" in columnas_stock:
                     seleccion.append("s.STOCKACTUAL")
@@ -276,6 +278,7 @@ class FlexxusClient:
                 # Alias propio: RUBROS y MARCAS tienen las dos DESCRIPCION.
                 seleccion.append("r.DESCRIPCION as RUBRO_DESCRIPCION")
                 joins.append('left join "RUBROS" r on r.CODIGORUBRO = a.CODIGORUBRO')
+                tiene_rubro = True
             if (
                 columnas_marcas
                 and "CODIGOMARCA" in columnas_marcas
@@ -283,6 +286,20 @@ class FlexxusClient:
             ):
                 seleccion.append("m.DESCRIPCION as MARCA_DESCRIPCION")
                 joins.append('left join "MARCAS" m on m.CODIGOMARCA = a.CODIGOMARCA')
+                tiene_marca = True
+
+            # Donde se busca. Ademas del codigo y la descripcion del articulo, el
+            # **rubro y la marca**: el operador ve "BREMEN PUNTERA" en el desplegable
+            # y muchas veces busca por ahi ("puntera"), no por el nombre del
+            # articulo. Con solo codigo y descripcion, buscar "PUNTERA" no
+            # encontraba nada y el modulo seemedia roto.
+            columnas_busqueda = ["a.CODIGOARTICULO"]
+            if "DESCRIPCION" in columnas_articulos:
+                columnas_busqueda.append("a.DESCRIPCION")
+            if tiene_rubro:
+                columnas_busqueda.append("r.DESCRIPCION")
+            if tiene_marca:
+                columnas_busqueda.append("m.DESCRIPCION")
 
             filtros = []
             params: list[Any] = []
@@ -298,10 +315,14 @@ class FlexxusClient:
                     # parametro tambien hace que Firebird infiera un tipo
                     # corto. La aguja ya viene en mayusculas.
                     ramas.append(
-                        "(position(cast(? as varchar(255)) in upper(a.CODIGOARTICULO)) > 0"
-                        " or position(cast(? as varchar(255)) in upper(a.DESCRIPCION)) > 0)"
+                        "("
+                        + " or ".join(
+                            "(position(cast(? as varchar(255)) in upper(" + columna + ")) > 0)"
+                            for columna in columnas_busqueda
+                        )
+                        + ")"
                     )
-                    params.extend([variante, variante])
+                    params.extend([variante] * len(columnas_busqueda))
                 filtros.append("(" + " or ".join(ramas) + ")")
             if "ACTIVO" in columnas_articulos:
                 filtros.append("coalesce(a.ACTIVO, 1) = 1")
@@ -333,12 +354,20 @@ class FlexxusClient:
                 """
                 codigo = _sin_acentos(str(fila.get("CODIGOARTICULO") or "")).upper()
                 descripcion = _sin_acentos(str(fila.get("DESCRIPCION") or "")).upper()
+                # El rubro y la marca tambien cuentan: son los que el operador ve
+                # en el desplegable y por los que escribe ("puntera", "drean").
+                rubro = _sin_acentos(str(fila.get("RUBRO_DESCRIPCION") or "")).upper()
+                marca = _sin_acentos(str(fila.get("MARCA_DESCRIPCION") or "")).upper()
                 for termino in terminos:
                     variantes = [termino] + [
                         v for v in _variantes(termino) if v != termino
                     ]
                     if not any(
-                        v in codigo or v in descripcion for v in variantes
+                        v in codigo
+                        or v in descripcion
+                        or v in rubro
+                        or v in marca
+                        for v in variantes
                     ):
                         return False
                 return True

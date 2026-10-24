@@ -60,6 +60,8 @@ const aviso = ref<string | null>(null);
 const seleccionado = ref<SparePart | null>(null);
 /** null = todavia no se consulto. false = el catalogo no aplica a esta empresa. */
 const catalogoDisponible = ref<boolean | null>(null);
+/** Lo ultimo que se busco, para poder decir "no hay nada que coincida con X". */
+const textoBuscado = ref("");
 
 const inputRef = ref<HTMLInputElement | null>(null);
 const menuRef = ref<HTMLElement | null>(null);
@@ -172,6 +174,7 @@ async function buscar(texto: string) {
   }
   const pedido = ++numeroPedido;
   cargando.value = true;
+  textoBuscado.value = limpio;
   try {
     const r = await apiGet<{
       disponible: boolean;
@@ -210,7 +213,13 @@ async function buscar(texto: string) {
       await nextTick();
       abrirMenu();
     } else {
-      cerrarMenu();
+      // Cero resultados NO es lo mismo que "el modulo no aplica". Si el catalogo
+      // esta disponible y no hay coincidencias, hay que decirlo: si el menu se
+      // cierra en silencio, el operador escribe, no pasa nada y parece que el
+      // modulo esta roto (que fue lo que paso con "foc", que no existe en el
+      // catalogo del ERP).
+      await nextTick();
+      abrirMenu();
     }
   } catch (_) {
     opciones.value = [];
@@ -282,11 +291,11 @@ onBeforeUnmount(() => {
     <small v-if="aviso" class="spare-picker__aviso">{{ aviso }}</small>
     <Teleport to="body">
       <div
-        v-if="abierto && opciones.length"
+        v-if="abierto"
         ref="menuRef"
         class="spare-picker__menu"
         :style="menuStyle"
-        role="listbox"
+        :role="opciones.length ? 'listbox' : 'status'"
         @mousedown.prevent
       >
         <button
@@ -305,6 +314,13 @@ onBeforeUnmount(() => {
             <b v-if="opcion.sale_price !== null">$ {{ formato(opcion.sale_price) }}</b>
           </span>
         </button>
+        <p v-if="!opciones.length" class="spare-picker__vacio">
+          No hay repuestos que coincidan con «{{ textoBuscado }}».
+          <small>
+            Probá con otra parte del nombre, con el código, o con el rubro o la marca
+            (por ejemplo "PUNTERA" o "BREMEN").
+          </small>
+        </p>
       </div>
     </Teleport>
   </div>
@@ -379,6 +395,22 @@ onBeforeUnmount(() => {
 }
 .spare-picker__option:hover {
   background: rgba(59, 130, 246, 0.14);
+}
+/* Cuando la busqueda no encuentra nada, el menu sigue abierto y lo dice: si se
+   cierra en silencio, el operador no puede distinguir "no hay coincidencias" de
+   "el modulo esta roto". */
+.spare-picker__vacio {
+  margin: 0;
+  padding: 10px 12px;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--text-muted, #8290a5);
+}
+.spare-picker__vacio small {
+  display: block;
+  margin-top: 4px;
+  font-size: 11.5px;
+  opacity: 0.85;
 }
 .spare-picker__code {
   font-size: 11px;

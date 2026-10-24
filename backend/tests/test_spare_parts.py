@@ -411,9 +411,18 @@ class CursorFalso:
         self.filas = filas or []
         self.description = None
         self._resultado: list = []
+        # Ultima consulta y sus parametros: para poder verificar el SQL que se
+        # arma, no solo lo que devuelve el filtro de Python. Se guardan todas,
+        # porque despues de la consulta del catalogo hay otras (MONEDAS).
+        self.ultimo_sql = ""
+        self.ultimos_params: tuple = ()
+        self.consultas: list[str] = []
 
     def execute(self, sql, params=None):
         bajo = sql.lower()
+        self.ultimo_sql = sql
+        self.ultimos_params = tuple(params or ())
+        self.consultas.append(sql)
         if "from rdb$relations" in bajo:
             tabla = (params or ("",))[0]
             self._resultado = [[1 if tabla in self.tablas else 0]]
@@ -475,6 +484,96 @@ def test_base_sin_tabla_articulos_no_revienta():
     cliente = _cliente_con({"MONEDAS": {"CODIGOMONEDA", "CAMBIO"}})
     with pytest.raises(FlexxusUnavailable):
         cliente.buscar_articulos("adaptador")
+
+
+def test_la_busqueda_encuentra_por_rubro_y_por_marca():
+    """El operador ve "BREMEN PUNTERA" en el desplegable y escribe eso.
+
+    Con la busqueda acotada al codigo y a la descripcion del articulo, escribir
+    "puntera" no encontraba nada y el modulo parecia roto.
+    """
+    tablas = {
+        "ARTICULOS": {
+            "CODIGOARTICULO", "DESCRIPCION", "CODIGORUBRO", "CODIGOMARCA",
+            "CODIGOMONEDA", "PRECIOCOMPRA", "PRECIOVENTA1", "ACTIVO", "BLOQUEADO",
+        },
+        "RUBROS": {"CODIGORUBRO", "DESCRIPCION"},
+        "MARCAS": {"CODIGOMARCA", "DESCRIPCION"},
+        "STOCK": {"CODIGOARTICULO", "STOCKACTUAL", "STOCKMINIMO"},
+        "MONEDAS": {"CODIGOMONEDA", "CAMBIO"},
+    }
+    fila = {
+        "CODIGOARTICULO": "09378",
+        "DESCRIPCION": "ADAPTADOR 1/4 HEXAGONAL 50MM",
+        "CODIGORUBRO": "00259",
+        "CODIGOMARCA": "138",
+        "CODIGOMONEDA": "PESOS",
+        "PRECIOCOMPRA": 1798.0,
+        "PRECIOVENTA1": 2697.0,
+        "ACTIVO": 1,
+        "BLOQUEADO": 0,
+        "STOCKACTUAL": 5,
+        "STOCKMINIMO": 2,
+        "RUBRO_DESCRIPCION": "PUNTERA",
+        "MARCA_DESCRIPCION": "BREMEN",
+    }
+    cursor = CursorFalso(tablas, [fila])
+    cliente = FlexxusClient(
+        host="suevos.ddns.net",
+        port=3050,
+        user="ELECTROTR",
+        password="secreto",
+        charset="ISO8859_1",
+        database=r"C:\FLEXXUS\DB\ETR\DB-ETR.gdb",
+    )
+    cliente._conectar = lambda: ConexionFalsa(cursor)
+
+    por_rubro = cliente.buscar_articulos("puntera")
+    assert [a["code"] for a in por_rubro] == ["09378"]
+    assert por_rubro[0]["rubro"] == "PUNTERA"
+    assert por_rubro[0]["marca"] == "BREMEN"
+
+    por_marca = cliente.buscar_articulos("bremen")
+    assert [a["code"] for a in por_marca] == ["09378"]
+
+    # Y el SQL tambien mira el rubro y la marca, no solo el articulo.
+    consulta_catalogo = next(
+        (q for q in cursor.consultas if "ARTICULOS" in q and "position(" in q), ""
+    )
+    assert "r.DESCRIPCION" in consulta_catalogo
+    assert "m.DESCRIPCION" in consulta_catalogo
+
+
+def test_una_palabra_que_no_existe_no_inventa_resultados():
+    """"foc" no existe en el catalogo del ERP: la busqueda tiene que devolver vacio."""
+    tablas = {
+        "ARTICULOS": {
+            "CODIGOARTICULO", "DESCRIPCION", "CODIGOMONEDA", "PRECIOCOMPRA",
+            "PRECIOVENTA1", "ACTIVO", "BLOQUEADO",
+        },
+        "MONEDAS": {"CODIGOMONEDA", "CAMBIO"},
+    }
+    fila = {
+        "CODIGOARTICULO": "09378",
+        "DESCRIPCION": "ADAPTADOR 1/4 HEXAGONAL 50MM",
+        "CODIGOMONEDA": "PESOS",
+        "PRECIOCOMPRA": 1798.0,
+        "PRECIOVENTA1": 2697.0,
+        "ACTIVO": 1,
+        "BLOQUEADO": 0,
+    }
+    cursor = CursorFalso(tablas, [fila])
+    cliente = FlexxusClient(
+        host="suevos.ddns.net",
+        port=3050,
+        user="ELECTROTR",
+        password="secreto",
+        charset="ISO8859_1",
+        database=r"C:\FLEXXUS\DB\ETR\DB-ETR.gdb",
+    )
+    cliente._conectar = lambda: ConexionFalsa(cursor)
+
+    assert cliente.buscar_articulos("foc") == []
 
 
 # ---------- La plataforma habilita el modulo ----------

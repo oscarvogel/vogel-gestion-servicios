@@ -111,8 +111,31 @@ describe("SparePartPicker", () => {
     expect(document.body.textContent).toContain("2.160");
   });
 
-  it("el desplegable va por Teleport, para que el modal no lo recorte", async () => {
+  it("si no hay coincidencias, lo dice en vez de hacerse el muerto", async () => {
+    // El caso real: el operador escribe "foc" (que no existe en el catalogo del
+    // ERP) y no ve nada. Con el menu cerrado en silencio parece que el modulo
+    // esta roto, cuando lo que pasa es que no hay coincidencias.
     apiGet.mockImplementation((path: string) => {
+      if (path === "/spare-parts/status") {
+        return Promise.resolve({ disponible: true, motivo: null, falla: false });
+      }
+      return Promise.resolve({ disponible: true, aviso: null, items: [] });
+    });
+
+    const wrapper = montar();
+    await flushPromises();
+    await escribir(wrapper, "foc");
+
+    expect(menu()).not.toBeNull();
+    expect(opciones().length).toBe(0);
+    const texto = document.body.textContent || "";
+    expect(texto).toContain("No hay repuestos que coincidan con");
+    expect(texto).toContain("foc");
+    // El menu sin opciones no es una listbox: es un aviso.
+    expect(menu()?.getAttribute("role")).toBe("status");
+  });
+
+  it("el desplegable va por Teleport, para que el modal no lo recorte", async () => {    apiGet.mockImplementation((path: string) => {
       if (path === "/spare-parts/status") {
         return Promise.resolve({ disponible: true, motivo: null, falla: false });
       }

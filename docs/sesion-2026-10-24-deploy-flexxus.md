@@ -156,6 +156,30 @@ La API **no tiene** un endpoint para borrar un diagnostico: si se quiere limpiar
 prueba, hay que borrar la fila de `work_order_diagnoses` de la OT 9282 (empresa 3) por
 SQL, desde una maquina con acceso a la base.
 
+### 6. La busqueda no cubria el rubro ni la marca (y el cero resultados no decia nada)
+
+El primer uso real del modulo, en pantalla, dio esto: el operador escribio **"foc"** y
+**no aparecio nada**. Con la sensacion de que el modulo estaba roto. No lo estaba: el
+ERP tiene articulos de la **marca FOCO** (adaptadores para garrafa), pero la busqueda
+miraba **solo el codigo y la descripcion del articulo**.
+
+Tres cosas se corrigieron:
+
+1. **La busqueda ahora incluye el rubro y la marca.** El desplegable ya los muestra
+   ("BREMEN PUNTERA $ 2.697,00"), asi que el operador escribe lo que ve. Con eso,
+   contra el ERP real: `foc` -> 5 articulos (marca FOCO), `puntera` -> 5 (rubro
+   PUNTERA), `bremen` -> 5, `jeluz` -> 5, `drean` -> 5. Antes todos devolvian cero.
+2. **Cero resultados se dicen.** El menu se abria solo con resultados; con cero
+   resultados se cerraba en silencio y el campo parecia muerto. Ahora el menu sigue
+   abierto diciendo `No hay repuestos que coincidan con «foc»`, con la sugerencia de
+   probar por rubro o marca.
+3. **Nada se inventa.** "foc" sigue sin devolver focos: no hay focos en el catalogo
+   (el rubro equivalente es `LAMPARAS` o `JELUZ`). Lo que devuelve son los articulos de
+   la marca FOCO, que es lo que hay.
+
+El filtro fino en Python se actualizo con el mismo criterio que el SQL (code,
+descripcion, rubro y marca), y hay un test que lo verifica contra el ERP real.
+
 ## Pendientes
 
 - [ ] **Decidir el precio**: hoy se usa la lista de venta 1 (`PRECIOVENTA1`) del ERP, que

@@ -15,6 +15,15 @@ Plataforma web multiempresa para gestión de servicios técnicos, órdenes de tr
 - Docker Compose
 - CI backend/frontend
 - adaptadores separados para PortalVogel y WhatsApp
+- catálogo de repuestos contra el ERP Flexxus, en vivo y solo lectura
+
+## Módulos
+
+| Módulo | Qué hace | Documentación |
+|---|---|---|
+| Catálogo de repuestos (Flexxus) | Busca repuestos y precios en el ERP, en vivo y solo lectura; el combo de la OT autocompleta con código, descripción, rubro o marca | `docs/plan-repuestos-flexxus.md` |
+| Cierre a marcas | Cierre mensual por marca | `docs/sesion-2026-10-22-cierre-marcas.md` |
+| Importación CiberBrain | Importación de trabajos históricos | `docs/informe-migracion-ciberbrain.md` |
 
 ## Desarrollo local
 

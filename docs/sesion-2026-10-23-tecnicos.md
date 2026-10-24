@@ -400,3 +400,45 @@ nombre (una IP fija horneada en la imagen queda vieja en cada deploy).
 - [ ] Limpiar las variables duplicadas de `staging-backend` (`CORS_ORIGINS` con dos valores).
 - [ ] Decidir qué hacer con el `datadir` viejo de la base de staging.
 - [ ] La base de producción sigue sin tocar.
+- [ ] **Issue #115 (GitHub) — Maestro de técnicos**: editar con modal, agregar celular con
+      validación (se guarda con `549` si el operador no lo escribe) y búsqueda + paginado en el
+      listado. Lo pidió el cliente el 23/10/2026 (tarde), con una captura de la pantalla de
+      producción. El issue lleva el detalle técnico, los archivos a tocar y los criterios de
+      aceptación.
+- [ ] **Issue #116 (GitHub) — Identidad de la empresa y versión real**: logo por empresa
+      (subida desde Empresas, visible en el comprobante y el presupuesto impreso y en toda la
+      app, con el logo de Vogel Consultoría más chico) y que la versión que muestra el pie del
+      menú lateral sea la del build desplegado y no un texto fijo.
+
+### 6.1 Un detalle del issue #115: el buscador no se ve en la captura del cliente
+
+En la captura de la pantalla "Técnicos" de producción, arriba de la tabla **no aparece el campo
+de búsqueda** ni los chips "Todos / Activos / Desactivados", aunque el bundle desplegado
+(`assets/index-COx7kMJw.js`) sí los renderiza: el `.toolbar` del encabezado (`frontend/src/views/TecnicosView.vue:139-169`)
+está en el DOM y el CSS de `.page-header` no lo oculta en escritorio.
+
+Lo que sí se ve en la captura es la card de "Agregar un técnico" con el botón "+ Agregar"
+**estirado a media pantalla**: no es un botón de contenido, es un ítem de grid (`.field__row` es
+`display:grid` con `repeat(auto-fit,minmax(200px,1fr))`), y los ítems de grid se estiran. O sea:
+la captura es de esta misma app y no de otra pantalla.
+
+Al implementar #115 hay que confirmarlo (que el buscador quede a la vista) y no dar por hecho que
+ya estaba.
+
+### 6.2 La versión "v0.2" es un texto escrito a mano (issue #116)
+
+El pie del menú lateral muestra `v0.2 · Modo Empresa` y el cliente se quejó de que "la versión
+nunca se actualiza". Confirmado: **no hay ninguna fuente de verdad de la versión** en el repo.
+
+- `frontend/src/components/Sidebar.vue:168` → `v0.2` está **escrito en el template**.
+- `frontend/package.json` → `"version": "0.2.0"`, sin bumpear.
+- `backend/app/main.py:17` → `/health` devuelve sólo `{"status":"ok"}`.
+- `frontend/Dockerfile` → los únicos `ARG` son `VITE_API_URL` y `BACKEND_INTERNAL_URL`: el build no
+  recibe versión ni commit. `docker-compose.yml` → `build.args` con esas dos.
+
+En este repo **no existe `release_notes.txt`** (esa costumbre es de otro proyecto): el changelog
+que ve el piloto no sale de acá. El plan del #116 es: un `VERSION` en la raíz, hornearlo en el
+build (`ARG VITE_APP_VERSION` / `VITE_APP_COMMIT`), que `/health` lo devuelva también, y usar el
+`-Expected` que ya tiene `scripts/verify-deploy.ps1` para comprobar que el bundle servido trae la
+versión del release.
+

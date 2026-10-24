@@ -192,7 +192,7 @@ describe("los técnicos en la orden de trabajo", () => {
     ]);
     const wrapper = montar(WorkOrdersView, pinia);
     await flushPromises();
-    const abrir = wrapper.findAll("button").find((b) => b.text() === "Abrir OT");
+    const abrir = wrapper.find(".work-order-link");
     await abrir!.trigger("click");
     await flushPromises();
     return wrapper;

@@ -110,8 +110,8 @@ issue queda bloqueada: **no se implementa a ciegas**.
 - [x] El probe del esquema está hecho y su salida está en `docs/spike-esquema-flexxus.md`, con la
       columna o tabla de **precio de venta** confirmada.
 - [x] `GET /api/v1/spare-parts/search?q=ABC` devuelve artículos de `ARTICULOS` (código, descripción,
-      rubro, stock, stock mínimo, costo, moneda, precio de venta), filtrando por código o descripción
-      (contiene, ignora mayúsculas y acentos) y con límite.
+      rubro, marca, stock, stock mínimo, costo, moneda, precio de venta), filtrando por **código,
+      descripción, rubro o marca** (contiene, ignora mayúsculas y acentos) y con límite.
 - [x] Para una empresa que no es Electrotecniref el endpoint responde "no disponible" sin abrir
       conexión.
 - [x] Si la tabla o la columna no existe en la base, la consulta devuelve vacío sin excepción.
@@ -123,7 +123,10 @@ issue queda bloqueada: **no se implementa a ciegas**.
       muestra el mismo precio que el ERP.
 - [x] Tests: cliente (tabla/columna inexistente → vacío; ERP caído → degradado), API (tenant,
       permiso, límite) y una corrida contra la base real documentada.
-- [x] `firebirdsql` quedó como extra en `backend/pyproject.toml`; la CI corre sin el ERP.
+- [x] `firebirdsql` quedó en las **dependencias base** de `backend/pyproject.toml` (el extra
+      `flexxus` se mantiene): el deploy construye con Nixpacks, que instala el paquete **sin
+      extras**, y con el driver en un extra la imagen salía sin él. La CI instala como el
+      deploy (`pip install -e .[dev]`) y verifica el import.
 
 ## Fuera de alcance
 
@@ -386,6 +389,12 @@ en el codigo con el comentario que los explica, para no volver a pisarlos:
   - Si el catalogo no aplica a la empresa (o el ERP esta caido), **degrada a
     texto libre** con el aviso a la vista: cargar la OT no puede depender de
     que el modulo este disponible.
+  - **Cero resultados se dicen**: el menu queda abierto con "No hay repuestos que
+    coincidan con «X»" y la sugerencia de probar por rubro o marca. Cerrarse en
+    silencio hacia creer que el campo estaba muerto.
+  - La busqueda cubre **codigo, descripcion, rubro y marca**: el operador escribe
+    lo que ve en el desplegable ("PUNTERA", "BREMEN", "FOCO"), no solo el nombre
+    del articulo.
 - **`GET /api/v1/spare-parts/status`**: dice si el catalogo aplica a esta
   empresa **sin abrir conexion al ERP**. El frontend lo consulta una vez al
   montar el combo, para saber si tiene que exigir elegir una opcion o si deja

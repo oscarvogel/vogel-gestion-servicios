@@ -135,7 +135,10 @@ function openEdit(item: CompanyItem) {
     admin_password: "",
   };
   showForm.value = true;
-  if (isPlatformView.value) void loadAi(item.id);
+  if (isPlatformView.value) {
+    void loadAi(item.id);
+    void loadFlexxus(item.id);
+  }
 }
 
 /**
@@ -201,6 +204,66 @@ async function saveAi() {
     aiError.value = getApiErrorMessage(e);
   } finally {
     aiSaving.value = false;
+  }
+}
+
+/**
+ * El catalogo de repuestos de Flexxus de esta empresa: si lo tiene, con que base del ERP y
+ * con que lista de precios. Como el plan de IA, lo habilita la plataforma: el admin de la
+ * empresa lo ve en Parametros pero no lo puede tocar, porque el backend corta el PATCH con 403.
+ */
+interface FlexxusPlan {
+  company_id: number;
+  company_name: string;
+  enabled: boolean;
+  database: string;
+  price_list: number;
+}
+const flexxus = ref<FlexxusPlan>({
+  company_id: 0, company_name: "", enabled: false, database: "", price_list: 1,
+});
+const flexxusGuardado = ref<FlexxusPlan | null>(null);
+const flexxusSaving = ref(false);
+const flexxusError = ref("");
+
+async function loadFlexxus(companyId: number) {
+  flexxusError.value = "";
+  try {
+    const datos = await apiGet<FlexxusPlan>(`/companies/${companyId}/flexxus`);
+    flexxus.value = datos;
+    // Copia de lo que esta guardado, para el boton deshabilitado mientras no cambie nada.
+    flexxusGuardado.value = { ...datos };
+  } catch (e) {
+    flexxusError.value = getApiErrorMessage(e);
+  }
+}
+
+const flexxusDirty = computed(
+  () => !flexxusGuardado.value
+    || JSON.stringify(flexxus.value) !== JSON.stringify(flexxusGuardado.value),
+);
+
+function toggleFlexxus() {
+  flexxus.value.enabled = !flexxus.value.enabled;
+}
+
+async function saveFlexxus() {
+  if (!editing.value || flexxusSaving.value) return;
+  flexxusSaving.value = true;
+  flexxusError.value = "";
+  try {
+    const datos = await apiPut<FlexxusPlan>(`/companies/${editing.value.id}/flexxus`, {
+      enabled: flexxus.value.enabled,
+      database: flexxus.value.database,
+      price_list: Number(flexxus.value.price_list) || 1,
+    });
+    flexxus.value = datos;
+    flexxusGuardado.value = { ...datos };
+    toasts.push("Catalogo de repuestos actualizado", "success");
+  } catch (e) {
+    flexxusError.value = getApiErrorMessage(e);
+  } finally {
+    flexxusSaving.value = false;
   }
 }
 
@@ -482,6 +545,63 @@ async function enterCompany(item: CompanyItem) {
               :disabled="aiSaving || !aiDirty" @click="saveAi"
             >
               Guardar el plan
+            </button>
+          </div>
+        </section>
+
+        <!--
+          El catalogo de repuestos de Flexxus. Es de plataforma, como el plan de IA: solo
+          desde aca se cambia. La empresa lo ve en su pantalla de Parametros.
+        -->
+        <section v-if="editing && isPlatformView" class="ai-plan">
+          <header class="ai-plan__head">
+            <h3>Catálogo de repuestos (Flexxus)</h3>
+            <span v-if="flexxusSaving" class="text-muted">Guardando…</span>
+          </header>
+          <p class="text-secondary ai-plan__intro">
+            Solo vos lo podés cambiar. Apagado, la empresa no ve el catálogo y no se consulta
+            el ERP en ningún momento.
+          </p>
+
+          <div v-if="flexxusError" class="ai-plan__error">{{ flexxusError }}</div>
+
+          <label class="ai-plan__switch">
+            <input
+              type="checkbox" :checked="flexxus.enabled" :disabled="flexxusSaving"
+              @change="toggleFlexxus"
+            />
+            <span>
+              {{
+                flexxus.enabled
+                  ? "Catálogo de repuestos habilitado"
+                  : "Catálogo de repuestos apagado"
+              }}
+            </span>
+          </label>
+
+          <div class="ai-plan__grid">
+            <div class="field">
+              <label>Base de Flexxus</label>
+              <input v-model="flexxus.database" type="text" :disabled="flexxusSaving" />
+              <small class="text-muted">Ruta del archivo .gdb, vista desde el servidor Firebird.</small>
+            </div>
+            <div class="field">
+              <label>Lista de precios</label>
+              <input
+                v-model.number="flexxus.price_list" type="number" min="1" max="5" step="1"
+                :disabled="flexxusSaving"
+              />
+              <small class="text-muted">1 a 5. De esa lista se toma el precio de venta.</small>
+            </div>
+          </div>
+
+          <div class="flex flex--between" style="margin-top:14px">
+            <span class="text-muted">El precio se lee del ERP en el momento de presupuestar.</span>
+            <button
+              class="btn btn--primary btn--sm" type="button"
+              :disabled="flexxusSaving || !flexxusDirty" @click="saveFlexxus"
+            >
+              Guardar el catálogo
             </button>
           </div>
         </section>

@@ -146,6 +146,29 @@ eso es la señal.
 
 ---
 
+## Trampa 5: la base no se alcanza desde la máquina del administrador
+
+Verificado el 2026-10-24, con la red de la LAN del server caída (adaptador Ethernet con los
+medios desconectados) y sin SSH al server:
+
+| Ruta | Resultado |
+|---|---|
+| `186.5.245.12:3306` | Es **otro** MySQL del host (8.0.44). Rechaza a `vogelapp`: no es la base de la app. |
+| `186.5.245.12:33061` | No contesta: el firewall deja pasar **solo 80, 443 y 3306**. |
+| `192.168.0.189:33061` | La base de la app, pero en la **LAN del server**: si el cable está desconectado, no hay camino. |
+| `docker run --network coolify mysql:8 ...` | La forma de escribir en la base, pero **exige shell en el server** (`fasa_189`, usuario `fasa`, grupo `docker`). |
+
+La API de Coolify **no tiene** endpoint para ejecutar comandos ni SQL sobre una base:
+`POST /databases/{uuid}/execute`, `POST /applications/{uuid}/execute` y
+`POST /servers/{uuid}/commands` dan **404** en la v4.3.23.
+
+**Consecuencia práctica:** cualquier cosa que haya que cambiar **en la base** tiene que
+entrar por la aplicación (un endpoint), no por un `UPDATE` a mano. Por eso la habilitación
+del catálogo de repuestos de Flexxus es `PUT /api/v1/companies/{id}/flexxus` (superadmin) y
+no un `UPDATE` sobre `company_parameters`.
+
+---
+
 ## Same-origin: staging ya, producción no
 
 Estado real verificado el 2026-10-02 mirando el bundle que se sirve, no la variable:
@@ -279,6 +302,17 @@ El panel no responde en ningún puerto conocido de `186.5.245.12`: se entra por
 
 - Las variables se identifican por `key`, no por `uuid` (el `uuid` da 422).
 - El flag de variable de build es `is_buildtime`, **no** `is_build_env` (da 422).
+- El POST de una variable **rechaza tres campos**: `is_required`, `is_coolify` y
+  `is_shared` dan 422 con `{"errors":{"is_required":["This field is not allowed."]}}`.
+  Los que acepta son `key`, `value`, `is_buildtime`, `is_literal`, `is_multiline`,
+  `is_preview` e `is_shown_once`.
+- **Cada variable queda guardada DOS veces** (un registro de build y otro de runtime),
+  aunque se cree con `is_buildtime: false`. Es el comportamiento de la plataforma, no un
+  error: con los dos registros iguales es inofensivo. Lo peligroso es que **alguien
+  edite uno de los dos a mano** y queden con valores distintos: en `staging-backend`,
+  `CORS_ORIGINS` quedó con `https://gestion-vogel...` en un registro y `*` en el otro.
+  Por eso, al crear una variable hay que **mirar los dos registros** y confirmar que
+  quedaron iguales.
 - `POST /applications/{uuid}/envs` **no deduplica por clave**: creá la variable sabiendo
   que puede quedar duplicada, y borrá la sobra con
   `DELETE /applications/{uuid}/envs/{env_uuid}`. Duplicados con valores distintos son
@@ -291,7 +325,9 @@ El panel no responde en ningún puerto conocido de `186.5.245.12`: se entra por
   desaparece y no se recupera de los contenedores (la variable no está en
   `docker inspect`; solo estaría horneada en la imagen, y las imágenes viejas ya no están).
 - El listado de deployments usa `application_name` y `application_id`. **No existe
-  `application_uuid`** (ver Trampa 4).
+  `application_uuid`** (ver Trampa 4). Ojo: `application_id` es el **id numérico**
+  (30, 31, 32...), no el UUID de la app. El commit del deploy está en el campo
+  **`commit`**, no en `git_commit_sha`.
 - Los deploys se **encolan por servidor**: si otra app del mismo servidor está
   desplegando, el tuyo queda `queued` sin avanzar y sin error. `queued` durante diez
   minutos no es un deploy trabado: es cola. Los logs del deployment te dicen si el tuyo

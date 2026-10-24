@@ -537,6 +537,124 @@ def set_ai_entitlement(
     return get_ai_entitlement(company_id, _admin, db)
 
 
+# ---------- Flexxus ----------
+# El catalogo de repuestos de Flexxus es de plataforma, como los parametros de la
+# IA: el administrador de la empresa no lo habilita (el PATCH de Parametros da 403
+# porque `editable` es false), lo habilita Vogel desde aca. Es la misma puerta que
+# usa la IA y con el mismo criterio: una decision comercial, en un endpoint con
+# nombre propio y no en una puerta trasera.
+#
+# Por que esta puerta y no un UPDATE a mano sobre la base: las bases de Coolify
+# no se alcanzan desde la maquina del administrador (estan en la red interna de
+# Docker del servidor), y escribir en la base a mano no deja registro de quien
+# habilito que. Con el endpoint la habilitacion es una llamada, queda registrada
+# y se puede volver a apagar.
+
+
+class FlexxusEntitlementRead(BaseModel):
+    company_id: int
+    company_name: str
+    enabled: bool
+    # Base de Flexxus (ruta del .gdb vista desde el servidor Firebird) que usa
+    # esta empresa. No es un secreto: es el dato de a que base se conecta.
+    database: str
+    # Lista de precios (1 a 5) de la que se toma el precio de venta.
+    price_list: int
+
+
+class FlexxusEntitlementUpdate(BaseModel):
+    enabled: bool
+    # Opcional: si viene vacio se usa el default del catalogo.
+    database: Optional[str] = None
+    price_list: int = 1
+
+
+@router.get("/{company_id}/flexxus", response_model=FlexxusEntitlementRead)
+def get_flexxus_entitlement(
+    company_id: int,
+    _admin: User = Depends(require_superadmin),
+    db: Session = Depends(get_db),
+):
+    """Como esta el catalogo de repuestos de Flexxus en esa empresa. No escribe nada."""
+    company = db.get(Company, company_id)
+    if not company:
+        raise HTTPException(status_code=404, detail="Empresa no encontrada.")
+    from app.services import spare_parts
+
+    return FlexxusEntitlementRead(
+        company_id=company.id,
+        company_name=company.name,
+        enabled=spare_parts.is_enabled(db, company_id),
+        database=spare_parts.base_datos(db, company_id),
+        price_list=spare_parts.precio_lista(db, company_id),
+    )
+
+
+@router.put("/{company_id}/flexxus", response_model=FlexxusEntitlementRead)
+def set_flexxus_entitlement(
+    company_id: int,
+    payload: FlexxusEntitlementUpdate,
+    _admin: User = Depends(require_superadmin),
+    db: Session = Depends(get_db),
+):
+    """Habilita o deshabilita el catalogo de repuestos de Flexxus para esa empresa.
+
+    El mismo criterio que la IA: un valor igual al default borra el override en
+    vez de guardarlo, asi "deshabilitado" es de verdad el default del catalogo y
+    no una fila que dice false.
+    """
+    company = db.get(Company, company_id)
+    if not company:
+        raise HTTPException(status_code=404, detail="Empresa no encontrada.")
+    if not 1 <= payload.price_list <= 5:
+        raise HTTPException(
+            status_code=422, detail="La lista de precios tiene que estar entre 1 y 5."
+        )
+
+    from app.core.parameter_catalog import FLEXXUS_PARAMETERS
+
+    defaults = {p[0]: p[1] for p in FLEXXUS_PARAMETERS}
+    base = (payload.database or "").strip() or defaults["flexxus.database"]
+    if not base.lower().endswith(".gdb"):
+        raise HTTPException(
+            status_code=422,
+            detail="La base de Flexxus es la ruta del archivo .gdb vista desde el servidor Firebird.",
+        )
+
+    valores = {
+        "flexxus.enabled": "true" if payload.enabled else "false",
+        "flexxus.database": base,
+        "flexxus.price_list": str(payload.price_list),
+    }
+    for nombre, valor in valores.items():
+        definicion = db.query(ParameterDefinition).filter_by(parameter=nombre).first()
+        if definicion is None:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Falta la definición del parámetro {nombre}. Corré las migraciones.",
+            )
+        fila = (
+            db.query(CompanyParameter)
+            .filter_by(company_id=company_id, parameter_definition_id=definicion.id)
+            .first()
+        )
+        if valor == defaults[nombre]:
+            # Volvio al default: el override sobra.
+            if fila is not None:
+                db.delete(fila)
+            continue
+        if fila is None:
+            db.add(
+                CompanyParameter(
+                    company_id=company_id, parameter_definition_id=definicion.id, value=valor
+                )
+            )
+        else:
+            fila.value = valor
+    db.commit()
+    return get_flexxus_entitlement(company_id, _admin, db)
+
+
 # ---------- Helpers ----------
 def _slugify(value: str) -> str:
     out = []

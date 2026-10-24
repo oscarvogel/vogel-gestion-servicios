@@ -8,6 +8,10 @@ dev=["pytest>=8.4,<9","httpx>=0.28,<1"]
 # Driver del legacy (CiberBrain / SQL Server). Solo lo necesita el importador
 # de la migracion, asi que va como extra: el deploy normal no lo exige.
 import=["pymssql>=2.3,<3"]
+# Driver del ERP Flexxus (Firebird, puerto 3050). Solo lo necesita el modulo
+# de repuestos, asi que va como extra: el deploy normal no lo exige y la CI
+# no depende del ERP.
+flexxus=["firebirdsql>=1.4,<2"]
 [build-system]
 requires=["setuptools>=68"]
 build-backend="setuptools.build_meta"

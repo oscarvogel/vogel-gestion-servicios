@@ -50,6 +50,13 @@ class WorkOrderQuoteItem(Base):
     markup_percent:Mapped[Decimal]=mapped_column(Numeric(7,2),nullable=False,default=0)
     unit_price:Mapped[Decimal]=mapped_column(Numeric(14,2),nullable=False,default=0)
     line_total:Mapped[Decimal]=mapped_column(Numeric(14,2),nullable=False,default=0)
+    # Trazabilidad del precio (#114). Cuando la linea viene del catalogo de
+    # Flexxus, se guarda de que articulo salio y de que columna se leyo el
+    # precio, con el momento de la lectura. Sin esto, un presupuesto no
+    # responde de donde sale el numero.
+    item_code:Mapped[str|None]=mapped_column(String(40),nullable=True)
+    price_source:Mapped[str|None]=mapped_column(String(60),nullable=True)
+    price_synced_at:Mapped[datetime|None]=mapped_column(DateTime,nullable=True)
 
 
 class WorkOrderExecutionItem(Base):
@@ -62,6 +69,11 @@ class WorkOrderExecutionItem(Base):
     quantity:Mapped[Decimal]=mapped_column(Numeric(12,3),nullable=False,default=1)
     unit_cost:Mapped[Decimal]=mapped_column(Numeric(14,2),nullable=False,default=0)
     unit_price:Mapped[Decimal]=mapped_column(Numeric(14,2),nullable=False,default=0)
+    # Trazabilidad del precio (#114). Mismo criterio que en la linea de
+    # presupuesto.
+    item_code:Mapped[str|None]=mapped_column(String(40),nullable=True)
+    price_source:Mapped[str|None]=mapped_column(String(60),nullable=True)
+    price_synced_at:Mapped[datetime|None]=mapped_column(DateTime,nullable=True)
     created_by_user_id:Mapped[int]=mapped_column(ForeignKey("users.id"),nullable=False)
     created_at:Mapped[datetime]=mapped_column(DateTime,server_default=func.now(),nullable=False)
 

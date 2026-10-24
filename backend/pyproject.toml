@@ -2,15 +2,20 @@
 name="vogel-gestion-servicios-backend"
 version="0.1.0"
 requires-python=">=3.12"
-dependencies=["fastapi>=0.116,<1","uvicorn[standard]>=0.35,<1","sqlalchemy>=2.0,<3","pymysql>=1.1,<2","alembic>=1.16,<2","pydantic-settings>=2.10,<3","python-jose[cryptography]>=3.5,<4","passlib[bcrypt]>=1.7,<2","bcrypt>=4.0,<4.1","python-multipart>=0.0.20,<1","email-validator>=2.2,<3","tzdata>=2024.1","httpx>=0.28,<1"]
+dependencies=["fastapi>=0.116,<1","uvicorn[standard]>=0.35,<1","sqlalchemy>=2.0,<3","pymysql>=1.1,<2","alembic>=1.16,<2","pydantic-settings>=2.10,<3","python-jose[cryptography]>=3.5,<4","passlib[bcrypt]>=1.7,<2","bcrypt>=4.0,<4.1","python-multipart>=0.0.20,<1","email-validator>=2.2,<3","tzdata>=2024.1","httpx>=0.28,<1","firebirdsql>=1.4,<2"]
 [project.optional-dependencies]
 dev=["pytest>=8.4,<9","httpx>=0.28,<1"]
 # Driver del legacy (CiberBrain / SQL Server). Solo lo necesita el importador
 # de la migracion, asi que va como extra: el deploy normal no lo exige.
 import=["pymssql>=2.3,<3"]
-# Driver del ERP Flexxus (Firebird, puerto 3050). Solo lo necesita el modulo
-# de repuestos, asi que va como extra: el deploy normal no lo exige y la CI
-# no depende del ERP.
+# Driver del ERP Flexxus (Firebird, puerto 3050).
+#
+# El driver esta en las dependencias BASE y tambien aca. Lo de base no es
+# redundante: las apps de Coolify se construyen con NIXPACKS, que corre
+# `pip install .` y NO instala los extras. Con el driver solo como extra, la
+# imagen de produccion salia sin el y el modulo de repuestos degradaba a texto
+# libre sin avisar. El extra queda para los installs explicitos
+# (`pip install .[flexxus]`, que es lo que usa el Dockerfile).
 flexxus=["firebirdsql>=1.4,<2"]
 [build-system]
 requires=["setuptools>=68"]

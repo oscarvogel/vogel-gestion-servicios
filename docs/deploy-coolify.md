@@ -146,7 +146,41 @@ eso es la señal.
 
 ---
 
-## Trampa 5: la base no se alcanza desde la máquina del administrador
+## Trampa 5: las apps se construyen con Nixpacks, no con el Dockerfile del repo
+
+Las cuatro apps de este repo tienen `build_pack = nixpacks` y `dockerfile` **vacío** en la
+configuración de Coolify. O sea: **el `backend/Dockerfile` del repo no construye nada en
+producción**. Nixpacks genera su propio Dockerfile y corre:
+
+```
+pip install --upgrade build setuptools && pip install .
+```
+
+Sin extras. Un `pip install .[algo]` del `Dockerfile` no tiene ningún efecto en la imagen
+que se despliega.
+
+**Por qué importa:** el driver `firebirdsql` (el del ERP Flexxus) estaba solo en el extra
+`flexxus` de `pyproject.toml`, así que **la imagen de producción salía sin él** y el
+módulo de repuestos degradaba a texto libre sin avisar. La CI daba verde porque instalaba
+`.[dev,flexxus]`: validaba algo que el deploy no hace.
+
+La forma de no caer:
+
+- Lo que el deploy necesita tiene que estar en las **dependencias base** de
+  `pyproject.toml`, no en un extra.
+- La CI tiene que instalar **como instala el deploy** (`pip install -e .[dev]`) y
+  verificar el import (`python -c "import firebirdsql"`). Si instala con extras, la CI
+  miente.
+- Antes de tocar un `Dockerfile` del repo, confirmar en la API si la app lo usa:
+  `GET /api/v1/applications/{uuid}` -> `build_pack` y `dockerfile`.
+
+Se puede ver en los logs del deploy: el build de Nixpacks compila
+`docker exec <uuid> bash -c 'bash /artifacts/build.sh'`, y la línea de
+`Successfully installed ...` dice exactamente qué se instaló.
+
+---
+
+## Trampa 6: la base no se alcanza desde la máquina del administrador
 
 Verificado el 2026-10-24, con la red de la LAN del server caída (adaptador Ethernet con los
 medios desconectados) y sin SSH al server:

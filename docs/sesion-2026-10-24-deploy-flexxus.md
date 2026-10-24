@@ -1,0 +1,130 @@
+# Deploy del modulo de repuestos contra Flexxus (2026-10-24)
+
+Bitacora del deploy del issue #114 (catalogo de repuestos contra el ERP Flexxus) y de
+lo que se encontro en el camino. La parte funcional esta en
+`docs/plan-repuestos-flexxus.md`; aca queda el registro del despliegue.
+
+## Que se desplego
+
+| Que | Donde | Estado |
+|---|---|---|
+| `FLEXXUS_HOST`, `FLEXXUS_PORT`, `FLEXXUS_USER`, `FLEXXUS_PASSWORD`, `FLEXXUS_CHARSET`, `FLEXXUS_DATABASE`, `FLEXXUS_TIMEOUT_SECONDS` | Variables de Coolify de **staging-backend** y **production-backend** | Cargadas (y con la clave real, que **nunca** se imprime ni se sube al repo) |
+| Migraciones `0028` (parametros de Flexxus) y `0029` (trazabilidad: `item_code`, `price_source`, `price_synced_at`) | Las dos bases, por `alembic upgrade head` en el arranque del backend | Aplicadas |
+| `GET /api/v1/spare-parts/search`, `GET /api/v1/spare-parts/status` | Backend | En staging y en produccion |
+| `GET`/`PUT /api/v1/companies/{id}/flexxus` (superadmin) | Backend | En staging y en produccion |
+| Seccion "Catalogo de repuestos (Flexxus)" del modal de empresa | Frontend | En staging y en produccion |
+| `SparePartPicker` en el modal de presupuesto y en el editor de ejecucion | Frontend | En staging y en produccion |
+
+El modulo quedo **apagado** en los dos ambientes: `flexxus.enabled` esta en `false` para
+toda empresa que no tenga el override. En produccion sigue apagado **a proposito**: falta
+decidir que precio se usa (costo o lista de venta).
+
+## El orden del despliegue
+
+1. Cargar las variables `FLEXXUS_*` en los dos backends **antes** de mergear: si el
+   contenedor arranca sin la clave, el modulo queda "sin credencial" (que es distinto de
+   "no aplica": el primero muestra aviso, el segundo no).
+2. Merge a `main`: produccion se auto-despliega (webhook) y staging **no** (se despierta a
+   mano). Asumirlo antes de mergear.
+3. Desplegar staging a mano y ahi validar.
+4. Produccion queda apagada hasta que se confirme el precio.
+
+## Lo que se rompio en el camino (y como se resolvio)
+
+### 1. El POST de variables de Coolify rechaza tres campos
+
+`POST /api/v1/applications/{uuid}/envs` con `is_required`, `is_coolify` o `is_shared`
+devuelve **422**:
+
+```json
+{"message":"Validation failed.",
+ "errors":{"is_required":["This field is not allowed."],
+           "is_coolify":["This field is not allowed."],
+           "is_shared":["This field is not allowed."]}}
+```
+
+Los que acepta son `key`, `value`, `is_buildtime`, `is_literal`, `is_multiline`,
+`is_preview` e `is_shown_once`.
+
+### 2. Cada variable queda guardada DOS veces
+
+Aun creando la variable con `is_buildtime: false`, Coolify la deja en **dos registros**
+(uno de build y otro de runtime), con `uuid` distinto. Con los dos registros iguales es
+inoffensivo.
+
+Lo peligroso es que alguien **edite uno de los dos a mano**: en `staging-backend`,
+`CORS_ORIGINS` quedo con `https://gestion-vogel...` en un registro y `*` en el otro. Por eso,
+al crear una variable hay que releer el listado y **verificar que los dos registros tienen
+el mismo valor**.
+
+### 3. El listado de deployments no se filtra por UUID
+
+El listado usa `application_name` y `application_id`, y `application_id` es el **id
+numerico** (30, 31, 32...), no el UUID de la app. El commit del deploy esta en el campo
+`commit`, no en `git_commit_sha`. Un filtro por `application_id -eq <uuid>` devuelve
+vacio **sin error**, y eso se lee como "no hay nada en cola".
+
+### 4. La imagen de produccion salia SIN el driver de Flexxus (esto era un bug real)
+
+Las apps de Coolify de este repo se construyen con **Nixpacks** (`build_pack = nixpacks`,
+`dockerfile` vacio), no con el `backend/Dockerfile` del repo. Nixpacks corre
+`pip install .` **sin extras**.
+
+El driver `firebirdsql` estaba **solo en el extra `flexxus`**, asi que la imagen no lo
+tenia: el modulo de repuestos iba a degradar a texto libre en los dos ambientes, sin
+avisar. La CI daba verde porque instalaba `.[dev,flexxus]`: validaba algo que el deploy no
+hace.
+
+Se confirmo leyendo el log del build (`Successfully installed ...` no mentionaba
+`firebirdsql`) y despues en la config de la app por la API.
+
+**Arreglo:** `firebirdsql` pasa a las **dependencias base** de `pyproject.toml` (el extra
+se mantiene, para los installs explicitos y el `Dockerfile`). La CI ahora instala como
+el deploy (`pip install -e .[dev]`) y verifica el import:
+`python -c "import firebirdsql"`. El `Dockerfile` lleva un comentario que aclara que no
+construye nada en produccion.
+
+### 5. La base no se alcanza desde la maquina del administrador
+Verificado con la red de la LAN del server caida:
+
+- `186.5.245.12:3306` es **otro** MySQL del host (8.0.44) y rechaza a `vogelapp`.
+- El firewall deja pasar **solo 80, 443 y 3306**.
+- `192.168.0.189:33061` es la base de la app, pero vive en la LAN del server: sin cable no
+  hay camino.
+- La API de Coolify **no tiene** endpoint para ejecutar comandos ni SQL
+  (`/databases/{uuid}/execute`, `/applications/{uuid}/execute` y `/servers/{uuid}/commands`
+  dan 404).
+
+**Consecuencia:** lo que haya que cambiar en la base tiene que entrar por la aplicacion.
+Por eso la habilitacion del catalogo es `PUT /api/v1/companies/{id}/flexxus` (superadmin)
+y no un `UPDATE` a mano sobre `company_parameters`.
+
+## El unico conflicto del merge
+
+`docs/sesion-2026-10-23-tecnicos.md`: los dos lados habian agregado items a la seccion de
+pendientes. Resuelto **por union**: se quedo el item de `main` (mas actualizado, sobre lo
+que la migracion de produccion) mas los issues #115 y #116 de la rama. Se descarto el item
+"la base de produccion sigue sin tocar" de la rama, que ya era falso.
+
+`544d18a` (rama) y `483e84c` (`main`) eran **el mismo cambio**: entro a `main` por el PR
+#112. Por eso no hubo conflicto de codigo.
+
+## Verificacion
+
+- Suite backend sobre el **merge**: **350 tests en verde** (343 + 7 nuevos de la
+  habilitacion por plataforma).
+- Suite frontend: **71 en verde** y `npm run build` OK.
+- CI de GitHub Actions sobre `main`: en verde en `6ac44f0` y en `75f2cb2`.
+- En el servidor: `GET /api/v1/spare-parts/status` da **401** (la ruta existe y pide
+  token) y `GET /api/v1/companies/3/flexxus` daba **404** antes del deploy con el endpoint
+  nuevo, y **401** despues: la ruta esta viva.
+
+## Pendientes
+
+- [ ] **Decidir el precio**: hoy se usa la lista de venta 1 (`PRECIOVENTA1`) del ERP, que
+      ya tiene el margen aplicado. La alternativa es el costo (`PRECIOCOMPRA`). Es una
+      decision comercial, no tecnica, y hasta que este tomada **produccion queda apagada**.
+- [ ] Prender el modulo en produccion con `PUT /api/v1/companies/{id}/flexxus` cuando la
+      decision este tomada.
+- [ ] Limpiar las variables duplicadas de `staging-backend` (`CORS_ORIGINS` con dos
+      valores distintos): tarea vieja, sigue pendiente.

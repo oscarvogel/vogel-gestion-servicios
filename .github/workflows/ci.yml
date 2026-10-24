@@ -8,7 +8,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: {python-version: "3.12"}
-      - run: pip install -e .[dev,flexxus]
+      # Se instala **sin extras**, como lo hace el deploy: las apps de Coolify
+      # se construyen con NIXPACKS, que corre `pip install .` y no instala los
+      # extras. Instalar con `.[dev,flexxus]` daba verde en la CI mientras la
+      # imagen de produccion salia sin el driver de Flexxus.
+      - run: pip install -e .[dev]
+      # El guard: el driver tiene que entrar en la instalacion de base.
+      - run: python -c "import firebirdsql; print('firebirdsql', firebirdsql.__version__)"
       - run: pytest -q
   mysql-migrations:
     runs-on: ubuntu-latest
@@ -29,9 +35,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: {python-version: "3.12"}
-      # El extra `flexxus` tambien se instala aca: si el driver deja de
-      # instalarse, que lo diga la CI y no la produccion.
-      - run: pip install -e .[dev,flexxus]
+      # El driver de Flexxus va en las dependencias base, asi que entra solo.
+      - run: pip install -e .[dev]
       - run: alembic upgrade head
       - run: alembic current
       - run: alembic downgrade 20260925_0004

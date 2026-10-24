@@ -22,9 +22,18 @@ SIN_PERMISO = "SIN_PERMISO"
 SIN_CUOTA = "SIN_CUOTA"
 
 
-def _month_start() -> datetime:
+def _month_start(meses_atras: int = 0) -> datetime:
+    """Primer instante del mes, en UTC sin zona. ``meses_atras=1`` es el mes previo.
+
+    Se hace aritmetica de meses en Python y no en SQL a proposito: la suite corre en SQLite y
+    la migracion en MySQL, y las funciones de fecha no son las mismas en los dos motores.
+    """
     now = datetime.now(timezone.utc).replace(tzinfo=None)
-    return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    if meses_atras == 0:
+        return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    total = now.year * 12 + (now.month - 1) - meses_atras
+    year, month = divmod(total, 12)
+    return datetime(year, month + 1, 1)
 
 
 def estimate_cost_usd(input_tokens: int, output_tokens: int) -> Decimal:
@@ -130,3 +139,77 @@ def last_period_cost(db: Session, company_id: int) -> float:
         or Decimal("0")
     )
     return float(value)
+
+
+def desglose_por_operacion(db: Session, company_id: int, start: datetime) -> list[dict]:
+    """Cuanto consumio cada tipo de operacion en el periodo.
+
+    El desglose importa para entender el gasto: 300 pedidos de `chat` y 2 de `transcripcion`
+    no se facturan igual, y un consumo que se dispara de golpe tiene que poder atribuirse a
+    una operacion concreta antes de ir a buscarla.
+    """
+    filas = (
+        db.query(
+            AiUsage.operation,
+            func.count(AiUsage.id),
+            func.coalesce(func.sum(AiUsage.cost_usd), 0),
+            func.coalesce(func.sum(AiUsage.input_tokens), 0),
+            func.coalesce(func.sum(AiUsage.output_tokens), 0),
+        )
+        .filter(AiUsage.company_id == company_id, AiUsage.created_at >= start)
+        .group_by(AiUsage.operation)
+        .order_by(func.sum(AiUsage.cost_usd).desc())
+        .all()
+    )
+    return [
+        {
+            "operation": operacion,
+            "requests": int(pedidos),
+            "cost_usd": float(costo),
+            "input_tokens": int(entrada),
+            "output_tokens": int(salida),
+        }
+        for operacion, pedidos, costo, entrada, salida in filas
+    ]
+
+
+def historial_mensual(db: Session, company_id: int, meses: int = 12) -> list[dict]:
+    """Un acumulado por mes, para el historial con el que se factura el adicional.
+
+    Los cortes de mes se calculan en Python en vez de usar `date_trunc` o `strftime` a
+    proposito: la suite corre en SQLite y la migracion en MySQL, y las funciones de fecha no
+    son las mismas. Un rango por mes funciona en los dos motores sin una sola funcion
+    dependiente del motor.
+    """
+    if meses < 1 or meses > 36:
+        meses = 12
+    # El mes en curso no tiene corte: se toma un limite holgado hacia adelante, que para una
+    # fila creada ahora es indistinguible de "hasta el final del mes".
+    fin_del_curso = datetime(2999, 1, 1)
+    filas = []
+    for atras in range(meses - 1, -1, -1):
+        desde = _month_start(atras)
+        # El fin del mes `atras` es el primer instante del mes siguiente, o sea `_month_start`
+        # del mes `atras - 1`. La fila va con `created_at < fin` para que los cortes no se
+        # pisen entre meses.
+        fin = _month_start(atras - 1) if atras else fin_del_curso
+        fila = (
+            db.query(
+                func.count(AiUsage.id),
+                func.coalesce(func.sum(AiUsage.cost_usd), 0),
+                func.coalesce(func.sum(AiUsage.input_tokens), 0),
+                func.coalesce(func.sum(AiUsage.output_tokens), 0),
+            )
+            .filter(AiUsage.company_id == company_id, AiUsage.created_at >= desde, AiUsage.created_at < fin)
+            .one()
+        )
+        filas.append(
+            {
+                "period_start": desde.replace(day=1),
+                "requests": int(fila[0]),
+                "cost_usd": float(fila[1]),
+                "input_tokens": int(fila[2]),
+                "output_tokens": int(fila[3]),
+            }
+        )
+    return filas

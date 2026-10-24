@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -94,6 +94,52 @@ def ai_status(
             "monthly_request_limit": monthly_request_limit(db, company_id),
             "previous_month_cost_usd": last_period_cost(db, company_id),
         },
+    }
+
+
+@router.get("/ai/consumo")
+def ai_consumo(
+    company_id: int = Depends(get_current_company_id),
+    _actor: User = Depends(require_permission(PERMISSION)),
+    meses: int = Query(default=12, ge=1, le=36),
+    db: Session = Depends(get_db),
+):
+    """Lo que consumio esta empresa: el mes en curso, el desglose y el historial.
+
+    Es el otro lado de `/ai/status`: ese dice si puede usar el asistente ahora, este dice
+    cuanto lleva gastado y cuanto le queda. Los dos son de la misma empresa y de la misma
+    sesion, asi que la empresa nunca ve el consumo de otra.
+
+    **El costo es estimado, no facturado.** Sale de la tabla de precios de la plataforma; lo
+    que la proveedor factura es otro numero y no esta en el sistema. Por eso el campo se
+    llama `cost_usd_estimado` y no `facturado`.
+    """
+    from app.services.ai.usage import desglose_por_operacion, historial_mensual
+
+    totals = month_totals(db, company_id)
+    cuota = monthly_quota_usd(db, company_id)
+    limite = monthly_request_limit(db, company_id)
+    return {
+        "mes_en_curso": {
+            **totals,
+            "monthly_quota_usd": cuota,
+            "monthly_request_limit": limite,
+            # Cuanto le queda, o None cuando no hay tope. None y 0 no son lo mismo: 0 de
+            # cuota es "ya no le queda nada", None es "no tiene tope".
+            "cuota_restante_usd": (
+                None if not cuota else max(0.0, cuota - totals["cost_usd"])
+            ),
+            "pedidos_restantes": (
+                None if not limite else max(0, limite - totals["requests"])
+            ),
+            "agotada": bool(
+                (cuota and totals["cost_usd"] >= cuota)
+                or (limite and totals["requests"] >= limite)
+            ),
+        },
+        "por_operacion": desglose_por_operacion(db, company_id, totals["period_start"]),
+        "historial": historial_mensual(db, company_id, meses),
+        "costo_es_estimado": True,
     }
 
 

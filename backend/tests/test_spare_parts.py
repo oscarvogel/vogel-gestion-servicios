@@ -501,8 +501,12 @@ def _plataforma(client, db_session, suffix="plataforma"):
     return {"Authorization": f"Bearer {r.json()['access_token']}"}
 
 
-def test_la_plataforma_habilita_el_catalogo_para_una_empresa(client, db_session):
+def test_la_plataforma_habilita_el_catalogo_para_una_empresa(client, db_session, monkeypatch):
     """Habilitar por la plataforma es lo que hace que la empresa vea el catalogo."""
+    # El estado distingue "no aplica" de "aplica pero falta la credencial": sin
+    # esto, el test dependeria de si la maquina que corre los tests tiene el
+    # `.env` con FLEXXUS_PASSWORD. Pasaba en local y fallaba en la CI.
+    monkeypatch.setattr(spare_parts.settings, "flexxus_password", "secreto-de-prueba")
     _parametros(db_session)
     company, headers_empresa = _empresa(client, db_session, "plat", habilitado=False)
     headers_plataforma = _plataforma(client, db_session, "plat")

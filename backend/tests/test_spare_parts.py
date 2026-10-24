@@ -477,6 +477,174 @@ def test_base_sin_tabla_articulos_no_revienta():
         cliente.buscar_articulos("adaptador")
 
 
+# ---------- La plataforma habilita el modulo ----------
+#
+# Los tres parametros de Flexxus son de plataforma (`editable = false`): el
+# administrador de la empresa recibe 403 si manda el PATCH. La plataforma los
+# habilita por `PUT /companies/{id}/flexxus`, igual que la IA con
+# `PUT /companies/{id}/ai`.
+
+
+def _plataforma(client, db_session, suffix="plataforma"):
+    """Un superadmin con su token."""
+    user = User(
+        email=f"root.{suffix}@example.com",
+        full_name="Root",
+        password_hash=hash_password("root-pwd"),
+        is_superadmin=True,
+    )
+    db_session.add(user)
+    db_session.commit()
+    r = client.post(
+        "/api/v1/auth/login", json={"email": user.email, "password": "root-pwd"}
+    )
+    return {"Authorization": f"Bearer {r.json()['access_token']}"}
+
+
+def test_la_plataforma_habilita_el_catalogo_para_una_empresa(client, db_session):
+    """Habilitar por la plataforma es lo que hace que la empresa vea el catalogo."""
+    _parametros(db_session)
+    company, headers_empresa = _empresa(client, db_session, "plat", habilitado=False)
+    headers_plataforma = _plataforma(client, db_session, "plat")
+
+    antes = client.get(f"/api/v1/companies/{company.id}/flexxus", headers=headers_plataforma)
+    assert antes.status_code == 200
+    assert antes.json()["enabled"] is False
+
+    r = client.put(
+        f"/api/v1/companies/{company.id}/flexxus",
+        headers=headers_plataforma,
+        json={"enabled": True, "price_list": 1},
+    )
+    assert r.status_code == 200
+    assert r.json()["enabled"] is True
+
+    # Ahora la empresa ve el catalogo: el endpoint de estado cambia de "no aplica"
+    # a "disponible", sin avisos, porque el modulo corresponde.
+    estado = client.get("/api/v1/spare-parts/status", headers=headers_empresa)
+    assert estado.status_code == 200
+    assert estado.json()["disponible"] is True
+    assert estado.json()["falla"] is False
+
+
+def test_un_admin_de_empresa_no_puede_habilitar_el_catalogo(client, db_session):
+    """La puerta es de la plataforma: el admin de la empresa no la puede abrir."""
+    _parametros(db_session)
+    company, headers_empresa = _empresa(client, db_session, "noadmin", habilitado=False)
+
+    r = client.put(
+        f"/api/v1/companies/{company.id}/flexxus",
+        headers=headers_empresa,
+        json={"enabled": True},
+    )
+    assert r.status_code == 403
+
+    # Y el PATCH de la pantalla de Parametros tampoco: el parametro no es editable.
+    patch = client.patch(
+        "/api/v1/company-parameters/flexxus.enabled",
+        headers=headers_empresa,
+        json={"value": True},
+    )
+    assert patch.status_code == 403
+
+
+def test_al_deshabilitar_se_borra_el_override(client, db_session):
+    """Volver al default borra la fila: no queda un false guardado en la base."""
+    _parametros(db_session)
+    company, _headers = _empresa(client, db_session, "borra", habilitado=False)
+    headers_plataforma = _plataforma(client, db_session, "borra")
+
+    client.put(
+        f"/api/v1/companies/{company.id}/flexxus",
+        headers=headers_plataforma,
+        json={"enabled": True},
+    )
+    definition = db_session.query(ParameterDefinition).filter_by(
+        parameter="flexxus.enabled"
+    ).one()
+    assert (
+        db_session.query(CompanyParameter)
+        .filter_by(company_id=company.id, parameter_definition_id=definition.id)
+        .count()
+        == 1
+    )
+
+    client.put(
+        f"/api/v1/companies/{company.id}/flexxus",
+        headers=headers_plataforma,
+        json={"enabled": False},
+    )
+    assert (
+        db_session.query(CompanyParameter)
+        .filter_by(company_id=company.id, parameter_definition_id=definition.id)
+        .count()
+        == 0
+    )
+
+
+def test_la_plataforma_elige_la_lista_de_precios(client, db_session, monkeypatch):
+    """La lista que elige la plataforma es la que llega al ERP."""
+    _parametros(db_session)
+    company, headers_empresa = _empresa(client, db_session, "lista", habilitado=False)
+    headers_plataforma = _plataforma(client, db_session, "lista")
+    cliente = ClienteFalso(items=[])
+    monkeypatch.setattr(spare_parts, "_cliente", lambda db, company_id: cliente)
+
+    r = client.put(
+        f"/api/v1/companies/{company.id}/flexxus",
+        headers=headers_plataforma,
+        json={"enabled": True, "price_list": 3},
+    )
+    assert r.status_code == 200
+    assert r.json()["price_list"] == 3
+
+    client.get("/api/v1/spare-parts/search?q=adaptador", headers=headers_empresa)
+    assert cliente.llamadas[0]["precio_lista"] == 3
+
+
+def test_la_lista_de_precios_tiene_que_estar_entre_1_y_5(client, db_session):
+    """El ERP solo tiene cinco listas de venta."""
+    _parametros(db_session)
+    company, _headers = _empresa(client, db_session, "rango", habilitado=False)
+    headers_plataforma = _plataforma(client, db_session, "rango")
+
+    r = client.put(
+        f"/api/v1/companies/{company.id}/flexxus",
+        headers=headers_plataforma,
+        json={"enabled": True, "price_list": 9},
+    )
+    assert r.status_code == 422
+
+
+def test_la_base_de_flexxus_tiene_que_terminar_en_gdb(client, db_session):
+    """La base es la ruta del .gdb vista desde el servidor Firebird."""
+    _parametros(db_session)
+    company, _headers = _empresa(client, db_session, "base", habilitado=False)
+    headers_plataforma = _plataforma(client, db_session, "base")
+
+    r = client.put(
+        f"/api/v1/companies/{company.id}/flexxus",
+        headers=headers_plataforma,
+        json={"enabled": True, "database": "DB-ETR"},
+    )
+    assert r.status_code == 422
+
+
+def test_la_plataforma_ve_el_estado_sin_escribir_nada(client, db_session):
+    """El GET no escribe nada: es de lectura."""
+    _parametros(db_session)
+    company, _headers = _empresa(client, db_session, "lectura", habilitado=False)
+    headers_plataforma = _plataforma(client, db_session, "lectura")
+
+    r = client.get(f"/api/v1/companies/{company.id}/flexxus", headers=headers_plataforma)
+    assert r.status_code == 200
+    cuerpo = r.json()
+    assert cuerpo["company_name"] == company.name
+    assert cuerpo["database"] == r"C:\FLEXXUS\DB\ETR\DB-ETR.gdb"
+    assert cuerpo["price_list"] == 1
+    assert db_session.query(CompanyParameter).count() == 0
+
+
 def test_base_sin_columnas_de_precio_devuelve_item_sin_precio():
     """Una base sin PRECIOVENTA1 no inventa el precio: lo deja en None."""
     tablas = {"ARTICULOS": {"CODIGOARTICULO", "DESCRIPCION"}}

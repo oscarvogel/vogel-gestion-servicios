@@ -104,7 +104,8 @@ def is_enabled(db: Session, company_id: int) -> bool:
     return raw in ("1", "true", "yes", "si", "sí", "on")
 
 
-def _price_list(db: Session, company_id: int) -> int:
+def precio_lista(db: Session, company_id: int) -> int:
+    """Lista de precios que se usa como precio de venta para esta empresa."""
     try:
         valor = int(
             float(read_parameter(db, company_id, PARAM_PRICE_LIST, "1").strip() or 1)
@@ -115,7 +116,8 @@ def _price_list(db: Session, company_id: int) -> int:
     return valor if 1 <= valor <= 5 else 1
 
 
-def _database(db: Session, company_id: int) -> str:
+def base_datos(db: Session, company_id: int) -> str:
+    """Base de Flexxus que usa esta empresa (ruta del .gdb vista desde el servidor)."""
     return (
         read_parameter(db, company_id, PARAM_DATABASE, settings.flexxus_database).strip()
         or settings.flexxus_database
@@ -129,7 +131,7 @@ def _cliente(db: Session, company_id: int) -> FlexxusClient:
         user=settings.flexxus_user,
         password=settings.flexxus_password,
         charset=settings.flexxus_charset,
-        database=_database(db, company_id),
+        database=base_datos(db, company_id),
         timeout=settings.flexxus_timeout_seconds,
     )
 
@@ -156,15 +158,15 @@ def buscar_repuestos(
         # ahi si hay que avisarle al operador.
         return {"disponible": False, "aviso": None, "items": []}
 
-    precio_lista = _price_list(db, company_id)
-    clave = (company_id, (texto or "").strip().upper(), limite, precio_lista)
+    lista = precio_lista(db, company_id)
+    clave = (company_id, (texto or "").strip().upper(), limite, lista)
     en_cache = _cache_leer(clave)
     if en_cache is not None:
         return {"disponible": True, "aviso": None, "items": en_cache}
 
     try:
         items = _cliente(db, company_id).buscar_articulos(
-            texto, limite=limite, precio_lista=precio_lista
+            texto, limite=limite, precio_lista=lista
         )
     except FlexxusUnavailable as exc:
         LOGGER.warning("Flexxus no disponible: %s", exc)
@@ -207,7 +209,7 @@ def obtener_repuesto(
         return None
     try:
         return _cliente(db, company_id).obtener_articulo(
-            codigo, precio_lista=_price_list(db, company_id)
+            codigo, precio_lista=precio_lista(db, company_id)
         )
     except FlexxusUnavailable as exc:
         LOGGER.warning("Flexxus no disponible: %s", exc)

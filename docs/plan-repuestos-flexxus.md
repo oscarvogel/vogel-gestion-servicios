@@ -229,8 +229,12 @@ issue queda bloqueada: **no se implementa a ciegas**.
     `flexxus.price_list`), todos **no editables** por la empresa.
   - `backend/scripts/probe_flexxus_esquema.py`: el probe read-only, reusado para
     escribir `docs/spike-esquema-flexxus.md`.
-  - `backend/tests/test_spare_parts.py`: 13 tests (aislamiento, degradacion,
-    permiso, limites y cliente defensivo).
+  - `backend/tests/test_spare_parts.py`: 20 tests (aislamiento, degradacion,
+    permiso, limites, cliente defensivo y la habilitacion por plataforma).
+  - `backend/app/api/v1/companies.py`: `GET` y `PUT /api/v1/companies/{id}/flexxus`
+    (superadmin), la puerta por la que la plataforma habilita el catalogo.
+  - `frontend/src/views/CompaniesView.vue`: la seccion "Catalogo de repuestos
+    (Flexxus)" en el modal de empresa, al lado del plan de IA.
 - Se **corrio el probe contra la base real** y se documento en
   `docs/spike-esquema-flexxus.md`. Se resolvieron las tres dudas abiertas.
 - Se implemento y se probo el **aislamiento por tenant**: una empresa sin
@@ -255,6 +259,20 @@ La solucion, en cuatro capas:
    PATCH, igual que con los parametros de la IA. Los habilita la plataforma.
    Asi se puede prender y apagar **sin desplegar**, y queda a la vista en la
    pantalla de Parametros.
+
+   **Como los habilita la plataforma:** por `PUT /api/v1/companies/{id}/flexxus`
+   (superadmin), que es la misma puerta que usa la IA con
+   `PUT /api/v1/companies/{id}/ai`, y con el mismo criterio deliberado: no se
+   le_amigo` que "un superadmin puede saltarse el `editable`" (ese atajo
+   dejaria la puerta abierta para todos los demas parametros), sino un
+   endpoint con nombre propio que dice lo que hace. Desde la pantalla de
+   Empresas, en el modal de la empresa, la seccion **"Catalogo de repuestos
+   (Flexxus)"**: un interruptor, la base y la lista de precios.
+
+   Por que un endpoint y no un `UPDATE` a mano sobre la base: las bases de
+   Coolify viven en la red interna de Docker del servidor y **no se alcanzan
+   desde la maquina del administrador** (ver `deploy-coolify.md`). Ademas, el
+   `UPDATE` a mano no deja registro de quien habilito que.
 3. **El orden de los controles es lo que evita la fuga.** En el endpoint:
    permiso (`work_orders.view`) -> tenant del token (`get_current_company_id`,
    nunca un `company_id` del frontend) -> `flexxus.enabled`. Recien ahi se arma

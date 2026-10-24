@@ -788,6 +788,11 @@ def crear_presupuesto(
                 markup_percent=markup_aplicado,
                 unit_price=precio,
                 line_total=money(cantidad * precio),
+                # Trazabilidad del precio (#114). Solo si la linea viene del
+                # catalogo de Flexxus: una linea de mano de obra no la tiene.
+                item_code=item.get("item_code"),
+                price_source=item.get("price_source"),
+                price_synced_at=item.get("price_synced_at"),
             )
         )
         total = money(cantidad * precio)

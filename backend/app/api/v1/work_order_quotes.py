@@ -20,6 +20,11 @@ class ItemInput(BaseModel):
     quantity:Decimal=Field(gt=0)
     unit_cost:Decimal=Field(ge=0)
     unit_price:Decimal|None=Field(default=None,ge=0)
+    # Trazabilidad del precio (#114). Viene del catalogo de Flexxus cuando la
+    # linea se eligio de ahi. Opcional: una linea de mano de obra no lo tiene.
+    item_code:str|None=Field(default=None,max_length=40)
+    price_source:str|None=Field(default=None,max_length=60)
+    price_synced_at:datetime|None=None
 class QuoteDecisionInput(BaseModel):
     note:str|None=Field(default=None,max_length=1000)
 class QuoteInput(BaseModel):
@@ -31,6 +36,11 @@ class ExecutionItemInput(BaseModel):
     quantity:Decimal=Field(gt=0)
     unit_cost:Decimal=Field(default=0,ge=0)
     unit_price:Decimal=Field(default=0,ge=0)
+    # Trazabilidad del precio (#114). Mismo criterio que en la linea de
+    # presupuesto.
+    item_code:str|None=Field(default=None,max_length=40)
+    price_source:str|None=Field(default=None,max_length=60)
+    price_synced_at:datetime|None=None
 class FinalTestInput(BaseModel):
     passed:bool
     notes:str|None=Field(default=None,max_length=2000)
@@ -52,7 +62,7 @@ def markup(db,cid):
 def money(v):return wo_service.money(v)
 def quote_read(db,row):
     items=db.query(WorkOrderQuoteItem).filter_by(quote_id=row.id,company_id=row.company_id).order_by(WorkOrderQuoteItem.id).all()
-    return {"id":row.id,"work_order_id":row.work_order_id,"version":row.version,"status":row.status,"notes":row.notes,"diagnosis_snapshot":row.diagnosis_snapshot,"diagnosis_revision":row.diagnosis_revision,"subtotal_parts":row.subtotal_parts,"subtotal_labor":row.subtotal_labor,"total":row.total,"created_at":row.created_at,"sent_at":row.sent_at,"decided_at":row.decided_at,"items":[{"id":i.id,"item_type":i.item_type,"description":i.description,"quantity":i.quantity,"unit_cost":i.unit_cost,"markup_percent":i.markup_percent,"unit_price":i.unit_price,"line_total":i.line_total} for i in items]}
+    return {"id":row.id,"work_order_id":row.work_order_id,"version":row.version,"status":row.status,"notes":row.notes,"diagnosis_snapshot":row.diagnosis_snapshot,"diagnosis_revision":row.diagnosis_revision,"subtotal_parts":row.subtotal_parts,"subtotal_labor":row.subtotal_labor,"total":row.total,"created_at":row.created_at,"sent_at":row.sent_at,"decided_at":row.decided_at,"items":[{"id":i.id,"item_type":i.item_type,"description":i.description,"quantity":i.quantity,"unit_cost":i.unit_cost,"markup_percent":i.markup_percent,"unit_price":i.unit_price,"line_total":i.line_total,"item_code":i.item_code,"price_source":i.price_source,"price_synced_at":i.price_synced_at} for i in items]}
 @router.get("/{oid}/diagnosis")
 def get_diagnosis(oid:int,cid:int=Depends(get_current_company_id),_a:User=Depends(require_permission("work_orders.view")),db:Session=Depends(get_db)):
     order(db,cid,oid);d=db.query(WorkOrderDiagnosis).filter_by(company_id=cid,work_order_id=oid).first()
@@ -167,9 +177,9 @@ def add_execution(oid:int,p:ExecutionItemInput,cid:int=Depends(get_current_compa
     wo=order(db,cid,oid)
     if _is_final(db,cid,oid,wo):raise HTTPException(409,"La orden está finalizada y no admite trabajos o repuestos.")
     show_costs=parameter_bool(db,cid,"work_orders.show_internal_costs",True)
-    row=WorkOrderExecutionItem(company_id=cid,work_order_id=oid,item_type=p.item_type,description=p.description.strip(),quantity=p.quantity,unit_cost=(money(p.unit_cost) if show_costs else Decimal("0")),unit_price=money(p.unit_price),created_by_user_id=a.id)
+    row=WorkOrderExecutionItem(company_id=cid,work_order_id=oid,item_type=p.item_type,description=p.description.strip(),quantity=p.quantity,unit_cost=(money(p.unit_cost) if show_costs else Decimal("0")),unit_price=money(p.unit_price),item_code=p.item_code,price_source=p.price_source,price_synced_at=p.price_synced_at,created_by_user_id=a.id)
     db.add(row);db.add(WorkOrderEvent(company_id=cid,work_order_id=oid,event_type="WORK_EXECUTED",status=wo.status,detail=("Repuesto utilizado: " if p.item_type=="PART" else "Trabajo realizado: ")+p.description.strip(),user_id=a.id));db.commit();db.refresh(row)
-    return {"id":row.id,"item_type":row.item_type,"description":row.description,"quantity":row.quantity,"unit_cost":row.unit_cost,"unit_price":row.unit_price,"created_at":row.created_at}
+    return {"id":row.id,"item_type":row.item_type,"description":row.description,"quantity":row.quantity,"unit_cost":row.unit_cost,"unit_price":row.unit_price,"item_code":row.item_code,"price_source":row.price_source,"price_synced_at":row.price_synced_at,"created_at":row.created_at}
 
 @router.get("/{oid}/final-tests")
 def list_final_tests(oid:int,cid:int=Depends(get_current_company_id),_a:User=Depends(require_permission("work_orders.view")),db:Session=Depends(get_db)):

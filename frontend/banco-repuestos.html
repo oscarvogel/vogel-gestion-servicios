@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <title>Banco de pruebas - Combo de repuestos (Flexxus #114)</title>
+    <style>
+      /* Tokens del tema, copiados de src/styles/global.css */
+      :root {
+        --color-text: #e5edf7;
+        --color-text-primary: #e5edf7;
+        --color-text-muted: #8290a5;
+        --text-secondary: #94a3b8;
+        --text-muted: #8290a5;
+        --color-surface: #0f1b2d;
+        --color-border: #263a57;
+        --surface: #152238;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: #0b1420;
+        color: var(--color-text);
+        font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      h1 { font-size: 16px; padding: 16px 20px 0; margin: 0; }
+      p.nota { color: var(--color-text-muted); font-size: 12px; padding: 4px 20px 14px; margin: 0; }
+
+      /* --- CSS de la vista (WorkOrdersView.vue), verbatim --- */
+      .modal-backdrop {
+        position: fixed; inset: 0; z-index: 100;
+        background: rgba(2, 6, 23, .72);
+        display: grid; place-items: center; padding: 20px;
+      }
+      .modal {
+        background: var(--color-surface);
+        border: 1px solid var(--color-border);
+        border-radius: 14px;
+        padding: 20px;
+        color: var(--color-text);
+      }
+      .quote-modal { width: min(1100px, 96vw); max-height: 92vh; overflow: auto; }
+      .quote-editor-head {
+        display: grid; grid-template-columns: 130px 2fr 90px 120px 130px 40px;
+        gap: 7px; margin: 16px 0 2px; color: var(--text-secondary); font-size: 12px;
+      }
+      .quote-line { display: grid; grid-template-columns: 130px 2fr 90px 120px 130px 40px; gap: 7px; margin: 8px 0; }
+      .quote-line input, .quote-line select {
+        min-width: 0; background: #10283f; color: var(--color-text);
+        border: 1px solid rgba(125, 170, 210, .35); color-scheme: dark;
+      }
+      .quote-line input, .quote-line select, .spare-picker__input {
+        font: inherit; padding: 9px 12px; border-radius: 12px; width: 100%;
+      }
+      .btn {
+        font: inherit; padding: 9px 14px; border-radius: 12px; cursor: pointer;
+        background: rgba(96, 165, 250, .12); color: var(--color-text);
+        border: 1px solid rgba(148, 163, 184, .25);
+      }
+      .btn--sm { padding: 7px 11px; }
+
+      /* --- CSS del componente (SparePartPicker.vue), verbatim --- */
+      .spare-picker { position: relative; min-width: 0; }
+      .spare-picker__box { position: relative; display: flex; align-items: center; }
+      .spare-picker__input { width: 100%; min-width: 0; }
+      .spare-picker__menu {
+        position: fixed; z-index: 200; padding: 6px;
+        background: var(--surface, #152238);
+        border: 1px solid rgba(148, 163, 184, 0.25);
+        border-radius: 12px; box-shadow: 0 18px 45px rgba(0, 0, 0, 0.35); overflow: auto;
+      }
+      .spare-picker__option {
+        display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; width: 100%;
+        text-align: left; padding: 9px 12px; border: 0; border-radius: 8px;
+        background: transparent; color: inherit; cursor: pointer;
+      }
+      .spare-picker__option:hover { background: rgba(59, 130, 246, 0.14); }
+      .spare-picker__code { font-size: 11px; color: var(--text-muted, #8290a5); align-self: center; }
+      .spare-picker__desc { font-size: 13px; line-height: 1.35; }
+      .spare-picker__meta {
+        grid-column: 2; display: flex; flex-wrap: wrap; gap: 8px;
+        font-size: 11px; color: var(--text-secondary, #94a3b8);
+      }
+      .spare-picker__meta em { font-style: normal; }
+      .spare-picker__meta b { color: var(--color-text, #e5edf7); }
+    </style>
+  </head>
+  <body>
+    <h1>Banco de pruebas — combo de repuestos (Flexxus #114)</h1>
+    <p class="nota">
+      Reproduce el modal de presupuesto con su <code>overflow:auto</code> real.
+      El desplegable va posicionado como en el componente (fixed + z-index 200),
+      que es lo que lo salva del recorte.
+    </p>
+
+    <div class="modal-backdrop workshop-modal-layer" style="z-index: 145">
+      <div class="modal card quote-modal">
+        <div style="display: flex; justify-content: space-between">
+          <div>
+            <h2 style="margin: 0">Crear presupuesto</h2>
+            <p style="color: var(--text-secondary); margin: 4px 0">OT #1042 · Electrotecniref</p>
+          </div>
+          <button class="btn btn--ghost btn--sm">×</button>
+        </div>
+
+        <div class="quote-editor-head">
+          <span>Tipo</span><span>Descripción</span><span>Cant.</span>
+          <span>Costo interno</span><span>Precio cliente</span><span></span>
+        </div>
+
+        <div class="quote-line">
+          <select><option>Repuesto</option></select>
+          <div class="spare-picker">
+            <div class="spare-picker__box">
+              <input id="campo" class="spare-picker__input" value="adaptador" />
+            </div>
+          </div>
+          <input value="2" />
+          <input value="1.440,00" />
+          <input value="2.160,00" />
+          <button class="btn btn--ghost btn--sm">×</button>
+        </div>
+
+        <div class="quote-line">
+          <select><option>Mano de obra</option></select>
+          <input placeholder="Descripción" />
+          <input value="1" />
+          <input value="8.000,00" />
+          <input value="8.000,00" />
+          <button class="btn btn--ghost btn--sm">×</button>
+        </div>
+
+        <!-- Relleno para que la fila quede cerca del borde de abajo del modal:
+             es el caso donde un desplegable absoluto quedaria recortado. -->
+        <div style="height: 330px; display: flex; align-items: flex-end; color: var(--text-muted); font-size: 12px">
+          (contenido que empuja la fila hacia abajo del modal)
+        </div>
+
+        <div class="quote-line">
+          <select><option>Repuesto</option></select>
+          <div class="spare-picker">
+            <div class="spare-picker__box">
+              <input id="campo2" class="spare-picker__input" placeholder="Buscar repuesto…" />
+            </div>
+          </div>
+          <input value="1" />
+          <input value="0,00" />
+          <input value="0,00" />
+          <button class="btn btn--ghost btn--sm">×</button>
+        </div>
+
+        <div class="toolbar" style="display: flex; gap: 8px; margin-top: 10px">
+          <button class="btn btn--ghost btn--sm">+ Repuesto</button>
+          <button class="btn btn--ghost btn--sm">+ Mano de obra</button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const OPCIONES = [
+        { code: "05589", desc: "ADAPTADOR TRIPLE PIRAMIDAL CHATO NEGRO NARANJA", marca: "STARBOX", rubro: "ADAPTADORES", precio: "2.160,00" },
+        { code: "05612", desc: "ADAPTADOR TRIPLE PIRAMIDAL CHATO BLANCO", marca: "STARBOX", rubro: "ADAPTADORES", precio: "2.160,00" },
+        { code: "001698", desc: "ADAPTADOR 1/4\" HEXAGONAL X 1/2\" CUADRADO", marca: "STARBOX", rubro: "ADAPTADORES", precio: "3.835,52" },
+        { code: "09378", desc: "ADAPTADOR AMERICANA MULTIPLE", marca: "GENUINO", rubro: "ADAPTADORES", precio: "3.611,52" },
+      ];
+
+      function montarMenu(ancla) {
+        const rect = ancla.getBoundingClientRect();
+        const disponibleAbajo = window.innerHeight - rect.bottom;
+        const disponibleArriba = rect.top;
+        const altoMaximo = 260;
+        const haciaArriba = disponibleArriba > disponibleAbajo;
+        const espacio = haciaArriba ? disponibleArriba : disponibleAbajo;
+        const alto = Math.max(120, Math.min(altoMaximo, espacio - 12));
+
+        const menu = document.createElement("div");
+        menu.className = "spare-picker__menu";
+        menu.style.top = haciaArriba ? `${rect.top - 4}px` : `${rect.bottom + 4}px`;
+        menu.style.left = `${rect.left}px`;
+        menu.style.width = `${rect.width}px`;
+        menu.style.maxHeight = `${alto}px`;
+        if (haciaArriba) menu.style.transform = "translateY(-100%)";
+        menu.innerHTML = OPCIONES.map(
+          (o) => `<button class="spare-picker__option">
+              <span class="spare-picker__code">${o.code}</span>
+              <span class="spare-picker__desc">${o.desc}</span>
+              <span class="spare-picker__meta"><em>${o.marca}</em><em>${o.rubro}</em><b>$ ${o.precio}</b></span>
+            </button>`,
+        ).join("");
+        document.body.appendChild(menu);
+        return menu;
+      }
+
+      // El campo de arriba: el desplegable abre hacia abajo.
+      montarMenu(document.getElementById("campo"));
+      // El campo de abajo, cerca del borde: se abre hacia arriba.
+      montarMenu(document.getElementById("campo2"));
+    </script>
+  </body>
+</html>

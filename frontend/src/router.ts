@@ -18,6 +18,7 @@ import AssistantView from "./views/AssistantView.vue";
 import AiConsumoView from "./views/AiConsumoView.vue";
 import CierreMarcasView from "./views/CierreMarcasView.vue";
 import TecnicosView from "./views/TecnicosView.vue";
+import AiConsumoView from "./views/AiConsumoView.vue";
 
 declare module "vue-router" {
   interface RouteMeta {

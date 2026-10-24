@@ -20,3 +20,15 @@ backup/_work/csv/
 backup/_work/dump_*.sql
 backup/_work/pytest_tmp/
 backup/_work/scan_lan.sh
+
+# Salidas de comandos y artefactos regenerables de las corridas de trabajo.
+# Las herramientas (.py, .ps1, .sh) y las specs (.md) de backup/_work SI van al
+# repo: son el registro de como se hizo cada correccion y se releen cuando
+# algo se rompe. Lo que no va es lo que se puede regenerar.
+backup/_work/*.txt
+backup/_work/bundle_prod.*
+backup/_work/front_app.json
+backup/_work/img_zoom/
+
+# Salida de un grep de una sesion de trabajo.
+mangled.txt

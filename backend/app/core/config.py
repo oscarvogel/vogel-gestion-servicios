@@ -50,6 +50,21 @@ class Settings(BaseSettings):
     # Tope de tamaño por archivo, en MB. Se valida antes de leer, no despues.
     storage_max_file_mb: int = 25
 
+    # --- Flexxus: ERP de Suevos, Firebird 3050 (#114) ---
+    # Credenciales de **plataforma**, no de la empresa: Flexxus es un ERP
+    # unico de la plataforma. La habilitacion por tenant va en el parametro de
+    # empresa `flexxus.enabled`; aca solo vive el secreto y la direccion.
+    #
+    # La "base" es la ruta del `.gdb` vista DESDE EL SERVIDER Firebird, no una
+    # ruta local del backend: el backend no tiene el archivo.
+    flexxus_host: str = "suevos.ddns.net"
+    flexxus_port: int = 3050
+    flexxus_user: str = "ELECTROTR"
+    flexxus_password: str | None = None
+    flexxus_charset: str = "ISO8859_1"
+    flexxus_database: str = r"C:\FLEXXUS\DB\ETR\DB-ETR.gdb"
+    flexxus_timeout_seconds: float = 10.0
+
     # --- Modulo IA (#44) ---
     # La API key vive solo en el backend. Sin ella el sistema sigue andando: la IA
     # queda 'no disponible' y el resto de la app no se enteran.

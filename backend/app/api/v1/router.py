@@ -9,6 +9,7 @@ from app.api.v1 import (
     dashboard,
     equipment_documents,
     roles,
+    spare_parts,
     technicians,
     users,
     warranty_settlements,
@@ -32,3 +33,4 @@ router.include_router(work_orders.router, prefix="/work-orders", tags=["work-ord
 router.include_router(work_order_quotes.router, prefix="/work-orders", tags=["work-order-quotes"])
 router.include_router(work_order_imports.router, prefix="/work-orders/import", tags=["work-order-imports"])
 router.include_router(warranty_settlements.router, prefix="/warranty-settlements", tags=["warranty-settlements"])
+router.include_router(spare_parts.router, prefix="/spare-parts", tags=["spare-parts"])

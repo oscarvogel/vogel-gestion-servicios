@@ -47,3 +47,39 @@ AI_PARAMETERS: list[tuple[str, str, str, str, str, bool]] = [
         False,
     ),
 ]
+
+
+# Los parametros de Flexxus (ERP de Suevos). Son **de plataforma**, no del
+# cliente, por la misma razon que los de la IA: el ERP es de una sola
+# plataforma y el catalogo de repuestos que expone es el de un cliente
+# concreto. Prendido para otra empresa, esa empresa veria el catalogo y los
+# precios de otro, asi que solo la plataforma lo habilita.
+#
+# `flexxus.enabled` apagado por default: una empresa que no lo tenga no ve
+# nada, aunque el ERP este configurado y accesible.
+FLEXXUS_PARAMETERS: list[tuple[str, str, str, str, str, bool]] = [
+    (
+        "flexxus.enabled",
+        "false",
+        "Habilita el catalogo de repuestos de Flexxus para esta empresa. Apagado por defecto: solo lo habilita la plataforma.",
+        "bool",
+        "integraciones",
+        False,
+    ),
+    (
+        "flexxus.database",
+        r"C:\FLEXXUS\DB\ETR\DB-ETR.gdb",
+        "Base de Flexxus (ruta del .gdb vista desde el servidor Firebird) que usa esta empresa.",
+        "string",
+        "integraciones",
+        False,
+    ),
+    (
+        "flexxus.price_list",
+        "1",
+        "Lista de precios de Flexxus que se toma como precio de venta (1 a 5).",
+        "integer",
+        "integraciones",
+        False,
+    ),
+]

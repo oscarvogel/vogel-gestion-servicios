@@ -113,11 +113,48 @@ que la migracion de produccion) mas los issues #115 y #116 de la rama. Se descar
 
 - Suite backend sobre el **merge**: **350 tests en verde** (343 + 7 nuevos de la
   habilitacion por plataforma).
-- Suite frontend: **71 en verde** y `npm run build` OK.
-- CI de GitHub Actions sobre `main`: en verde en `6ac44f0` y en `75f2cb2`.
+- Suite frontend: **74 en verde** (14 archivos) y `npm run build` OK.
+- CI de GitHub Actions sobre `main`: en verde en `6ac44f0` y en `de04486`.
 - En el servidor: `GET /api/v1/spare-parts/status` da **401** (la ruta existe y pide
   token) y `GET /api/v1/companies/3/flexxus` daba **404** antes del deploy con el endpoint
   nuevo, y **401** despues: la ruta esta viva.
+
+### La prueba contra el ERP real (staging)
+
+Todo esto se midio **contra el ERP de verdad**, desde el staging desplegado, con la
+sesion del administrador de Electrotecniref:
+
+1. `GET /api/v1/companies/3/flexxus` → `{"enabled": false, "price_list": 1,
+   "database": "C:\\FLEXXUS\\DB\\ETR\\DB-ETR.gdb"}`.
+2. `PUT /api/v1/companies/3/flexxus` (como superadmin) → `{"enabled": true}`.
+   **El modulo queda habilitado para Electrotecniref en staging** y para nadie mas.
+3. `GET /api/v1/spare-parts/status` → `{"disponible": true, "motivo": null, "falla": false}`:
+   el modulo corresponde y hay credencial en el contenedor.
+4. `GET /api/v1/spare-parts/search?q=adaptador` → **6 articulos reales** del ERP con
+   codigo, descripcion, rubro, marca, stock, costo y precio de venta, y
+   `price_source: flexxus:PRECIOVENTA1`. El mismo con `capacitor` (6) y con el codigo
+   `05589` (1).
+5. En el navegador, eligiendo "CAPACITOR 1,5MF 440V": la linea del presupuesto queda con
+   **costo interno 1231,84** (`PRECIOCOMPRA`) y **precio al cliente 1847,76**
+   (`PRECIOVENTA1`). Los dos precios vienen del ERP, ninguno calculado aca.
+6. El desplegable entra completo a **1638x969** y a **1366x768** (a 1366 el menu va de
+   373 a 633 en una ventana de 768: entra entero, con scroll interno).
+7. Con el modulo apagado, el combo se comporta como texto libre **sin aviso** (que es el
+   caso "no aplica": `falla: false`). Con el ERP caido, el aviso aparece y la OT sigue
+   operando: eso se vio con el contenedor sin el driver, antes del arreglo.
+
+### Lo que se escribio en staging (para que quede a las claras)
+
+- Un **diagnostico de prueba** en la OT **#9282** (`ERINSFLEISCH AVELINO`), con el texto
+  `PRUEBA DE VERIFICACION (24/10/2026) ... No es un diagnostico real`. Fue lo unico que
+  hubo que escribir: el boton de "Crear presupuesto" esta deshabilitado sin diagnostico, y
+  en staging ninguna OT tenia uno. **No se genero ningun presupuesto.**
+- El parametro `flexxus.enabled` de Electrotecniref en **staging** (id=3) queda en
+  `true`. En **produccion** queda en `false`.
+
+La API **no tiene** un endpoint para borrar un diagnostico: si se quiere limpiar el de
+prueba, hay que borrar la fila de `work_order_diagnoses` de la OT 9282 (empresa 3) por
+SQL, desde una maquina con acceso a la base.
 
 ## Pendientes
 
@@ -128,3 +165,7 @@ que la migracion de produccion) mas los issues #115 y #116 de la rama. Se descar
       decision este tomada.
 - [ ] Limpiar las variables duplicadas de `staging-backend` (`CORS_ORIGINS` con dos
       valores distintos): tarea vieja, sigue pendiente.
+- [ ] Borrar el diagnostico de prueba de la OT 9282 de staging (ver arriba).
+- [ ] El `extra` `pymssql` (importador de CiberBrain) tiene el mismo problema que
+      `firebirdsql` tieneba: por estar en un extra, **nixpacks no lo instala**. No importa
+      para el deploy normal (el importador se corrio local), pero conviene saberlo.

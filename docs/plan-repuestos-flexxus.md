@@ -288,6 +288,16 @@ La solucion, en cuatro capas:
 Estos son los bugs que aparecieron al probar contra la base real. Todos están
 en el codigo con el comentario que los explica, para no volver a pisarlos:
 
+- **La imagen de produccion salia sin el driver `firebirdsql`.** Las apps de
+  Coolify se construyen con **Nixpacks**, que corre `pip install .` y **no
+  instala los extras**: el `Dockerfile` del repo no construye nada. Con el driver
+  solo en el extra `flexxus`, el modulo degradaba a texto libre sin avisar, y la
+  CI daba verde porque instalaba `.[dev,flexxus]`. Resuelto poniendo el driver en
+  las **dependencias base** y haciendo que la CI instale como instala el deploy
+  (`pip install -e .[dev]`) y verifique el import.
+- **Un test que pasa local y falla en la CI** por depender del `.env` local (que
+  tiene `FLEXXUS_PASSWORD`) y no de lo que el test quiere medir. Se fijo el valor
+  con `monkeypatch` para que el test sea el mismo en cualquier maquina.
 - **La contraseña NO estaba en el repo de `dashboard_suevos`.** Se busco en
   todos los archivos (incluidos los ignorados por git), en todo el historial de
   todas las ramas y en el buzon IMAP de Suevos: solo hay placeholders

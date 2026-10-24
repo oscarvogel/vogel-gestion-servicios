@@ -42,7 +42,7 @@ const props = withDefaults(
     disabled?: boolean;
   }>(),
   {
-    placeholder: "Buscar repuesto por código o descripción…",
+    placeholder: "Buscar repuesto por código, descripción, rubro o marca…",
     disabled: false,
   },
 );

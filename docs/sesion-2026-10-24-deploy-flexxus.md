@@ -180,6 +180,35 @@ Tres cosas se corrigieron:
 El filtro fino en Python se actualizo con el mismo criterio que el SQL (code,
 descripcion, rubro y marca), y hay un test que lo verifica contra el ERP real.
 
+#### La verificacion en pantalla, despues del deploy
+
+Con los deploys de staging aplicados (`5b65d83`), en el navegador, sobre la OT 9282 de
+Electrotecniref:
+
+- Escribiendo **"foc"** en el combo del modal de presupuesto salen los **5 adaptadores para
+  garrafa** de la marca FOCO (002808 a 002812), con rubro `CONEXION` y el precio del ERP.
+- Escribiendo **"zzzqqq"** el menu queda abierto con `No hay repuestos que coincidan con
+  «zzzqqq». Proba con otra parte del nombre, con el codigo, o con el rubro o la marca (por
+  ejemplo "PUNTERA" o "BREMEN").`
+- Eligiendo "ADAPTADOR 1/4" HEXAGONAL X 1/2" CUADRADO MACHO 50MM" la linea queda con
+  **costo interno 1798,00** (`PRECIOCOMPRA`) y **precio al cliente 2697,00**
+  (`PRECIOVENTA1`).
+- El desplegable entra completo a **1638x969** y a **1366x768**.
+
+Un detalle del deploy: la API de staging **sirvio el codigo viejo durante el deploy** (el
+contenedor se cambia al final). Consultar `/spare-parts/search` mientras el deploy esta
+`in_progress` puede dar el resultado viejo y hacer pensar que el fix no sirvio: hay que
+**esperar a que el deploy termine** antes de medir.
+
+Para poder verificar la pantalla se creo un **usuario temporal** en Electrotecniref
+(staging) con los mismos permisos del administrador, `verificacion.flexxus@staging.example.com`,
+que quedo **deshabilitado** al terminar la comprobacion. La clave del administrador de
+Electrotecniref que estaba en el repo **ya no sirve**, asi que no se pudo entrar con ella.
+
+Ademas se cambio el `placeholder` del combo: de "Buscar repuesto por codigo o descripcion"
+a "Buscar repuesto por codigo, descripcion, rubro o marca", que es lo que el operador
+puede escribir de verdad.
+
 ## Pendientes
 
 - [ ] **Decidir el precio**: hoy se usa la lista de venta 1 (`PRECIOVENTA1`) del ERP, que

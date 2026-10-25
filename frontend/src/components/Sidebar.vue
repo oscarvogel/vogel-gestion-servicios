@@ -3,6 +3,7 @@ import { computed } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useSessionStore } from "../stores/session";
 import VogelLogo from "./VogelLogo.vue";
+import { version } from "../../package.json";
 import IconDashboard from "./IconDashboard.vue";
 import IconCompanies from "./IconCompanies.vue";
 import IconUsers from "./IconUsers.vue";
@@ -11,9 +12,15 @@ import IconSettings from "./IconSettings.vue";
 import IconAssistant from "./IconAssistant.vue";
 import IconCierre from "./IconCierre.vue";
 import IconTecnicos from "./IconTecnicos.vue";
+import IconWorkOrders from "./IconWorkOrders.vue";
+import IconCustomers from "./IconCustomers.vue";
+import IconSliders from "./IconSliders.vue";
+import IconStatuses from "./IconStatuses.vue";
+import IconChart from "./IconChart.vue";
+import IconCollapse from "./IconCollapse.vue";
 
-defineProps<{ open?: boolean }>();
-const emit = defineEmits<{ (e: "close"): void }>();
+defineProps<{ open?: boolean; collapsed?: boolean }>();
+const emit = defineEmits<{ (e: "close"): void; (e: "toggle-collapse"): void }>();
 
 const session = useSessionStore();
 const route = useRoute();
@@ -27,114 +34,65 @@ interface NavLink {
   visible: boolean;
 }
 
-const links = computed<NavLink[]>(() => {
+interface NavGroup {
+  title: string;
+  links: NavLink[];
+}
+
+const groups = computed<NavGroup[]>(() => {
   const platform = session.isSuperAdmin;
-  return [
+  const company = session.activeCompany !== null;
+  const companyAdmin = platform || session.activeCompany?.is_admin === true;
+  const all: NavGroup[] = [
     {
-      id: "dashboard",
-      label: "Dashboard",
-      to: "/app/dashboard",
-      icon: IconDashboard,
-      visible: platform || session.activeCompany !== null,
+      // El trabajo de todos los dias.
+      title: "Operación",
+      links: [
+        { id: "dashboard", label: "Inicio", to: "/app/dashboard", icon: IconDashboard, visible: platform || company },
+        { id: "work-orders", label: "Órdenes de trabajo", to: "/app/work-orders", icon: IconWorkOrders, visible: company && session.hasPermission("work_orders.view") },
+        { id: "customers", label: "Clientes y equipos", to: "/app/customers", icon: IconCustomers, visible: company && session.hasPermission("customers.view") },
+        // El maestro de quien hace el trabajo: se asigna desde la orden de trabajo.
+        { id: "tecnicos", label: "Técnicos", to: "/app/tecnicos", icon: IconTecnicos, visible: company && session.hasPermission("technicians.view") },
+      ],
     },
     {
-      id: "companies",
-      label: "Empresas",
-      to: "/app/companies",
-      icon: IconCompanies,
-      visible: platform,
+      title: "Finanzas",
+      links: [
+        { id: "cierre-marcas", label: "Cierre a marcas", to: "/app/cierre-marcas", icon: IconCierre, visible: company && session.hasPermission("warranty_settlements.view") },
+      ],
     },
     {
-      id: "customers",
-      label: "Clientes y equipos",
-      to: "/app/customers",
-      icon: IconUsers,
-      visible: session.activeCompany !== null && session.hasPermission("customers.view"),
+      // Sin empresa activa no hay "mi consumo", y la ruta tampoco responderia.
+      title: "Asistente IA",
+      links: [
+        { id: "assistant", label: "Asistente", to: "/app/assistant", icon: IconAssistant, visible: company && session.hasPermission("ai.use") },
+        { id: "consumo-ia", label: "Consumo de IA", to: "/app/consumo-ia", icon: IconChart, visible: company && session.hasPermission("ai.use") },
+      ],
     },
     {
-      id: "work-orders",
-      label: "Órdenes de trabajo",
-      to: "/app/work-orders",
-      icon: IconSettings,
-      visible: session.activeCompany !== null && session.hasPermission("work_orders.view"),
+      title: "Administración",
+      links: [
+        { id: "users", label: "Usuarios", to: "/app/users", icon: IconUsers, visible: platform || session.hasPermission("users.view") },
+        { id: "roles", label: "Roles y permisos", to: "/app/roles", icon: IconRoles, visible: platform || session.hasPermission("roles.view") },
+        { id: "work-order-statuses", label: "Estados de OT", to: "/app/work-order-statuses", icon: IconStatuses, visible: company && companyAdmin },
+        { id: "parameters", label: "Parámetros", to: "/app/parameters", icon: IconSliders, visible: company && companyAdmin },
+        { id: "settings", label: "Configuración", to: "/app/settings", icon: IconSettings, visible: companyAdmin },
+      ],
     },
     {
-      id: "cierre-marcas",
-      label: "Cierre a marcas",
-      to: "/app/cierre-marcas",
-      icon: IconCierre,
-      // Junto a las ordenes de trabajo: el cierre de mes es el cierre de esas OTs.
-      visible:
-        session.activeCompany !== null && session.hasPermission("warranty_settlements.view"),
-    },
-    {
-      id: "tecnicos",
-      label: "Técnicos",
-      to: "/app/tecnicos",
-      icon: IconTecnicos,
-      // El maestro de quien hace el trabajo: se asigna desde la orden de trabajo.
-      visible:
-        session.activeCompany !== null && session.hasPermission("technicians.view"),
-    },
-    {
-      id: "users",
-      label: "Usuarios",
-      to: "/app/users",
-      icon: IconUsers,
-      visible:
-        platform ||
-        session.hasPermission("users.view"),
-    },
-    {
-      id: "roles",
-      label: "Roles y permisos",
-      to: "/app/roles",
-      icon: IconRoles,
-      visible:
-        platform ||
-        session.hasPermission("roles.view"),
-    },
-    {
-      id: "parameters",
-      label: "Parámetros",
-      to: "/app/parameters",
-      icon: IconSettings,
-      visible: session.activeCompany !== null && (platform || session.activeCompany?.is_admin === true),
-    },
-    {
-      id: "work-order-statuses",
-      label: "Estados de OT",
-      to: "/app/work-order-statuses",
-      icon: IconSettings,
-      visible: session.activeCompany !== null && (platform || session.activeCompany?.is_admin === true),
-    },
-    {
-      id: "assistant",
-      label: "Asistente",
-      to: "/app/assistant",
-      icon: IconAssistant,
-      // Solo se ve con el permiso del modulo. Sin el, la ruta tambien responde 403, pero
-      // mejor que el enlace ni exista.
-      visible: session.activeCompany !== null && session.hasPermission("ai.use"),
-    },
-    {
-      id: "consumo-ia",
-      label: "Consumo de IA",
-      to: "/app/consumo-ia",
-      icon: IconAssistant,
-      // Junto al asistente porque es la otra mitad de la misma pregunta: cuanto se uso y
-      // cuanto queda. Sin empresa activa no hay "mi consumo", y la ruta tampoco responderia.
-      visible: session.activeCompany !== null && session.hasPermission("ai.use"),
-    },
-    {
-      id: "settings",
-      label: "Configuración",
-      to: "/app/settings",
-      icon: IconSettings,
-      visible: platform || session.activeCompany?.is_admin === true,
+      title: "Plataforma",
+      links: [
+        { id: "companies", label: "Empresas", to: "/app/companies", icon: IconCompanies, visible: platform },
+      ],
     },
   ];
+  return all
+    .map((g) => ({ ...g, links: g.links.filter((l) => l.visible) }))
+    .filter((g) => g.links.length);
 });
+
+const versionLabel = `v${version.split(".").slice(0, 2).join(".")}`;
+const modeLabel = computed(() => (session.activeCompany ? "Modo Empresa" : "Modo plataforma"));
 
 function navigate(to: string) {
   router.push(to);
@@ -144,29 +102,41 @@ function navigate(to: string) {
 
 <template>
   <div v-if="open" class="sidebar__scrim" @click="emit('close')" />
-  <aside :class="['sidebar', { 'is-open': open }]">
+  <aside :class="['sidebar', { 'is-open': open, 'sidebar--collapsed': collapsed }]">
     <div class="sidebar__brand">
-      <VogelLogo :size="86" />
+      <VogelLogo :size="collapsed ? 40 : 48" />
     </div>
 
     <nav class="sidebar__nav" aria-label="Principal">
-      <div class="sidebar__section-title">Plataforma</div>
-      <template v-for="link in links" :key="link.id">
+      <div v-for="group in groups" :key="group.title" class="sidebar__group">
+        <div class="sidebar__section-title">{{ group.title }}</div>
         <a
-          v-if="link.visible"
+          v-for="link in group.links"
+          :key="link.id"
           :class="['sidebar__link', { 'is-active': route.path.startsWith(link.to) }]"
           :href="link.to"
+          :title="collapsed ? link.label : undefined"
+          :aria-current="route.path.startsWith(link.to) ? 'page' : undefined"
           @click.prevent="navigate(link.to)"
         >
           <component :is="link.icon" />
-          <span>{{ link.label }}</span>
+          <span class="sidebar__label">{{ link.label }}</span>
         </a>
-      </template>
+      </div>
     </nav>
 
     <div class="sidebar__footer">
-      <div>v0.2 · {{ session.isSuperAdmin ? "Modo Plataforma" : "Modo Empresa" }}</div>
-      <div>vogel-gestion-servicios</div>
+      <span class="sidebar__label">{{ versionLabel }} · {{ modeLabel }}</span>
+      <button
+        type="button"
+        class="sidebar__collapse"
+        :aria-expanded="!collapsed"
+        :aria-label="collapsed ? 'Mostrar menú' : 'Ocultar menú'"
+        :title="collapsed ? 'Mostrar menú' : 'Ocultar menú'"
+        @click="emit('toggle-collapse')"
+      >
+        <IconCollapse />
+      </button>
     </div>
   </aside>
 </template>

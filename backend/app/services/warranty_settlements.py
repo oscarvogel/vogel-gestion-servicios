@@ -306,17 +306,32 @@ def _cerrar_una_empresa(
     return cierre
 
 
-def generar_cierre(db: Session, company_id: int, period: str, user: User | None = None) -> dict:
+def generar_cierre(
+    db: Session,
+    company_id: int,
+    period: str,
+    user: User | None = None,
+    billing_customer_id: int | None = None,
+) -> dict:
     """Genera (o regenera) los cierres en borrador del periodo.
 
     El reporte es el mismo que devuelve ``calcular_cierre``; lo que cambia es que ademas
     queda **registrado** en ``warranty_settlements``, para que el mes cerrado no se pueda
     modificar por accidente y quede auditado.
+
+    Con ``billing_customer_id`` solo se genera esa empresa: sirve cuando otra del mismo
+    periodo ya esta emitida y regenerar todo el periodo fallaria.
     """
     desde, hasta = period_bounds(period)
     reporte = calcular_cierre(db, company_id, period)
 
-    for empresa in reporte["companies"]:
+    empresas = reporte["companies"]
+    if billing_customer_id is not None:
+        empresas = [e for e in empresas if e["billing_customer_id"] == billing_customer_id]
+        if not empresas:
+            raise CierreInvalido(f"La empresa no tiene trabajos para liquidar en {period}.")
+
+    for empresa in empresas:
         _cerrar_una_empresa(db, company_id, period, desde, hasta, empresa)
 
     db.commit()

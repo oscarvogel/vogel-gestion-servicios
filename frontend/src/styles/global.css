@@ -10,15 +10,27 @@ body,
   margin: 0;
   padding: 0;
   height: 100%;
-  font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-family: var(--font-sans);
   background: var(--color-bg);
   color: var(--color-text-primary);
   -webkit-font-smoothing: antialiased;
 }
 
 a {
-  color: var(--color-primary);
+  color: var(--color-link);
   text-decoration: none;
+}
+
+code,
+.mono {
+  font-family: var(--font-mono);
+}
+/* Numero de OT y demas codigos: Plex Mono 13 · 600 en color de enlace. */
+.ot-code {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-link);
 }
 
 button {
@@ -47,6 +59,7 @@ textarea {
   display: grid;
   grid-template-columns: var(--sidebar-width) 1fr;
   min-height: 100vh;
+  transition: grid-template-columns 0.2s ease;
 }
 .app-shell--full {
   grid-template-columns: 1fr;
@@ -64,87 +77,210 @@ textarea {
   flex: 1;
   min-width: 0;
 }
+/* Envoltorio de la vista para la transicion entre secciones: se comporta como app-content. */
+.page-transition {
+  display: flex;
+  flex-direction: column;
+  gap: inherit;
+  min-width: 0;
+}
 
 /* ===== Sidebar ===== */
 .sidebar {
-  background: linear-gradient(180deg, var(--vogel-navy-800) 0%, var(--vogel-navy-900) 100%);
+  background: var(--color-sidebar);
   color: var(--color-text-primary);
   display: flex;
   flex-direction: column;
-  padding: 24px 16px;
+  padding: 22px 14px 14px;
   border-right: 1px solid var(--color-border);
   position: sticky;
+  overflow: hidden;
   top: 0;
   height: 100vh;
-}
-:root[data-theme="light"] .sidebar {
-  background: linear-gradient(180deg, var(--sidebar-bg-from) 0%, var(--sidebar-bg-to) 100%);
-  color: var(--color-text-primary);
-  border-right: 1px solid var(--color-border);
 }
 .sidebar__brand {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-bottom: 28px;
-  padding: 4px;
-}
-.sidebar__brand img {
-  height: 38px;
-  width: auto;
+  margin-bottom: 18px;
+  padding: 0 8px;
+  white-space: nowrap;
 }
 .sidebar__brand strong {
-  font-size: 14px;
-  letter-spacing: 0.18em;
-  color: var(--color-text-secondary);
-  text-transform: uppercase;
+  display: block;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--color-text-primary);
 }
 .sidebar__brand small {
   display: block;
-  color: var(--color-text-muted);
-  font-size: 11px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
 }
 .sidebar__nav {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 14px;
   flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.sidebar__group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 .sidebar__link {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 10px 14px;
+  padding: 10px 12px;
   border-radius: var(--radius-md);
-  color: var(--color-text-secondary);
+  color: var(--color-text-primary);
   font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
   transition: background 0.18s ease, color 0.18s ease;
 }
+.sidebar__link:focus-visible,
+.sidebar__collapse:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
 .sidebar__link:hover {
-  background: var(--color-surface);
-  color: var(--color-text-primary);
+  background: var(--color-surface-hover);
 }
 .sidebar__link.is-active {
-  background: rgba(45, 124, 255, 0.18);
-  color: var(--color-text-primary);
+  background: var(--color-chip);
+  color: var(--color-link);
 }
 .sidebar__link svg {
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   flex-shrink: 0;
+  stroke-width: 1.75;
 }
 .sidebar__section-title {
   font-size: 11px;
-  letter-spacing: 0.16em;
+  font-weight: 600;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--color-text-muted);
-  padding: 12px 14px 6px;
+  padding: 4px 12px 6px;
+  white-space: nowrap;
 }
 .sidebar__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 12px 4px 0 12px;
   border-top: 1px solid var(--color-border);
-  padding-top: 16px;
   font-size: 12px;
   color: var(--color-text-muted);
+  white-space: nowrap;
+}
+.sidebar__collapse {
+  display: flex;
+  align-items: center;
+  padding: 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.sidebar__collapse:hover {
+  color: var(--color-text-primary);
+}
+.sidebar__collapse svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
+}
+
+/* Menu plegado: solo en escritorio; en celular el menu es un cajon y no se pliega. */
+@media (min-width: 901px) {
+  .app-shell--collapsed {
+    grid-template-columns: 72px 1fr;
+  }
+  .sidebar--collapsed {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+  .sidebar--collapsed .sidebar__brand,
+  .sidebar--collapsed .sidebar__footer {
+    justify-content: center;
+    padding-left: 0;
+    padding-right: 0;
+  }
+  .sidebar--collapsed .sidebar__link {
+    justify-content: center;
+    padding-left: 0;
+    padding-right: 0;
+  }
+  /* La etiqueta se oculta a la vista pero queda para lectores de pantalla. */
+  .sidebar--collapsed .sidebar__label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  .sidebar--collapsed .sidebar__section-title {
+    height: 1px;
+    padding: 0;
+    margin: 4px 10px;
+    overflow: hidden;
+    color: transparent;
+    background: var(--color-border);
+  }
+  .sidebar--collapsed .sidebar__collapse svg {
+    transform: rotate(180deg);
+  }
+}
+/* Foco visible al moverse con el teclado. Los campos de texto ya marcan el foco con el
+   borde, por eso quedan afuera. */
+:where(a, button, summary, select, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* Cambio de tema: fundido lento de toda la pagina (View Transitions) o, si el navegador no
+   lo tiene, transicion de colores mientras dura la clase que pone el store del tema. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 0.45s;
+  animation-timing-function: ease;
+}
+.theme-fading,
+.theme-fading *,
+.theme-fading *::before,
+.theme-fading *::after {
+  transition: background-color 0.45s ease, color 0.45s ease, border-color 0.45s ease, fill 0.45s ease, stroke 0.45s ease !important;
+}
+
+/* Movimiento reducido: sin transiciones ni desplazamientos al pasar el mouse. La ruedita
+   de carga sigue girando porque es la unica senal de que algo esta pasando. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+  .btn:hover,
+  .kpi:hover,
+  .recent-item:hover,
+  .attention-item:hover {
+    transform: none !important;
+  }
 }
 
 /* ===== Topbar ===== */
@@ -155,17 +291,15 @@ textarea {
   justify-content: space-between;
   padding: 0 28px;
   border-bottom: 1px solid var(--color-border);
-  background: var(--color-surface);
-  backdrop-filter: blur(16px);
+  background: var(--color-bg);
   gap: 16px;
   position: sticky;
   top: 0;
   z-index: 10;
 }
 .topbar__title {
-  font-weight: 600;
+  font-weight: 700;
   font-size: 15px;
-  letter-spacing: 0.04em;
 }
 .topbar__right {
   display: flex;
@@ -199,8 +333,6 @@ textarea {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   padding: 20px;
-  backdrop-filter: blur(12px);
-  box-shadow: var(--shadow-card);
 }
 .card--elevated {
   background: var(--color-surface-elevated);
@@ -234,39 +366,47 @@ textarea {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 16px;
+  padding: 10px 18px;
   border-radius: var(--radius-md);
-  border: 1px solid transparent;
-  background: var(--color-surface-elevated);
+  border: 1px solid var(--color-border-strong);
+  background: transparent;
   color: var(--color-text-primary);
   cursor: pointer;
-  font-weight: 500;
+  font-weight: 600;
   font-size: 14px;
-  transition: transform 0.18s ease, background 0.18s ease, border 0.18s ease;
+  transition: background 0.15s ease, border-color 0.15s ease;
 }
 .btn:hover {
-  transform: translateY(-1px);
+  background: var(--color-surface-hover);
 }
-.btn:disabled {
-  opacity: 0.55;
+/* Deshabilitado: relleno de chip y texto 3, sin borde ni opacidad. */
+.btn:disabled,
+.btn:disabled:hover {
+  background: var(--color-chip);
+  border-color: transparent;
+  color: var(--color-text-muted);
   cursor: not-allowed;
-  transform: none;
 }
 .btn--primary {
-  background: linear-gradient(135deg, var(--vogel-primary) 0%, var(--vogel-primary-600) 100%);
+  background: var(--color-primary);
+  border-color: transparent;
   color: #fff;
-  border-color: rgba(255, 255, 255, 0.08);
-  box-shadow: 0 8px 24px rgba(45, 124, 255, 0.32);
+}
+.btn--primary:hover {
+  background: var(--color-primary-hover);
 }
 .btn--ghost {
   background: transparent;
   border-color: var(--color-border-strong);
-  color: var(--color-text-secondary);
 }
 .btn--danger {
-  background: rgba(255, 91, 107, 0.16);
-  color: var(--color-danger);
-  border-color: rgba(255, 91, 107, 0.32);
+  background: var(--color-danger);
+  border-color: transparent;
+  color: #fff;
+}
+.btn--danger:hover {
+  background: var(--color-danger);
+  filter: brightness(1.08);
 }
 .btn--sm {
   padding: 6px 10px;
@@ -281,27 +421,29 @@ textarea {
   margin-bottom: 14px;
 }
 .field label {
-  font-size: 12px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--color-text-muted);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
 }
 .field input,
 .field select,
 .field textarea {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
+  background: var(--color-field);
+  border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-md);
-  padding: 10px 12px;
+  padding: 11px 14px;
   color: var(--color-text-primary);
   outline: none;
-  transition: border 0.18s ease, background 0.18s ease;
+  transition: border 0.15s ease;
+}
+.field input::placeholder,
+.field textarea::placeholder {
+  color: var(--color-text-muted);
 }
 .field input:focus,
 .field select:focus,
 .field textarea:focus {
   border-color: var(--color-primary);
-  background: var(--color-surface-elevated);
 }
 .field__row {
   display: grid;
@@ -327,10 +469,9 @@ textarea {
   font-size: 14px;
 }
 .table th {
-  background: var(--color-surface-elevated);
   font-weight: 600;
-  font-size: 12px;
-  letter-spacing: 0.08em;
+  font-size: 11px;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--color-text-muted);
 }
@@ -338,10 +479,48 @@ textarea {
   border-bottom: none;
 }
 .table tbody tr:hover {
-  background: rgba(45, 124, 255, 0.08);
+  background: var(--color-surface-hover);
 }
 
 /* ===== Badges ===== */
+/* Chip de estado de OT: el color va solo en el punto (--dot) y el nombre siempre se
+   escribe, asi el estado nunca depende solo del color. */
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 999px;
+  background: var(--color-chip);
+  color: var(--color-text-primary);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.status-chip::before,
+.dot {
+  content: "";
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--dot, var(--color-text-muted));
+}
+.dot {
+  display: inline-block;
+}
+/* Etiqueta de estado de OT: el color lo pone cada vista con el color del estado. */
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border: 1px solid;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
 .badge {
   display: inline-flex;
   align-items: center;
@@ -352,19 +531,19 @@ textarea {
   border: 1px solid transparent;
 }
 .badge--success {
-  background: rgba(58, 210, 159, 0.18);
+  background: rgba(52, 211, 153, 0.14);
   color: var(--color-success);
-  border-color: rgba(58, 210, 159, 0.32);
+  border-color: rgba(52, 211, 153, 0.32);
 }
 .badge--danger {
-  background: rgba(255, 91, 107, 0.16);
-  color: var(--color-danger);
-  border-color: rgba(255, 91, 107, 0.32);
+  background: rgba(240, 82, 101, 0.14);
+  color: var(--dot-red);
+  border-color: rgba(240, 82, 101, 0.32);
 }
 .badge--warning {
-  background: rgba(255, 181, 71, 0.18);
-  color: var(--color-warning);
-  border-color: rgba(255, 181, 71, 0.32);
+  background: rgba(245, 165, 36, 0.14);
+  color: var(--color-warning-text);
+  border-color: rgba(245, 165, 36, 0.32);
 }
 .badge--muted {
   background: var(--color-surface-elevated);
@@ -440,78 +619,6 @@ textarea {
   border-color: rgba(255, 91, 107, 0.4);
 }
 
-/* ===== Page hero / backgrounds ===== */
-.hero {
-  position: relative;
-  padding: 28px 32px;
-  border-radius: var(--radius-xl);
-  overflow: hidden;
-  border: 1px solid var(--color-border-strong);
-  background-color: var(--hero-bg-color, var(--vogel-navy));
-  background-image: var(--hero-image, none);
-  background-size: cover;
-  background-position: center;
-}
-.hero--branding {
-  --hero-image: url("/branding/vogel-servicios-workshop-bg.webp");
-  --hero-overlay-from: rgba(11, 23, 48, 0.92);
-  --hero-overlay-mid: rgba(11, 23, 48, 0.78);
-  --hero-overlay-to: rgba(11, 23, 48, 0.62);
-  background-position: center 58%;
-}
-.hero::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(
-    135deg,
-    var(--hero-overlay-from, rgba(11, 23, 48, 0.85)) 0%,
-    var(--hero-overlay-mid, rgba(11, 23, 48, 0.55)) 60%,
-    var(--hero-overlay-to, rgba(11, 23, 48, 0.2)) 100%
-  );
-}
-:root[data-theme="light"] .hero {
-  background-image: none;
-}
-:root[data-theme="light"] .hero::after {
-  background: linear-gradient(
-    135deg,
-    rgba(45, 124, 255, 0.12) 0%,
-    rgba(45, 124, 255, 0.06) 60%,
-    rgba(45, 124, 255, 0.02) 100%
-  );
-}
-:root[data-theme="light"] .hero__title,
-:root[data-theme="light"] .hero__subtitle,
-:root[data-theme="light"] .hero__eyebrow {
-  color: var(--color-text-primary);
-}
-:root[data-theme="light"] .hero__eyebrow {
-  color: var(--color-text-muted);
-}
-.hero > * {
-  position: relative;
-  z-index: 1;
-}
-.hero__eyebrow {
-  font-size: 12px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--color-text-muted);
-}
-.hero__title {
-  font-size: 28px;
-  font-weight: 700;
-  margin: 6px 0 8px;
-  letter-spacing: -0.02em;
-  color: var(--color-text-primary);
-}
-.hero__subtitle {
-  font-size: 15px;
-  color: var(--color-text-secondary);
-  max-width: 580px;
-}
-
 /* ===== Toolbar / search ===== */
 .toolbar {
   display: flex;
@@ -543,9 +650,9 @@ textarea {
   color: var(--color-text-secondary);
 }
 .toolbar__chip.is-active {
-  background: rgba(45, 124, 255, 0.18);
-  border-color: rgba(45, 124, 255, 0.4);
-  color: var(--color-text-primary);
+  background: var(--color-chip);
+  border-color: var(--color-border-strong);
+  color: var(--color-link);
 }
 
 /* ===== Misc ===== */
@@ -645,10 +752,6 @@ textarea {
 
 /* ===== Responsive shell ===== */
 @media (max-width: 900px) {
-  .hero--branding {
-    background-position: 62% center;
-  }
-
   .app-shell {
     grid-template-columns: 1fr;
   }
@@ -664,6 +767,9 @@ textarea {
   }
   .sidebar.is-open {
     transform: translateX(0);
+  }
+  .sidebar__collapse {
+    display: none;
   }
   .sidebar__scrim {
     position: fixed;

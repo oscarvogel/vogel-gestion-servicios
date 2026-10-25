@@ -167,6 +167,24 @@ def generar_cierre(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
+# La empresa va en la ruta y no en el cuerpo a proposito: un campo de mas en el cuerpo se
+# ignora sin avisar y el pedido terminaria generando todo el periodo.
+@router.post("/generate/{billing_customer_id}", response_model=CierreReporteRead)
+def generar_cierre_empresa(
+    billing_customer_id: int,
+    payload: GenerarCierreInput,
+    company_id: int = Depends(get_current_company_id),
+    _actor: User = Depends(require_permission("warranty_settlements.manage")),
+    db: Session = Depends(get_db),
+):
+    """Genera el cierre en borrador de una sola empresa; las demas del periodo no se tocan."""
+    _periodo_valido(payload.period)
+    try:
+        return service.generar_cierre(db, company_id, payload.period, _actor, billing_customer_id)
+    except service.CierreInvalido as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 @router.post("/{settlement_id}/issue", response_model=CierreRead)
 def emitir_cierre(
     settlement_id: int,

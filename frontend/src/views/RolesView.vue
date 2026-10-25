@@ -27,6 +27,24 @@ const toasts = useToastStore();
 
 const roles = ref<Role[]>([]);
 const permissions = ref<Permission[]>([]);
+
+// Los permisos y sus grupos se muestran con su descripcion; el codigo queda en el tooltip.
+function permLabel(code: string): string {
+  return permissions.value.find((p) => p.code === code)?.description || code;
+}
+const GRUPOS: Record<string, string> = {
+  companies: "Empresas",
+  users: "Usuarios",
+  roles: "Roles",
+  customers: "Clientes",
+  equipment: "Equipos",
+  work_orders: "Órdenes de trabajo",
+  warranty_settlements: "Cierre a marcas",
+  technicians: "Técnicos",
+};
+function grupoLabel(ns: string): string {
+  return GRUPOS[ns] || ns.charAt(0).toUpperCase() + ns.slice(1);
+}
 const loading = ref(false);
 const showForm = ref(false);
 const editing = ref<Role | null>(null);
@@ -162,7 +180,7 @@ const grouped = computed(() => {
                 {{ role.permission_codes.length }} permisos asignados
               </span>
               <div class="flex gap-8" style="flex-wrap:wrap;margin-top:6px">
-                <span v-for="code in role.permission_codes.slice(0,4)" :key="code" class="role-chip">{{ code }}</span>
+                <span v-for="code in role.permission_codes.slice(0,4)" :key="code" class="role-chip" :title="code">{{ permLabel(code) }}</span>
                 <span v-if="role.permission_codes.length > 4" class="text-muted">+{{ role.permission_codes.length - 4 }}</span>
               </div>
             </td>
@@ -203,7 +221,7 @@ const grouped = computed(() => {
         <hr style="border:none;border-top:1px solid var(--color-border);margin:14px 0" />
         <p class="card__title">Permisos</p>
         <div v-for="(items, ns) in grouped" :key="ns" style="margin-bottom:14px">
-          <strong style="font-size:13px;letter-spacing:0.06em;text-transform:uppercase">{{ ns }}</strong>
+          <strong style="font-size:13px;letter-spacing:0.06em;text-transform:uppercase">{{ grupoLabel(String(ns)) }}</strong>
           <div class="flex" style="flex-wrap:wrap;gap:8px;margin-top:6px">
             <label
               v-for="p in items"
@@ -218,7 +236,7 @@ const grouped = computed(() => {
                 v-model="form.permission_ids"
                 style="margin:0"
               />
-              {{ p.code }}
+              <span :title="p.code">{{ p.description || p.code }}</span>
             </label>
           </div>
         </div>

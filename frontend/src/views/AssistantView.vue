@@ -471,12 +471,12 @@ onMounted(cargar);
 }
 .chat__form input {
   flex: 1;
-  background: #10283f;
-  color: #e5edf7;
+  background: var(--color-field);
+  color:var(--color-text-primary);
   border: 1px solid rgba(148, 163, 184, 0.35);
   border-radius: 10px;
   padding: 10px 12px;
-  color-scheme: dark;
+  color-scheme: var(--color-scheme);
 }
 .chat__form input:disabled {
   opacity: 0.6;

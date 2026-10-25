@@ -360,7 +360,7 @@ onBeforeUnmount(() => {
   display: block;
   margin-top: 4px;
   font-size: 11px;
-  color: #f59e0b;
+  color:var(--color-warning-text);
 }
 </style>
 

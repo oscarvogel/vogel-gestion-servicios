@@ -352,7 +352,7 @@ h2, h3 { margin: 0 0 6px; }
 .cost-cell span:last-child { position: relative; }
 .pill { display: inline-block; margin-right: 5px; padding: 1px 7px; border-radius: 999px; font-size: 11px; }
 .pill--ok { background: rgba(34, 197, 94, 0.16); color: #22c55e; }
-.pill--warn { background: rgba(251, 191, 36, 0.16); color: #fbbf24; }
+.pill--warn { background: rgba(251, 191, 36, 0.16); color:var(--color-warning-text); }
 .pill--muted { background: rgba(130, 144, 165, 0.18); color: var(--text-muted, #8290a5); }
 .warn-strip { font-size: 13px; }
 .warn-strip button { margin-left: 8px; }

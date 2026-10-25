@@ -170,7 +170,7 @@ onMounted(load);
   </div>
 
   <div v-if="puedeAdministrar" class="card">
-    <form class="field__row" @submit.prevent="crear">
+    <form class="add-form" @submit.prevent="crear">
       <div class="field" style="flex: 1">
         <label for="nuevo-tecnico">Agregar un técnico</label>
         <input
@@ -208,12 +208,10 @@ onMounted(load);
             <strong v-else>{{ t.name }}</strong>
           </td>
           <td data-label="Origen">
-            <span class="text-muted">{{ t.legacy_code === null ? "Cargado a mano" : `Legacy #${t.legacy_code}` }}</span>
+            <span class="text-muted">{{ t.legacy_code === null ? "Cargado a mano" : `Sistema anterior (n.º ${t.legacy_code})` }}</span>
           </td>
           <td data-label="Estado">
-            <span class="status-pill" :style="t.active
-              ? 'background:#10B98122;color:#10B981;border-color:#10B98166'
-              : 'background:#64748B22;color:#64748B;border-color:#64748B66'">
+            <span :class="['badge', t.active ? 'badge--success' : 'badge--muted']">
               {{ t.active ? "Activo" : "Desactivado" }}
             </span>
           </td>
@@ -242,3 +240,10 @@ onMounted(load);
     </div>
   </div>
 </template>
+
+<style scoped>
+/* El boton de agregar va al lado del campo, no en una columna propia de la grilla. */
+.add-form{display:flex;gap:12px;align-items:flex-end;margin-bottom:8px}
+.add-form .field{flex:1;margin:0}
+@media(max-width:600px){.add-form{flex-direction:column;align-items:stretch}}
+</style>

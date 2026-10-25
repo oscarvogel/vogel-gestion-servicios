@@ -172,7 +172,7 @@ function filas(bloque: { resultados?: Record<string, unknown>[] }): Record<strin
   gap: 2px;
   padding: 10px 12px;
   border-radius: 10px;
-  background: rgba(15, 23, 42, 0.35);
+  background: var(--color-surface-inset);
 }
 .ficha__equipo span {
   font-size: 13px;

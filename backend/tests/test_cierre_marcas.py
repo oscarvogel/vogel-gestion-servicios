@@ -471,7 +471,7 @@ def test_generar_una_sola_empresa_no_toca_las_demas(escenario):
     emitido = db.query(WarrantySettlement).filter_by(company_id=company.id).one()
     service.cambiar_estado(db, company.id, emitido.id, "issued")
 
-    _ot(db, company, escenario["cliente"], escenario["equipo"], area_alladio, escenario["user"])
+    _ot(db, company, escenario["cliente"], escenario["equipo"], area_alladio, escenario["user"], numero=2)
     service.generar_cierre(db, company.id, "2025-06", billing_customer_id=alladio.id)
 
     cierres = {c.billing_customer_id: c for c in db.query(WarrantySettlement).filter_by(company_id=company.id)}
@@ -618,9 +618,10 @@ def test_generar_una_empresa_por_endpoint_no_genera_las_demas(escenario, client)
     db = escenario["db"]
     company = escenario["company"]
     alladio = _cliente(db, company, "ALLADIO")
-    for marca, codigo in ((escenario["marca"], "50"), (alladio, "60")):
+    for numero, (marca, codigo) in enumerate(((escenario["marca"], "50"), (alladio, "60")), start=1):
         area = _area(db, company, billing_customer=marca, warranty_type=1, area_code=codigo)
-        _ot(db, company, escenario["cliente"], escenario["equipo"], area, escenario["user"])
+        # Cada OT con su numero: (company_id, number) es unico.
+        _ot(db, company, escenario["cliente"], escenario["equipo"], area, escenario["user"], numero=numero)
     headers = _como_empresa(client, company, escenario["user"])
 
     r = client.post(

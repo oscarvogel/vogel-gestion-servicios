@@ -237,6 +237,24 @@ Antes de disparar el deploy de staging se verificó que las cuatro apps de Cooli
 tienen `git_commit_sha = HEAD` (si estuviera anclado a un SHA viejo, el deploy manual
 construye ese commit viejo).
 
+### Validación en pantalla, con los datos reales
+
+Con Playwright contra **staging** y la empresa **Electrotecniref** (3), que tiene **126
+áreas** del legacy ya cargadas y 9.316 órdenes. Las dos resoluciones que usa el cliente:
+**1638x969** y **1366x768**.
+
+| Qué | Resultado |
+|---|---|
+| Maestro de áreas | Lista las 126 áreas con su código, política, empresa a liquidar, garantía y estado. El menú lateral muestra "Áreas y garantías" en Operación y "Cierre a marcas" en Finanzas. |
+| Recepción | El campo "Área / política" queda entre Equipo y Técnico. Escribir "alladio" filtra a las 7 políticas de Alladio, y cada opción muestra su garantía y su empresa. Al elegir, abajo queda escrito "Garantía de terceros · Se liquida a JOSE M. ALLADIO E HIJOS S.A.". |
+| Ficha de la orden | El panel "Garantía y liquidación" muestra área, garantía y empresa de la OT #9307 (DREAN GARANTIAS → Garantía de terceros → DREAN S.A.), con el combo para corregirlo. |
+| Modal de recepción | Scrollea dentro del modal: a 1366x768 el contenido excede la ventana, pero el modal tiene `max-height:92vh` y `overflow:auto`, así que nada queda apretado ni superpuesto. |
+
+**Un defecto se encontró así y se corrigió:** el panel de la ficha se armaba en **tres
+columnas**, y en el ancho real de la columna lateral (unos 330 px) "Garantía de terceros"
+quedaba partido en tres líneas. Pasó a una sola columna, igual que las tarjetas vecinas
+(Fechas, Recepción, Cliente y equipo) — PR **#127**.
+
 ---
 
 ## 7. Pendientes

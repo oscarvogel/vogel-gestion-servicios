@@ -18,6 +18,7 @@ import AssistantView from "./views/AssistantView.vue";
 import AiConsumoView from "./views/AiConsumoView.vue";
 import CierreMarcasView from "./views/CierreMarcasView.vue";
 import TecnicosView from "./views/TecnicosView.vue";
+import AreasView from "./views/AreasView.vue";
 import AiConsumoView from "./views/AiConsumoView.vue";
 
 declare module "vue-router" {
@@ -135,6 +136,15 @@ const routes: RouteRecordRaw[] = [
         // El maestro de técnicos: verlo lo puede cualquiera que administration órdenes, y
         // dar de alta gente o desactivarla es tarea de quien administra el maestro.
         meta: { requiresAuth: true, order: 3, permission: "technicians.view" },
+      },
+      {
+        path: "work-areas",
+        name: "work-areas",
+        component: AreasView,
+        alias: ["/areas"],
+        // El maestro de áreas: de él salen la garantía y la empresa a liquidar de cada
+        // orden, y es lo que hace que una orden entre al cierre a marcas.
+        meta: { requiresAuth: true, order: 3.5, permission: "work_areas.view" },
       },
       {
         path: "assistant",

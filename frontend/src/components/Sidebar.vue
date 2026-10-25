@@ -12,6 +12,7 @@ import IconSettings from "./IconSettings.vue";
 import IconAssistant from "./IconAssistant.vue";
 import IconCierre from "./IconCierre.vue";
 import IconTecnicos from "./IconTecnicos.vue";
+import IconAreas from "./IconAreas.vue";
 import IconWorkOrders from "./IconWorkOrders.vue";
 import IconCustomers from "./IconCustomers.vue";
 import IconSliders from "./IconSliders.vue";
@@ -53,6 +54,9 @@ const groups = computed<NavGroup[]>(() => {
         { id: "customers", label: "Clientes y equipos", to: "/app/customers", icon: IconCustomers, visible: company && session.hasPermission("customers.view") },
         // El maestro de quien hace el trabajo: se asigna desde la orden de trabajo.
         { id: "tecnicos", label: "Técnicos", to: "/app/tecnicos", icon: IconTecnicos, visible: company && session.hasPermission("technicians.view") },
+        // El maestro de marcas y políticas: de él salen la garantía y a quién se liquida
+        // cada orden. Es lo que hace que una orden entre al cierre a marcas.
+        { id: "work-areas", label: "Áreas y garantías", to: "/app/work-areas", icon: IconAreas, visible: company && session.hasPermission("work_areas.view") },
       ],
     },
     {

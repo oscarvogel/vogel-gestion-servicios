@@ -16,6 +16,7 @@ from app.api.v1 import (
     work_orders,
     work_order_imports,
     work_order_quotes,
+    work_areas,
 )
 
 router = APIRouter()
@@ -33,4 +34,5 @@ router.include_router(work_orders.router, prefix="/work-orders", tags=["work-ord
 router.include_router(work_order_quotes.router, prefix="/work-orders", tags=["work-order-quotes"])
 router.include_router(work_order_imports.router, prefix="/work-orders/import", tags=["work-order-imports"])
 router.include_router(warranty_settlements.router, prefix="/warranty-settlements", tags=["warranty-settlements"])
+router.include_router(work_areas.router, prefix="/work-areas", tags=["work-areas"])
 router.include_router(spare_parts.router, prefix="/spare-parts", tags=["spare-parts"])

@@ -212,13 +212,39 @@ la orden, con la empresa a liquidar escrita.
   órdenes idénticas, una con área y otra sin; al generar el cierre de 2025-06 entra
   **solo** la que tiene área, por 250 de costo, en el casillero de garantía de terceros.
 
+### Publicación
+
+PR **#125** (`feat/areas-garantia-liquidacion` → `main`), mergeado en `1b7db03`.
+
+CI: **backend, frontend y `mysql-migrations` en verde**. El check de migraciones corre la
+migración contra **MySQL real**, así que la `20261025_0030` ya quedó verificada fuera del
+SQLite de los tests.
+
+Producción se autoplojea al mergear a `main`; staging es manual y hubo que dispararlo.
+
+| Ambiente | Verificación | Resultado |
+|---|---|---|
+| producción | `scripts/verify-deploy.ps1 -Expected "area-picker__option"` | OK — bundle nuevo, API `401 json`, modo cross-origin |
+| producción (backend) | `openapi.json` de `api.servicios…` | las 3 rutas nuevas presentes |
+| staging (frontend) | `scripts/verify-deploy.ps1 -Expected "area-picker__option" -Wait` | OK — bundle nuevo, API `401 json`, modo same-origin |
+| staging (backend) | `openapi.json` del backend | las 3 rutas nuevas presentes |
+
+El marcador `area-picker__option` es una clase CSS que **solo existe en el código
+nuevo**: sirve para distinguir un bundle realmente nuevo de uno viejo. Un 200 en la
+página no alcanza para dar el deploy por bueno.
+
+Antes de disparar el deploy de staging se verificó que las cuatro apps de Coolify
+tienen `git_commit_sha = HEAD` (si estuviera anclado a un SHA viejo, el deploy manual
+construye ese commit viejo).
+
 ---
 
 ## 7. Pendientes
 
-- [ ] **Verificar la migración `20261025_0030` contra la base real** (MySQL/MariaDB), no
-      solo contra el SQLite de los tests. La migración inserta los permisos y se los
-      concede a "Administrador"; en la base local se aplica con `alembic upgrade head`.
+- [x] **Migración `20261025_0030` verificada contra MySQL real**: el check
+      `mysql-migrations` de la CI la corre contra un MySQL de verdad, y quedó aplicada en
+      staging y producción con el deploy (el arranque del contenedor es
+      `alembic upgrade head`).
 - [ ] **Dar los permisos a los demás roles** desde *Roles y permisos*: `work_areas.view`
       para ver el maestro y `work_areas.manage` para dar de alta y editar áreas. La
       migración solo los concede a "Administrador".

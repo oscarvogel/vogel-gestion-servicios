@@ -423,15 +423,16 @@ watch(()=>[route.query.status_id,route.query.date_to,route.query.open_only],asyn
 .technician-assign input:focus{border-color:var(--color-primary);background:var(--color-surface-elevated)}
 .technician-assign input::placeholder{color:var(--color-text-muted)}
 .technician-assign .customer-picker__menu{top:calc(100% + 4px);left:0;right:0}
-/* La garantia y la empresa a liquidar de la orden: tres datos en linea, para que se
-   vean de un vistazo sin abrir el maestro de areas. */
-.area-detail{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:8px}
+/* La garantia y la empresa a liquidar de la orden: en columna, como las tarjetas
+   vecinas. En tres columnas el panel se aprieta y "Garantia de terceros" queda
+   partido en tres lineas. */
+.area-detail{display:flex;flex-direction:column;gap:12px;margin-top:8px}
 .area-detail>div{display:flex;flex-direction:column;gap:4px;min-width:0}
 .area-detail .text-muted{font-size:11px;text-transform:uppercase;letter-spacing:.06em}
 .area-detail__warn{color:var(--color-warning-text,#fbbf24)}
 .area-edit{display:flex;gap:8px;align-items:flex-start;margin-top:12px;max-width:460px}
 .area-edit>*:first-child{flex:1;min-width:0}
-@media(max-width:700px){.area-detail{grid-template-columns:1fr;gap:8px}.area-edit{flex-direction:column;align-items:stretch}}
+@media(max-width:700px){.area-edit{flex-direction:column;align-items:stretch}}
 /* El desplegable del técnico de la recepción necesita su propio contenedor posicionado:
    sin esto el menu se ancla al .modal-backdrop (fixed, toda la pantalla) y aparece en el
    borde inferior, lejos del campo: se ve la lista pero no se puede hacer clic en ella. */

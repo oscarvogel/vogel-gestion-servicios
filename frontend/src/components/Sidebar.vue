@@ -3,6 +3,7 @@ import { computed } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useSessionStore } from "../stores/session";
 import VogelLogo from "./VogelLogo.vue";
+import { version } from "../../package.json";
 import IconDashboard from "./IconDashboard.vue";
 import IconCompanies from "./IconCompanies.vue";
 import IconUsers from "./IconUsers.vue";
@@ -45,38 +46,43 @@ const groups = computed<NavGroup[]>(() => {
   const all: NavGroup[] = [
     {
       // El trabajo de todos los dias.
-      title: "Taller",
+      title: "Operación",
       links: [
-        { id: "dashboard", label: "Inicio", to: "/app/dashboard", icon: IconDashboard, visible: platform || company },
+        { id: "dashboard", label: "Dashboard", to: "/app/dashboard", icon: IconDashboard, visible: platform || company },
         { id: "work-orders", label: "Órdenes de trabajo", to: "/app/work-orders", icon: IconWorkOrders, visible: company && session.hasPermission("work_orders.view") },
         { id: "customers", label: "Clientes y equipos", to: "/app/customers", icon: IconCustomers, visible: company && session.hasPermission("customers.view") },
-        // Junto a las ordenes de trabajo: el cierre de mes es el cierre de esas OTs.
+        // El maestro de quien hace el trabajo: se asigna desde la orden de trabajo.
+        { id: "tecnicos", label: "Técnicos", to: "/app/tecnicos", icon: IconTecnicos, visible: company && session.hasPermission("technicians.view") },
+      ],
+    },
+    {
+      title: "Finanzas",
+      links: [
         { id: "cierre-marcas", label: "Cierre a marcas", to: "/app/cierre-marcas", icon: IconCierre, visible: company && session.hasPermission("warranty_settlements.view") },
       ],
     },
     {
-      // Quien trabaja y que puede hacer.
-      title: "Equipo",
+      // Sin empresa activa no hay "mi consumo", y la ruta tampoco responderia.
+      title: "Asistente IA",
       links: [
-        // El maestro de quien hace el trabajo: se asigna desde la orden de trabajo.
-        { id: "tecnicos", label: "Técnicos", to: "/app/tecnicos", icon: IconTecnicos, visible: company && session.hasPermission("technicians.view") },
-        { id: "users", label: "Usuarios", to: "/app/users", icon: IconUsers, visible: platform || session.hasPermission("users.view") },
-        { id: "roles", label: "Roles y permisos", to: "/app/roles", icon: IconRoles, visible: platform || session.hasPermission("roles.view") },
-        { id: "companies", label: "Empresas", to: "/app/companies", icon: IconCompanies, visible: platform },
+        { id: "assistant", label: "Asistente", to: "/app/assistant", icon: IconAssistant, visible: company && session.hasPermission("ai.use") },
+        { id: "consumo-ia", label: "Consumo de IA", to: "/app/consumo-ia", icon: IconChart, visible: company && session.hasPermission("ai.use") },
       ],
     },
     {
-      title: "Sistema",
+      title: "Administración",
       links: [
-        { id: "parameters", label: "Parámetros", to: "/app/parameters", icon: IconSliders, visible: company && companyAdmin },
+        { id: "users", label: "Usuarios", to: "/app/users", icon: IconUsers, visible: platform || session.hasPermission("users.view") },
+        { id: "roles", label: "Roles y permisos", to: "/app/roles", icon: IconRoles, visible: platform || session.hasPermission("roles.view") },
         { id: "work-order-statuses", label: "Estados de OT", to: "/app/work-order-statuses", icon: IconStatuses, visible: company && companyAdmin },
-        // Solo se ve con el permiso del modulo. Sin el, la ruta tambien responde 403, pero
-        // mejor que el enlace ni exista.
-        { id: "assistant", label: "Asistente", to: "/app/assistant", icon: IconAssistant, visible: company && session.hasPermission("ai.use") },
-        // Junto al asistente porque es la otra mitad de la misma pregunta: cuanto se uso y
-        // cuanto queda. Sin empresa activa no hay "mi consumo", y la ruta tampoco responderia.
-        { id: "consumo-ia", label: "Consumo de IA", to: "/app/consumo-ia", icon: IconChart, visible: company && session.hasPermission("ai.use") },
+        { id: "parameters", label: "Parámetros", to: "/app/parameters", icon: IconSliders, visible: company && companyAdmin },
         { id: "settings", label: "Configuración", to: "/app/settings", icon: IconSettings, visible: companyAdmin },
+      ],
+    },
+    {
+      title: "Plataforma",
+      links: [
+        { id: "companies", label: "Empresas", to: "/app/companies", icon: IconCompanies, visible: platform },
       ],
     },
   ];
@@ -84,6 +90,9 @@ const groups = computed<NavGroup[]>(() => {
     .map((g) => ({ ...g, links: g.links.filter((l) => l.visible) }))
     .filter((g) => g.links.length);
 });
+
+const versionLabel = `v${version.split(".").slice(0, 2).join(".")}`;
+const modeLabel = computed(() => (session.activeCompany ? "Modo Empresa" : "Modo plataforma"));
 
 function navigate(to: string) {
   router.push(to);
@@ -116,15 +125,18 @@ function navigate(to: string) {
       </div>
     </nav>
 
-    <button
-      type="button"
-      class="sidebar__collapse"
-      :aria-expanded="!collapsed"
-      :title="collapsed ? 'Mostrar menú' : 'Ocultar menú'"
-      @click="emit('toggle-collapse')"
-    >
-      <IconCollapse />
-      <span class="sidebar__label">Ocultar menú</span>
-    </button>
+    <div class="sidebar__footer">
+      <span class="sidebar__label">{{ versionLabel }} · {{ modeLabel }}</span>
+      <button
+        type="button"
+        class="sidebar__collapse"
+        :aria-expanded="!collapsed"
+        :aria-label="collapsed ? 'Mostrar menú' : 'Ocultar menú'"
+        :title="collapsed ? 'Mostrar menú' : 'Ocultar menú'"
+        @click="emit('toggle-collapse')"
+      >
+        <IconCollapse />
+      </button>
+    </div>
   </aside>
 </template>

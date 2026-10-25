@@ -27,6 +27,7 @@ declare module "vue-router" {
     superAdminOnly?: boolean;
     companyAdminOnly?: boolean;
     permission?: string;
+    order?: number;
   }
 }
 
@@ -53,6 +54,8 @@ const routes: RouteRecordRaw[] = [
   },
   {
     path: "/app",
+    // meta.order de cada hijo = su posicion en el menu lateral: decide si la pagina nueva
+    // entra subiendo o bajando (AppShell).
     component: () => import("./components/AppShell.vue"),
     meta: { requiresAuth: true },
     children: [
@@ -62,58 +65,58 @@ const routes: RouteRecordRaw[] = [
         name: "dashboard",
         component: DashboardView,
         alias: ["/dashboard"],
-        meta: { requiresAuth: true },
+        meta: { requiresAuth: true, order: 0 },
       },
       {
         path: "companies",
         name: "companies",
         component: CompaniesView,
         alias: ["/empresas"],
-        meta: { requiresAuth: true, superAdminOnly: true },
+        meta: { requiresAuth: true, order: 12, superAdminOnly: true },
       },
       {
         path: "customers",
         name: "customers",
         component: CustomersView,
-        meta: { requiresAuth: true, permission: "customers.view" },
+        meta: { requiresAuth: true, order: 2, permission: "customers.view" },
       },
       {
         path: "work-orders",
         name: "work-orders",
         component: WorkOrdersView,
-        meta: { requiresAuth: true, permission: "work_orders.view" },
+        meta: { requiresAuth: true, order: 1, permission: "work_orders.view" },
       },
       {
         path: "work-orders/import",
         name: "work-orders-import",
         component: WorkOrderImportView,
-        meta: { requiresAuth: true, permission: "work_orders.manage" },
+        meta: { requiresAuth: true, order: 1.5, permission: "work_orders.manage" },
       },
       {
         path: "users",
         name: "users",
         component: UsersView,
         alias: ["/usuarios"],
-        meta: { requiresAuth: true, permission: "users.view" },
+        meta: { requiresAuth: true, order: 7, permission: "users.view" },
       },
       {
         path: "roles",
         name: "roles",
         component: RolesView,
         alias: ["/roles"],
-        meta: { requiresAuth: true, permission: "roles.view" },
+        meta: { requiresAuth: true, order: 8, permission: "roles.view" },
       },
       {
         path: "parameters",
         name: "parameters",
         component: ParametersView,
-        meta: { requiresAuth: true, companyAdminOnly: true },
+        meta: { requiresAuth: true, order: 10, companyAdminOnly: true },
       },
       {
         path: "work-order-statuses",
         name: "work-order-statuses",
         component: WorkOrderStatusesView,
-        meta: { requiresAuth: true, companyAdminOnly: true },
+        meta: { requiresAuth: true, order: 9, companyAdminOnly: true },
       },
       {
         path: "cierre-marcas",
@@ -122,7 +125,7 @@ const routes: RouteRecordRaw[] = [
         alias: ["/cierre-marcas"],
         // Ver el cierre y emitirlo no es lo mismo: el permiso de ver habilita la pantalla,
         // y el de administrar habilita generar, emitir y liquidar.
-        meta: { requiresAuth: true, permission: "warranty_settlements.view" },
+        meta: { requiresAuth: true, order: 4, permission: "warranty_settlements.view" },
       },
       {
         path: "tecnicos",
@@ -131,13 +134,13 @@ const routes: RouteRecordRaw[] = [
         alias: ["/tecnicos"],
         // El maestro de técnicos: verlo lo puede cualquiera que administration órdenes, y
         // dar de alta gente o desactivarla es tarea de quien administra el maestro.
-        meta: { requiresAuth: true, permission: "technicians.view" },
+        meta: { requiresAuth: true, order: 3, permission: "technicians.view" },
       },
       {
         path: "assistant",
         name: "assistant",
         component: AssistantView,
-        meta: { requiresAuth: true, permission: "ai.use" },
+        meta: { requiresAuth: true, order: 5, permission: "ai.use" },
       },
       {
         path: "consumo-ia",
@@ -145,13 +148,13 @@ const routes: RouteRecordRaw[] = [
         component: AiConsumoView,
         alias: ["/consumo-ia"],
         // El mismo permiso que el asistente: consumo sin poder usar la IA no tiene sentido.
-        meta: { requiresAuth: true, permission: "ai.use" },
+        meta: { requiresAuth: true, order: 6, permission: "ai.use" },
       },
       {
         path: "settings",
         name: "settings",
         component: SettingsView,
-        meta: { requiresAuth: true, companyAdminOnly: true },
+        meta: { requiresAuth: true, order: 11, companyAdminOnly: true },
       },
     ],
   },

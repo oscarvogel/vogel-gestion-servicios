@@ -1,117 +1,108 @@
 /* ============================================================
    Vogel Gestión de Servicios - Design tokens
-   Dark default, light alterno. Tokens reutilizables en toda la UI.
+   Fuente de verdad: DESIGN.md. Oscuro por defecto, claro alterno.
+   Colores planos: sin degradados ni vidrio.
    ============================================================ */
 :root,
 :root[data-theme="dark"] {
-  /* Brand */
-  --vogel-navy: #0b1730;
-  --vogel-navy-900: #060c1c;
-  --vogel-navy-800: #0a1530;
-  --vogel-navy-700: #0f1f3f;
-  --vogel-primary: #2d7cff;
-  --vogel-primary-600: #1f63d6;
-  --vogel-primary-400: #69a0ff;
-  --vogel-accent: #38e1c4;
-  --vogel-warn: #ffb547;
-  --vogel-danger: #ff5b6b;
-  --vogel-success: #3ad29f;
+  /* Paleta base (DESIGN.md) */
+  --color-bg: #0a1226;
+  --color-sidebar: #080f20;
+  --color-surface: #101a33;
+  --color-chip: #16224a;
+  --color-text-primary: #f3f6fc;
+  --color-text-secondary: #b3bdd3;
+  --color-text-muted: #8e9ab6;
+  --color-primary: #1f63d6;
+  --color-primary-hover: #2a6fe0;
+  --color-link: #7aa7f7;
+  --color-danger: #c9353f;
+  --color-border: #1c2848;
+  --color-border-strong: #2a3860;
 
-  /* Surfaces */
-  --color-bg: radial-gradient(
-      120% 80% at 0% 0%,
-      rgba(45, 124, 255, 0.16) 0%,
-      rgba(11, 23, 48, 0) 60%
-    ),
-    radial-gradient(
-      90% 60% at 100% 0%,
-      rgba(56, 225, 196, 0.12) 0%,
-      rgba(11, 23, 48, 0) 65%
-    ),
-    var(--vogel-navy);
-  --color-surface: rgba(255, 255, 255, 0.04);
-  --color-surface-elevated: rgba(255, 255, 255, 0.07);
-  --color-surface-strong: rgba(255, 255, 255, 0.09);
-  --color-border: rgba(255, 255, 255, 0.08);
-  --color-border-strong: rgba(255, 255, 255, 0.16);
+  /* Puntos de estado e indicadores */
+  --dot-blue: #5b8def;
+  --dot-teal: #2dd4bf;
+  --dot-amber: #f5a524;
+  --dot-orange: #f97a3d;
+  --dot-purple: #a78bfa;
+  --dot-green: #34d399;
+  --dot-red: #f05265;
+  /* Barra "Ingresadas" del grafico semanal: neutra para que resalte la de terminadas. */
+  --chart-received: #5b6fa6;
 
-  /* Text */
-  --color-text-primary: #f5f7fb;
-  --color-text-secondary: rgba(245, 247, 251, 0.74);
-  --color-text-muted: rgba(245, 247, 251, 0.5);
+  /* Derivados */
+  --color-surface-elevated: #131f3d;
+  --color-surface-strong: var(--color-chip);
+  --color-surface-hover: rgba(255, 255, 255, 0.04);
+  --color-field: var(--color-bg);
+  --color-surface-inset: rgba(0, 0, 0, 0.2);
+  --color-nav-bar: var(--color-sidebar);
+  --color-scheme: dark;
+  --color-success: var(--dot-green);
+  --color-warning: var(--dot-amber);
+  /* Ambar para avisos en texto: el claro no se lee sobre fondo blanco. */
+  --color-warning-text: #fbbf24;
 
-  /* Status */
-  --color-primary: var(--vogel-primary);
-  --color-primary-hover: var(--vogel-primary-400);
-  --color-success: var(--vogel-success);
-  --color-warning: var(--vogel-warn);
-  --color-danger: var(--vogel-danger);
+  /* Tipografia */
+  --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", monospace;
 
-  /* Effects */
-  --shadow-glass: 0 16px 48px rgba(0, 0, 0, 0.32);
-  --shadow-card: 0 6px 22px rgba(0, 0, 0, 0.28);
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 18px;
-  --radius-xl: 24px;
+  /* Forma */
+  --shadow-glass: 0 16px 48px rgba(0, 0, 0, 0.4);
+  --shadow-card: none;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
 
   /* Layout */
-  --sidebar-width: 248px;
+  --sidebar-width: 256px;
   --topbar-height: 64px;
 
-  /* Alias que usan las vistas. Antes no estaban definidos y caian en su color de
-     respaldo oscuro, por eso el tema claro quedaba con tarjetas oscuras. */
+  /* Alias historicos que usan las vistas: apuntan a la paleta nueva. */
+  --vogel-primary: var(--color-primary);
+  --vogel-primary-600: var(--color-primary);
+  --vogel-primary-400: var(--color-primary-hover);
+  --vogel-navy: var(--color-bg);
+  --vogel-navy-800: var(--color-sidebar);
+  --vogel-navy-900: var(--color-sidebar);
   --color-text: var(--color-text-primary);
   --text-secondary: var(--color-text-secondary);
   --text-muted: var(--color-text-muted);
-  --border: #263a57;
-  --surface: #15243e;
-  --color-surface-hover: rgba(255, 255, 255, 0.06);
-
-  /* Superficies opacas que van encima del contenido: campos, menus, barra del celular. */
-  --color-field: #10283f;
-  --color-surface-inset: rgba(15, 23, 42, 0.45);
-  --color-nav-bar: rgba(8, 20, 43, 0.97);
-  --color-scheme: dark;
-  /* Ambar para avisos en texto: el claro no se lee sobre fondo blanco. */
-  --color-warning-text: #fbbf24;
+  --border: var(--color-border);
+  --surface: var(--color-surface);
 }
 
 :root[data-theme="light"] {
-  --color-bg: radial-gradient(
-      120% 80% at 0% 0%,
-      rgba(45, 124, 255, 0.18) 0%,
-      rgba(244, 246, 252, 0) 60%
-    ),
-    radial-gradient(
-      90% 60% at 100% 0%,
-      rgba(56, 225, 196, 0.16) 0%,
-      rgba(244, 246, 252, 0) 65%
-    ),
-    #f4f6fc;
-  --color-surface: rgba(255, 255, 255, 0.85);
-  --color-surface-elevated: rgba(255, 255, 255, 0.95);
-  --color-surface-strong: #ffffff;
-  --color-border: rgba(15, 31, 63, 0.08);
-  --color-border-strong: rgba(15, 31, 63, 0.18);
+  --color-bg: #f3f5fa;
+  --color-sidebar: #ffffff;
+  --color-surface: #ffffff;
+  --color-chip: #eef1f8;
   --color-text-primary: #0f1f3f;
-  --color-text-secondary: rgba(15, 31, 63, 0.7);
-  --color-text-muted: rgba(15, 31, 63, 0.5);
-  --color-primary: var(--vogel-primary);
-  --color-primary-hover: var(--vogel-primary-600);
-  --shadow-glass: 0 16px 48px rgba(15, 31, 63, 0.14);
-  --shadow-card: 0 6px 22px rgba(15, 31, 63, 0.08);
-  --sidebar-bg-from: #ffffff;
-  --sidebar-bg-to: #f4f6fc;
-  --hero-bg-color: #ffffff;
-  --border: rgba(15, 31, 63, 0.14);
-  --surface: #ffffff;
-  --color-surface-hover: rgba(15, 31, 63, 0.05);
+  --color-text-secondary: #44526f;
+  --color-text-muted: #5c6985;
+  --color-primary: #1f63d6;
+  --color-primary-hover: #1a55ba;
+  --color-link: #1f63d6;
+  --color-danger: #c9353f;
+  --color-border: #dde2ec;
+  --color-border-strong: #c9d0de;
+
+  --dot-blue: #2563eb;
+  --dot-teal: #0d9488;
+  --dot-amber: #b7791f;
+  --dot-orange: #dd5b17;
+  --dot-purple: #7c4ddb;
+  --dot-green: #15803d;
+  --dot-red: #d1293d;
+  --chart-received: #8b9bc7;
+
+  --color-surface-elevated: #ffffff;
+  --color-surface-hover: rgba(15, 31, 63, 0.04);
   --color-field: #ffffff;
   --color-surface-inset: rgba(15, 31, 63, 0.04);
-  --color-nav-bar: rgba(255, 255, 255, 0.97);
   --color-scheme: light;
   --color-warning-text: #b45309;
-  --hero-overlay-from: rgba(11, 23, 48, 0.78);
-  --hero-overlay-to: rgba(11, 23, 48, 0.45);
+  --shadow-glass: 0 16px 48px rgba(15, 31, 63, 0.14);
 }

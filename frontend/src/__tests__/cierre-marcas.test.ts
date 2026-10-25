@@ -145,7 +145,7 @@ describe("pantalla de cierre mensual a marcas", () => {
     const wrapper = await montar(["warranty_settlements.view"]);
 
     expect(wrapper.text()).toContain("350,00");
-    expect(wrapper.text()).toContain("Cálculo por empresa");
+    expect(wrapper.text()).toContain("Cierre por empresa");
     expect(wrapper.text()).toContain("DREAN S.A.");
     expect(wrapper.text()).toContain("ALLADIO");
   });
@@ -155,7 +155,7 @@ describe("pantalla de cierre mensual a marcas", () => {
 
     // Los tres casilleros con su monto, y no fundidos en dos.
     expect(wrapper.text()).toContain("En garantía de terceros");
-    expect(wrapper.text()).toContain("Garantía propia / de service");
+    expect(wrapper.text()).toContain("Garantía propia o de service");
     expect(wrapper.text()).toContain("Fuera de garantía");
     expect(wrapper.text()).toContain("100,00");
     expect(wrapper.text()).toContain("50,00");
@@ -195,10 +195,49 @@ describe("pantalla de cierre mensual a marcas", () => {
     expect(apiPost).toHaveBeenCalledWith("/warranty-settlements/generate", { period: expect.any(String) });
   });
 
+  it("una empresa sin cierre se puede generar sola", async () => {
+    const wrapper = await montar(["warranty_settlements.view", "warranty_settlements.manage"]);
+
+    const botones = wrapper.findAll("button").filter((b) => b.text() === "Generar");
+    expect(botones).toHaveLength(2);
+    await botones[0].trigger("click");
+    await flushPromises();
+
+    expect(apiPost).toHaveBeenCalledWith("/warranty-settlements/generate/7", { period: expect.any(String) });
+    expect(apiPost).not.toHaveBeenCalledWith("/warranty-settlements/generate", expect.anything());
+  });
+
+  it("un cierre emitido manda sobre el calculo y se puede filtrar por estado", async () => {
+    apiGet.mockImplementation((url: string) => {
+      if (url.includes("/warranty-settlements/registros")) {
+        const drean = reporte.companies[0];
+        return Promise.resolve({
+          items: [
+            { ...drean, id: 50, period: "2025-06", status: "cancelled", total_amount: "1.000000", generated_at: "2025-07-01" },
+            { ...drean, id: 51, period: "2025-06", status: "issued", total_amount: "275.000000", generated_at: "2025-07-02" },
+          ],
+          total: 2,
+        });
+      }
+      return Promise.resolve(reporte);
+    });
+    const wrapper = await montar(["warranty_settlements.view", "warranty_settlements.manage"]);
+
+    // El emitido congela el numero: se ve su total, no el del calculo ni el del anulado.
+    expect(wrapper.text()).toContain("275,00");
+    expect(wrapper.text()).toContain("Emitido");
+    expect(wrapper.text()).toContain("Liquidar");
+    expect(wrapper.findAll(".fila-empresa")).toHaveLength(2);
+
+    await wrapper.findAll(".filtro").find((b) => b.text().startsWith("Emitido"))!.trigger("click");
+    expect(wrapper.findAll(".fila-empresa")).toHaveLength(1);
+    expect(wrapper.text()).not.toContain("ALLADIO");
+  });
+
   it("no muestra la pantalla sin el permiso de ver", async () => {
     const wrapper = await montar(["work_orders.view"]);
 
-    expect(wrapper.text()).not.toContain("Cálculo por empresa");
+    expect(wrapper.text()).not.toContain("Cierre por empresa");
     expect(apiGet).not.toHaveBeenCalled();
   });
 });

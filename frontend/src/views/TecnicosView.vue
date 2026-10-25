@@ -208,7 +208,7 @@ onMounted(load);
             <strong v-else>{{ t.name }}</strong>
           </td>
           <td data-label="Origen">
-            <span class="text-muted">{{ t.legacy_code === null ? "Cargado a mano" : `Legacy #${t.legacy_code}` }}</span>
+            <span class="text-muted">{{ t.legacy_code === null ? "Cargado a mano" : `Sistema anterior (n.º ${t.legacy_code})` }}</span>
           </td>
           <td data-label="Estado">
             <span class="status-pill" :style="t.active

@@ -47,6 +47,7 @@ textarea {
   display: grid;
   grid-template-columns: var(--sidebar-width) 1fr;
   min-height: 100vh;
+  transition: grid-template-columns 0.2s ease;
 }
 .app-shell--full {
   grid-template-columns: 1fr;
@@ -71,9 +72,10 @@ textarea {
   color: var(--color-text-primary);
   display: flex;
   flex-direction: column;
-  padding: 24px 16px;
+  padding: 20px 16px 16px;
   border-right: 1px solid var(--color-border);
   position: sticky;
+  overflow: hidden;
   top: 0;
   height: 100vh;
 }
@@ -86,7 +88,7 @@ textarea {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-bottom: 28px;
+  margin-bottom: 12px;
   padding: 4px;
 }
 .sidebar__brand img {
@@ -107,8 +109,15 @@ textarea {
 .sidebar__nav {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 12px;
   flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.sidebar__group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 .sidebar__link {
   display: flex;
@@ -118,7 +127,13 @@ textarea {
   border-radius: var(--radius-md);
   color: var(--color-text-secondary);
   font-size: 14px;
+  white-space: nowrap;
   transition: background 0.18s ease, color 0.18s ease;
+}
+.sidebar__link:focus-visible,
+.sidebar__collapse:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
 }
 .sidebar__link:hover {
   background: var(--color-surface);
@@ -138,13 +153,79 @@ textarea {
   letter-spacing: 0.16em;
   text-transform: uppercase;
   color: var(--color-text-muted);
-  padding: 12px 14px 6px;
+  padding: 6px 14px 4px;
+  white-space: nowrap;
 }
-.sidebar__footer {
+.sidebar__collapse {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 10px 14px;
+  border: 0;
   border-top: 1px solid var(--color-border);
-  padding-top: 16px;
-  font-size: 12px;
+  border-radius: 0;
+  background: transparent;
   color: var(--color-text-muted);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.sidebar__collapse:hover {
+  color: var(--color-text-primary);
+}
+.sidebar__collapse svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
+}
+
+/* Menu plegado: solo en escritorio; en celular el menu es un cajon y no se pliega. */
+@media (min-width: 901px) {
+  .app-shell--collapsed {
+    grid-template-columns: 72px 1fr;
+  }
+  .sidebar--collapsed {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+  .sidebar--collapsed .sidebar__brand {
+    justify-content: center;
+  }
+  .sidebar--collapsed .sidebar__link,
+  .sidebar--collapsed .sidebar__collapse {
+    justify-content: center;
+    padding-left: 0;
+    padding-right: 0;
+  }
+  /* La etiqueta se oculta a la vista pero queda para lectores de pantalla. */
+  .sidebar--collapsed .sidebar__label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  .sidebar--collapsed .sidebar__section-title {
+    height: 1px;
+    padding: 0;
+    margin: 4px 10px;
+    overflow: hidden;
+    color: transparent;
+    background: var(--color-border);
+  }
+  .sidebar--collapsed .sidebar__collapse svg {
+    transform: rotate(180deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-shell,
+  .sidebar__collapse svg {
+    transition: none;
+  }
 }
 
 /* ===== Topbar ===== */
@@ -664,6 +745,9 @@ textarea {
   }
   .sidebar.is-open {
     transform: translateX(0);
+  }
+  .sidebar__collapse {
+    display: none;
   }
   .sidebar__scrim {
     position: fixed;

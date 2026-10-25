@@ -24,10 +24,10 @@ onMounted(async()=>{if(canManage)await loadNotif()});
     <div class="field"><label>Email del remitente</label><input v-model="notif.notification_sender_email" type="email" placeholder="taller@empresa.com"></div>
     <div class="field"><label>API key de la gateway de WhatsApp</label>
       <input v-model="notif.whatsapp_api_key" type="password" autocomplete="new-password" :placeholder="notif.whatsapp_api_key_configured ? 'Cargada. Escribí para reemplazarla.' : 'No cargada'">
-      <small class="text-muted">Se guarda cifrada y no se vuelve a mostrar. Es la key de SU empresa: sus clientes reciben los avisos desde su numero.</small></div>
-    <label class="check" style="margin:10px 0 4px"><input v-model="notif.whatsapp_use_platform_key" type="checkbox"> Usar la linea y la key de Vogel en vez de las propias</label>
+      <small class="text-muted">Se guarda cifrada y no se vuelve a mostrar. Es la key de SU empresa: sus clientes reciben los avisos desde su número.</small></div>
+    <label class="check" style="display:flex;align-items:center;gap:8px;margin:10px 0 4px"><input v-model="notif.whatsapp_use_platform_key" type="checkbox"> Usar la línea y la key de Vogel en vez de las propias</label>
     <small v-if="notif.whatsapp_api_key" class="text-muted">Guardando: la key nueva va a reemplazar la anterior.</small>
-    <button class="btn btn--primary" style="margin-top:10px" @click="saveNotif">Guardar</button>
+    <div><button class="btn btn--primary" style="margin-top:10px" @click="saveNotif">Guardar</button></div>
   </div>
   <div class="card">
     <h2 style="margin:0 0 6px;font-size:20px">Apariencia</h2>

@@ -7,11 +7,16 @@ ARG BACKEND_INTERNAL_URL=http://backend:8000
 
 FROM node:24-alpine AS build
 ARG VITE_API_URL
+# Coolify pasa el commit desplegado como build arg. Sin este ARG el valor no entra
+# al stage (los ARG no se heredan solos) y el bundle sale sin sha: el pie de la app
+# caeria a la fecha del build. Con el, el sha queda escrito en el bundle.
+ARG SOURCE_COMMIT
 WORKDIR /app
 COPY package*.json ./
 RUN npm install
 COPY . .
 ENV VITE_API_URL=${VITE_API_URL}
+ENV VITE_BUILD_SHA=${SOURCE_COMMIT}
 RUN npm run build
 
 FROM nginx:alpine

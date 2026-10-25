@@ -30,6 +30,13 @@ export interface MeResponse {
   active: boolean;
   memberships: MembershipSummary[];
   permissions: string[];
+  build?: BuildInfo;
+}
+
+/** Que version y que commit se desplegaron. */
+export interface BuildInfo {
+  version: string;
+  commit: string | null;
 }
 
 export interface CompanyOption {

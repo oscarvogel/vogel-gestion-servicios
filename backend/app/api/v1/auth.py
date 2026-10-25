@@ -11,6 +11,7 @@ from app.api.dependencies import (
     get_db,
 )
 from app.api.v1.schemas import (
+    BuildInfo,
     CompanyOption,
     LoginRequest,
     MeResponse,
@@ -19,6 +20,7 @@ from app.api.v1.schemas import (
     SelectCompanyRequest,
     TokenBundle,
 )
+from app.core.build_info import build_info
 from app.core.config import settings
 from app.core.security import (
     ALGORITHM,
@@ -153,6 +155,7 @@ def me(
         active=user.active,
         memberships=memberships,
         permissions=sorted(permissions),
+        build=BuildInfo(**build_info()),
     )
 
 

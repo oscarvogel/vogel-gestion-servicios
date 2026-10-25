@@ -94,6 +94,21 @@ const groups = computed<NavGroup[]>(() => {
 const versionLabel = `v${version.split(".").slice(0, 2).join(".")}`;
 const modeLabel = computed(() => (session.activeCompany ? "Modo Empresa" : "Modo plataforma"));
 
+// Que build esta vivo. La API manda el commit del deploy (SOURCE_COMMIT de Coolify) y,
+// si todavia no esta, el bundle trae el commit o la hora del build. Asi el pie cambia
+// en cada despliegue y se sabe que version esta en pantalla.
+const buildLabel = computed(() => {
+  const commit = session.me?.build?.commit || __BUILD_SHA__;
+  if (commit) return commit.slice(0, 7);
+  const built = __BUILD_TIME__ ? new Date(__BUILD_TIME__) : null;
+  if (built && !Number.isNaN(built.getTime())) {
+    const dia = built.toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit" });
+    const hora = built.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
+    return `build ${dia} ${hora}`;
+  }
+  return "";
+});
+
 function navigate(to: string) {
   router.push(to);
   emit("close");
@@ -126,7 +141,7 @@ function navigate(to: string) {
     </nav>
 
     <div class="sidebar__footer">
-      <span class="sidebar__label">{{ versionLabel }} · {{ modeLabel }}</span>
+      <span class="sidebar__label">{{ versionLabel }}<template v-if="buildLabel"> · {{ buildLabel }}</template> · {{ modeLabel }}</span>
       <button
         type="button"
         class="sidebar__collapse"

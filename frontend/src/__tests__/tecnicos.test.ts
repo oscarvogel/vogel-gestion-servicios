@@ -225,7 +225,7 @@ describe("asignación de técnicos a la orden de trabajo", () => {
     const pinia = prepararSesion(["work_orders.view", "work_orders.manage", "technicians.view"]);
     const wrapper = montar(WorkOrdersView, pinia);
     await flushPromises();
-    const abrir = wrapper.findAll("button").find((b) => b.text() === "Abrir OT");
+    const abrir = wrapper.find(".work-order-link");
     expect(abrir).toBeTruthy();
     await abrir!.trigger("click");
     await flushPromises();

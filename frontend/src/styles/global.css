@@ -753,7 +753,6 @@ textarea {
   .mobile-card-actions>.flex,.mobile-card-actions{gap:8px!important}
   .mobile-card-actions .btn{flex:1}
   .work-order-row>td{background:transparent!important;border-left:0!important;border-right:0!important;border-top:0!important;border-radius:0!important}
-  .work-order-row{border-left:4px solid var(--status-color)!important;background:var(--status-tint)!important}
 }
 @media(max-width:380px){
   .app-content{padding-left:9px;padding-right:9px}

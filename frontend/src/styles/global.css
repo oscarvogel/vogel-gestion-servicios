@@ -221,10 +221,27 @@ textarea {
     transform: rotate(180deg);
   }
 }
+/* Foco visible al moverse con el teclado. Los campos de texto ya marcan el foco con el
+   borde, por eso quedan afuera. */
+:where(a, button, summary, select, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* Movimiento reducido: sin transiciones ni desplazamientos al pasar el mouse. La ruedita
+   de carga sigue girando porque es la unica senal de que algo esta pasando. */
 @media (prefers-reduced-motion: reduce) {
-  .app-shell,
-  .sidebar__collapse svg {
-    transition: none;
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+  .btn:hover,
+  .kpi:hover,
+  .recent-item:hover,
+  .attention-item:hover {
+    transform: none !important;
   }
 }
 

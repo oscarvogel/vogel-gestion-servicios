@@ -12,6 +12,7 @@ export const useThemeStore = defineStore("theme", () => {
   })();
 
   const theme = ref<Theme>(initial);
+  let fadeTimer = 0;
 
   function apply(value: Theme) {
     document.documentElement.setAttribute("data-theme", value);
@@ -31,7 +32,13 @@ export const useThemeStore = defineStore("theme", () => {
     }
     root.classList.add("theme-fading");
     apply(value);
-    window.setTimeout(() => root.classList.remove("theme-fading"), 500);
+    // Si el usuario cambia el tema dos veces seguidas, el primer temporizador sacaria la
+    // clase a mitad del segundo fundido y la transicion se cortaria.
+    if (fadeTimer) window.clearTimeout(fadeTimer);
+    fadeTimer = window.setTimeout(() => {
+      root.classList.remove("theme-fading");
+      fadeTimer = 0;
+    }, 500);
   }
 
   function toggle() {

@@ -130,9 +130,16 @@ async function mover(st: OtStatus, dir: -1 | 1) {
   let b = st.sort_order;
   if (a === b) a = b + dir;
   try {
+    // La API exige name y color (no tienen default), asi que el PATCH va con la fila.
+    // Se manda lo PERSISTIDO, no lo editado: las flechas no se llevan los cambios sin
+    // guardar de la fila. El endpoint solo aplica los campos enviados.
+    const base = (x: OtStatus) => ({
+      name: saved.value[x.id]?.name ?? x.name,
+      color: saved.value[x.id]?.color ?? x.color,
+    });
     await Promise.all([
-      apiPatch(`/work-orders/statuses/${st.id}`, { sort_order: a }),
-      apiPatch(`/work-orders/statuses/${vecino.id}`, { sort_order: b }),
+      apiPatch(`/work-orders/statuses/${st.id}`, { ...base(st), sort_order: a }),
+      apiPatch(`/work-orders/statuses/${vecino.id}`, { ...base(vecino), sort_order: b }),
     ]);
     st.sort_order = a;
     vecino.sort_order = b;

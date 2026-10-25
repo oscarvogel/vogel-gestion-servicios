@@ -242,11 +242,11 @@ async function generar() {
   }
 }
 
-async function generarEmpresa(id: number, nombre?: string | null) {
+async function generarEmpresa(id: number, nombre?: string | null, regenerando = false) {
   ocupada.value = true;
   try {
     await apiPost(`/warranty-settlements/generate/${id}`, { period: period.value });
-    toast.push(`Cierre de ${nombre || "la empresa"} generado.`, "success");
+    toast.push(`Cierre de ${nombre || "la empresa"} ${regenerando ? "regenerado" : "generado"}.`, "success");
     await cargar();
   } catch (e) {
     toast.push(getApiErrorMessage(e), "error");
@@ -435,6 +435,7 @@ onMounted(() => {
                 <td v-if="puedeAdministrar" class="acciones" @click.stop>
                   <template v-if="fila.cierre">
                     <button v-if="fila.cierre.status === 'draft'" class="btn" type="button" :disabled="ocupada" @click="emitir(fila.cierre)">Emitir</button>
+    <button v-if="fila.cierre.status === 'draft'" class="btn" type="button" :disabled="ocupada" @click="generarEmpresa(fila.id, fila.datos.billing_customer_name, true)">Regenerar</button>
                     <button v-if="fila.cierre.status === 'issued'" class="btn" type="button" :disabled="ocupada" @click="abrirLiquidacion(fila.cierre)">Liquidar</button>
                     <button v-if="fila.cierre.status === 'draft' || fila.cierre.status === 'issued'" class="anular" type="button" :disabled="ocupada" @click="anular(fila.cierre)">Anular</button>
                     <span v-if="fila.cierre.status === 'settled'" class="text-muted">liquidado {{ fecha(fila.cierre.settled_at) }}</span>

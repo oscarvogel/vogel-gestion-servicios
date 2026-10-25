@@ -48,7 +48,7 @@ const groups = computed<NavGroup[]>(() => {
       // El trabajo de todos los dias.
       title: "Operación",
       links: [
-        { id: "dashboard", label: "Dashboard", to: "/app/dashboard", icon: IconDashboard, visible: platform || company },
+        { id: "dashboard", label: "Inicio", to: "/app/dashboard", icon: IconDashboard, visible: platform || company },
         { id: "work-orders", label: "Órdenes de trabajo", to: "/app/work-orders", icon: IconWorkOrders, visible: company && session.hasPermission("work_orders.view") },
         { id: "customers", label: "Clientes y equipos", to: "/app/customers", icon: IconCustomers, visible: company && session.hasPermission("customers.view") },
         // El maestro de quien hace el trabajo: se asigna desde la orden de trabajo.

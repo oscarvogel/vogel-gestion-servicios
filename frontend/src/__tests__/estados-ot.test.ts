@@ -96,4 +96,24 @@ describe("pantalla de estados de OT", () => {
     expect(previa.find("mark").text()).toBe("{{clinete}}");
     expect(fila.text()).toContain("No existe: {{clinete}}");
   });
+
+  it("las flechas reordenan con el estado guardado, no con lo editado sin guardar", async () => {
+    const w = await montar();
+    // Se edita el nombre de la primera fila y NO se guarda.
+    await filas(w)[0].find("input[id^=nombre]").setValue("Nombre editado");
+
+    await filas(w)[1].find("button[aria-label^='Subir']").trigger("click");
+    await flushPromises();
+
+    // La API exige name y color: el PATCH tiene quearlos.
+    expect(apiPatch).toHaveBeenCalledWith(
+      "/work-orders/statuses/2",
+      expect.objectContaining({ name: "Esperando repuesto", color: "#3B82F6" })
+    );
+    // Y no puede llevarse el nombre editado de la otra fila.
+    expect(apiPatch).not.toHaveBeenCalledWith(
+      "/work-orders/statuses/1",
+      expect.objectContaining({ name: "Nombre editado" })
+    );
+  });
 });

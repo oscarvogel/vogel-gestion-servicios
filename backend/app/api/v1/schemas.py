@@ -46,6 +46,14 @@ class MeResponse(BaseModel):
     active: bool
     memberships: list["MembershipSummary"]
     permissions: list[str]
+    build: "BuildInfo"
+
+
+class BuildInfo(BaseModel):
+    """Que version y que commit se desplegaron, para el pie de la app."""
+
+    version: str
+    commit: str | None = None
 
 
 class MembershipSummary(BaseModel):

@@ -456,6 +456,32 @@ def test_generar_registra_el_periodo_y_regenerar_no_duplica(escenario):
     assert cierres[0].total_amount == Decimal("100")
 
 
+def test_generar_una_sola_empresa_no_toca_las_demas(escenario):
+    """Con otra empresa ya emitida, generar todo el periodo falla; por empresa no."""
+    db = escenario["db"]
+    company = escenario["company"]
+    alladio = _cliente(db, company, "ALLADIO")
+    area_marca = _area(db, company, billing_customer=escenario["marca"], warranty_type=1)
+    area_alladio = _area(db, company, billing_customer=alladio, warranty_type=1, area_code="60")
+    _ot(db, company, escenario["cliente"], escenario["equipo"], area_marca, escenario["user"])
+
+    service.generar_cierre(db, company.id, "2025-06")
+    from app.models.warranty_settlement import WarrantySettlement
+
+    emitido = db.query(WarrantySettlement).filter_by(company_id=company.id).one()
+    service.cambiar_estado(db, company.id, emitido.id, "issued")
+
+    _ot(db, company, escenario["cliente"], escenario["equipo"], area_alladio, escenario["user"])
+    service.generar_cierre(db, company.id, "2025-06", billing_customer_id=alladio.id)
+
+    cierres = {c.billing_customer_id: c for c in db.query(WarrantySettlement).filter_by(company_id=company.id)}
+    assert cierres[alladio.id].status == "draft"
+    assert cierres[escenario["marca"].id].status == "issued"
+
+    with pytest.raises(service.CierreInvalido):
+        service.generar_cierre(db, company.id, "2025-06", billing_customer_id=999999)
+
+
 def test_el_cierre_registrado_conserva_el_casillero_de_garantia_propia(escenario):
     """El cierre guardado tiene que traer los tres casilleros, no solo dos.
 
@@ -586,6 +612,24 @@ def test_generar_por_endpoint_deja_el_registro(escenario, client):
     assert cuerpo["items"][0]["status"] == "draft"
     assert cuerpo["items"][0]["billing_customer_name"] == "DREAN S.A."
     assert len(cuerpo["items"][0]["works"]) == 1
+
+
+def test_generar_una_empresa_por_endpoint_no_genera_las_demas(escenario, client):
+    db = escenario["db"]
+    company = escenario["company"]
+    alladio = _cliente(db, company, "ALLADIO")
+    for marca, codigo in ((escenario["marca"], "50"), (alladio, "60")):
+        area = _area(db, company, billing_customer=marca, warranty_type=1, area_code=codigo)
+        _ot(db, company, escenario["cliente"], escenario["equipo"], area, escenario["user"])
+    headers = _como_empresa(client, company, escenario["user"])
+
+    r = client.post(
+        f"/api/v1/warranty-settlements/generate/{alladio.id}", headers=headers, json={"period": "2025-06"}
+    )
+    assert r.status_code == 200, r.text
+
+    items = client.get("/api/v1/warranty-settlements/registros", headers=headers).json()["items"]
+    assert [i["billing_customer_name"] for i in items] == ["ALLADIO"]
 
 
 def test_emitir_y_liquidar_por_endpoint(escenario, client):

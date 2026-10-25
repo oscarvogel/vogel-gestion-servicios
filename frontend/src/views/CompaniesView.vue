@@ -623,7 +623,7 @@ async function enterCompany(item: CompanyItem) {
   padding: 14px;
   border: 1px solid rgba(148, 163, 184, 0.22);
   border-radius: 12px;
-  background: rgba(15, 23, 42, 0.45);
+  background: var(--color-surface-inset);
 }
 .ai-plan__head {
   display: flex;
@@ -659,7 +659,7 @@ async function enterCompany(item: CompanyItem) {
   border-radius: 999px;
   font-size: 11px;
   background: rgba(251, 191, 36, 0.16);
-  color: #fbbf24;
+  color:var(--color-warning-text);
 }
 .ai-plan__error {
   margin-bottom: 10px;

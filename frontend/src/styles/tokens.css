@@ -58,6 +58,23 @@
   /* Layout */
   --sidebar-width: 248px;
   --topbar-height: 64px;
+
+  /* Alias que usan las vistas. Antes no estaban definidos y caian en su color de
+     respaldo oscuro, por eso el tema claro quedaba con tarjetas oscuras. */
+  --color-text: var(--color-text-primary);
+  --text-secondary: var(--color-text-secondary);
+  --text-muted: var(--color-text-muted);
+  --border: #263a57;
+  --surface: #15243e;
+  --color-surface-hover: rgba(255, 255, 255, 0.06);
+
+  /* Superficies opacas que van encima del contenido: campos, menus, barra del celular. */
+  --color-field: #10283f;
+  --color-surface-inset: rgba(15, 23, 42, 0.45);
+  --color-nav-bar: rgba(8, 20, 43, 0.97);
+  --color-scheme: dark;
+  /* Ambar para avisos en texto: el claro no se lee sobre fondo blanco. */
+  --color-warning-text: #fbbf24;
 }
 
 :root[data-theme="light"] {
@@ -86,7 +103,15 @@
   --shadow-card: 0 6px 22px rgba(15, 31, 63, 0.08);
   --sidebar-bg-from: #ffffff;
   --sidebar-bg-to: #f4f6fc;
-  --hero-bg-color: #0b1730;
+  --hero-bg-color: #ffffff;
+  --border: rgba(15, 31, 63, 0.14);
+  --surface: #ffffff;
+  --color-surface-hover: rgba(15, 31, 63, 0.05);
+  --color-field: #ffffff;
+  --color-surface-inset: rgba(15, 31, 63, 0.04);
+  --color-nav-bar: rgba(255, 255, 255, 0.97);
+  --color-scheme: light;
+  --color-warning-text: #b45309;
   --hero-overlay-from: rgba(11, 23, 48, 0.78);
   --hero-overlay-to: rgba(11, 23, 48, 0.45);
 }

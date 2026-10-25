@@ -378,7 +378,7 @@ const greeting = computed(() => {
 .attention-item{display:flex;align-items:center;gap:10px;padding:6px 10px 6px 12px;border:1px solid var(--border,#263a57);border-radius:99px;text-decoration:none;color:inherit;transition:border-color .15s ease,transform .15s ease}
 .attention-item:hover{border-color:#f59e0b;transform:translateY(-1px)}
 .attention-item__label{font-size:12px}
-.attention-item__count{font-size:18px;color:#f59e0b}
+.attention-item__count{font-size:18px;color:var(--color-warning-text)}
 .attention-item__chevron{color:var(--text-muted,#8290a5);font-size:18px;line-height:1}
 /* La grilla analítica queda con tres tarjetas: la de distribución ocupa el ancho completo
    para no dejar un hueco en la columna angosta. */

@@ -403,7 +403,7 @@ function plata(texto: string | null): string {
   padding: 12px;
   border: 1px solid rgba(148, 163, 184, 0.25);
   border-radius: 10px;
-  background: rgba(15, 23, 42, 0.5);
+  background: var(--color-surface-inset);
 }
 .prop__calculo-titulo {
   margin: 0 0 8px;
@@ -459,14 +459,14 @@ function plata(texto: string | null): string {
   flex-direction: column;
   gap: 4px;
   font-size: 12px;
-  color: #fbbf24;
+  color:var(--color-warning-text);
 }
 /* El aviso al cliente se muestra como un bloque de texto legible, no como una fila de tabla:
    lo que se lee es el mensaje, y tiene que poder copiarse tal como va a salir. */
 .prop__nota-envio {
   margin: 0 0 10px;
   font-size: 12px;
-  color: #fbbf24;
+  color:var(--color-warning-text);
 }
 .prop__aviso-bloque {
   padding: 10px 0;
@@ -509,21 +509,21 @@ function plata(texto: string | null): string {
   color: var(--color-text-muted, #94a3b8);
 }
 .prop__campos input {
-  background: #10283f;
-  color: #e5edf7;
+  background: var(--color-field);
+  color:var(--color-text-primary);
   border: 1px solid rgba(148, 163, 184, 0.35);
   border-radius: 8px;
   padding: 8px 10px;
-  color-scheme: dark;
+  color-scheme: var(--color-scheme);
   width: 100%;
 }
 .prop__campos textarea {
-  background: #10283f;
-  color: #e5edf7;
+  background: var(--color-field);
+  color:var(--color-text-primary);
   border: 1px solid rgba(148, 163, 184, 0.35);
   border-radius: 8px;
   padding: 8px 10px;
-  color-scheme: dark;
+  color-scheme: var(--color-scheme);
   width: 100%;
   font: inherit;
   font-size: 13px;

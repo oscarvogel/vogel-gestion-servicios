@@ -31,7 +31,7 @@ const active=(prefix:string)=>route.path.startsWith(prefix);
 <style scoped>
 .mobile-bottom-nav{display:none}
 @media(max-width:700px){
-.mobile-bottom-nav{position:fixed;left:0;right:0;bottom:0;z-index:70;height:calc(68px + env(safe-area-inset-bottom));padding:5px 8px env(safe-area-inset-bottom);display:grid;grid-template-columns:repeat(5,1fr);align-items:end;background:rgba(8,20,43,.97);border-top:1px solid var(--color-border-strong);box-shadow:0 -10px 30px rgba(0,0,0,.25);backdrop-filter:blur(14px)}
+.mobile-bottom-nav{position:fixed;left:0;right:0;bottom:0;z-index:70;height:calc(68px + env(safe-area-inset-bottom));padding:5px 8px env(safe-area-inset-bottom);display:grid;grid-template-columns:repeat(5,1fr);align-items:end;background:var(--color-nav-bar);border-top:1px solid var(--color-border-strong);box-shadow:0 -10px 30px rgba(0,0,0,.25);backdrop-filter:blur(14px)}
 .mobile-bottom-nav__item{height:58px;min-width:0;border:0;background:transparent;color:var(--color-text-muted);text-decoration:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font:inherit;font-size:10px;cursor:pointer}
 .mobile-bottom-nav__item>svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .mobile-bottom-nav__item.active{color:var(--vogel-primary)}

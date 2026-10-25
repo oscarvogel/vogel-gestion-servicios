@@ -19,11 +19,12 @@ from typing import Any
 from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
+from app.core.warranty import ETIQUETA_GARANTIA, estado_de_garantia
 from app.models.company import Company, CompanyParameter, ParameterDefinition
 from app.models.customer import Customer, Equipment
 from app.models.work_order import WorkOrder, WorkOrderCounter, WorkOrderEvent, WorkOrderNotification, WorkOrderStatus
 from app.models.work_order_part import WorkOrderTechnician
-from app.models.work_area import Technician
+from app.models.work_area import Technician, WorkArea
 from app.models.work_order_quote import (
     WorkOrderDiagnosis,
     WorkOrderExecutionItem,
@@ -160,6 +161,7 @@ def crear_orden(
     accessories: str | None = None,
     notes: str | None = None,
     technician_id: int | None = None,
+    work_area_id: int | None = None,
 ) -> WorkOrder:
     """Crea la orden con su numero y su evento de recepcion.
 
@@ -168,6 +170,10 @@ def crear_orden(
 
     ``technician_id`` es opcional: el legacy asignaba el tecnico despues, en el taller. Si se
     pasa, la OT queda con ese tecnico asignado desde el arranque.
+
+    ``work_area_id`` es opcional y es lo que decide si la OT entra al cierre a marcas: el
+    cierre hace JOIN por el area y exige que el area tenga empresa a liquidar. Sin area, la
+    OT se crea igual, pero no aparece en ningun cierre hasta que se le ponga una.
     """
     cliente = db.query(Customer).filter_by(
         id=customer_id, company_id=company_id, active=True
@@ -181,6 +187,16 @@ def crear_orden(
     if not equipo:
         raise ErrorDeDominio("El equipo no pertenece al cliente y empresa activos.",
                             "equipo_invalido", 422)
+
+    area = None
+    if work_area_id is not None:
+        area = db.query(WorkArea).filter_by(
+            id=work_area_id, company_id=company_id
+        ).first()
+        if not area:
+            raise ErrorDeDominio(
+                "El área de trabajo no pertenece a esta empresa.", "area_invalida", 422
+            )
 
     numero = siguiente_numero(db, company_id)
     inicial = (
@@ -201,6 +217,10 @@ def crear_orden(
         physical_condition=physical_condition,
         accessories=accessories,
         notes=notes,
+        work_area_id=area.id if area else None,
+        # La garantia de la OT es una copia de la del area: asi lo dejaba el legacy
+        # (dbo.CS_PoliticasxArea.Garantia), y es lo que lee el cierre a marcas.
+        warranty_status=estado_de_garantia(area.warranty_type) if area else None,
     )
     db.add(orden)
     db.flush()
@@ -210,7 +230,10 @@ def crear_orden(
             work_order_id=orden.id,
             event_type="RECEPTION",
             status="RECEIVED",
-            detail="Equipo recibido y orden de trabajo generada.",
+            detail=(
+                "Equipo recibido y orden de trabajo generada. "
+                + _detalle_area(db, area)
+            ),
             user_id=user_id,
         )
     )
@@ -246,6 +269,87 @@ def crear_orden(
             )
         )
         db.flush()
+    return orden
+
+
+def etiqueta_area(area: WorkArea | None) -> str:
+    """Como se muestra un area: marca + politica (la politica vacia es la principal)."""
+    if not area:
+        return "sin área"
+    if area.policy_code:
+        return f"{area.area_name} · {area.policy_code}"
+    return area.area_name
+
+
+def _detalle_area(db: Session, area: WorkArea | None) -> str:
+    """El area con su garantia y a quien se liquida, en una frase.
+
+    Es lo que queda escrito en el historial de la orden: dejar explicito a quien se le
+    liquida es lo que hace auditable el cierre, y lo que evita el "no se donde lo metieron".
+    """
+    if not area:
+        return "Sin área de trabajo: la orden no entra al cierre a marcas."
+    partes = [
+        f"Área: {etiqueta_area(area)}",
+        f"Garantía: {ETIQUETA_GARANTIA.get(area.warranty_type, ETIQUETA_GARANTIA[0])}",
+    ]
+    if area.billing_customer_id:
+        empresa = db.get(Customer, area.billing_customer_id)
+        if empresa:
+            partes.append(f"Se liquida a: {empresa.name}")
+    else:
+        partes.append("No se liquida a ninguna empresa")
+    return ". ".join(partes) + "."
+
+
+def asignar_area(
+    db: Session,
+    *,
+    orden: WorkOrder,
+    company_id: int,
+    user_id: int,
+    work_area_id: int | None,
+) -> WorkOrder:
+    """Le pone (o le quita) el area de trabajo a una orden ya abierta.
+
+    La garantia de la OT se recalcula desde el area: no se escribe suelta, para que la
+    OT y el cierre a marcas no puedan discrepar.
+
+    El cambio queda en el historial de la orden: corregir la garantia de una OT que ya
+    estaba cargada es un cambio de criterio, y tiene que verse.
+    """
+    area = None
+    if work_area_id is not None:
+        area = db.query(WorkArea).filter_by(
+            id=work_area_id, company_id=company_id
+        ).first()
+        if not area:
+            raise ErrorDeDominio(
+                "El área de trabajo no pertenece a esta empresa.", "area_invalida", 422
+            )
+    anterior = db.get(WorkArea, orden.work_area_id) if orden.work_area_id else None
+    orden.work_area_id = area.id if area else None
+    orden.warranty_status = estado_de_garantia(area.warranty_type) if area else None
+    if anterior and area and anterior.id != area.id:
+        detalle = (
+            f"Área de trabajo cambiada: {etiqueta_area(anterior)} → "
+            f"{etiqueta_area(area)}. {_detalle_area(db, area)}"
+        )
+    elif area:
+        detalle = f"Área de trabajo: {etiqueta_area(area)}. {_detalle_area(db, area)}"
+    else:
+        detalle = "Área de trabajo quitada. La orden deja de entrar al cierre a marcas."
+    db.add(
+        WorkOrderEvent(
+            company_id=company_id,
+            work_order_id=orden.id,
+            event_type="WORK_AREA_CHANGE",
+            status=orden.status,
+            detail=detalle,
+            user_id=user_id,
+        )
+    )
+    db.flush()
     return orden
 
 

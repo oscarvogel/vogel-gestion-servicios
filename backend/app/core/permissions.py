@@ -36,6 +36,8 @@ PERMISSIONS: tuple[PermissionDef, ...] = (
     PermissionDef("warranty_settlements.manage", "warranty_settlements", "Generar, emitir y liquidar el cierre mensual a marcas"),
     PermissionDef("technicians.view", "technicians", "Ver el maestro de técnicos"),
     PermissionDef("technicians.manage", "technicians", "Crear y editar técnicos y asignarlos a las órdenes"),
+    PermissionDef("work_areas.view", "work_areas", "Ver el maestro de áreas de trabajo (marcas y políticas)"),
+    PermissionDef("work_areas.manage", "work_areas", "Crear y editar áreas de trabajo: la garantía y la empresa a liquidar de las órdenes"),
     PermissionDef("ai.use", "inteligencia artificial", "Usar el asistente IA"),
 )
 

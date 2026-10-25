@@ -9,7 +9,8 @@ from app.models.customer import Customer,Equipment,EquipmentCategory
 from app.models.user import User
 from app.models.work_order import WorkOrder,WorkOrderCounter,WorkOrderEvent,WorkOrderNotification,WorkOrderStatus
 from app.models.work_order_part import WorkOrderTechnician
-from app.models.work_area import Technician
+from app.models.work_area import Technician,WorkArea
+from app.core.warranty import etiqueta_de_garantia
 from app.services import credentials
 from app.services import work_orders as wo_service
 from app.services.notifications.channels import EMAIL,WHATSAPP
@@ -76,6 +77,14 @@ class WorkOrderInput(BaseModel):
     reported_fault:str=Field(min_length=1)
     physical_condition:str|None=None;accessories:str|None=None;notes:str|None=None
     technician_id:int|None=None
+    # El area de trabajo es lo que decide la garantia y la empresa a liquidar, y por
+    # lo tanto si la orden entra al cierre a marcas. Opcional: una orden sin area se
+    # crea igual, pero no se liquida hasta que se le ponga una.
+    work_area_id:int|None=None
+
+class WorkAreaAssignInput(BaseModel):
+    """Cambia (o quita) el area de trabajo de una orden ya abierta."""
+    work_area_id:int|None=None
 
 class TechnicianBrief(BaseModel):
     """Un tecnico asignado a la orden (o disponible en el maestro)."""
@@ -89,6 +98,10 @@ class WorkOrderRead(BaseModel):
     equipment_id:int;equipment_label:str;serial_number:str|None;received_at:datetime;expected_delivery_at:datetime|None;completed_at:datetime|None;delivered_at:datetime|None;reported_fault:str
     physical_condition:str|None;accessories:str|None;notes:str|None;received_by_user_id:int;received_by_name:str;status:str;status_id:int|None;status_name:str;status_color:str
     technicians:list[TechnicianBrief]=[]
+    # El area de trabajo de la orden: de ella salen la garantia y la empresa a liquidar.
+    work_area_id:int|None=None;work_area_name:str|None=None
+    warranty_type:int|None=None;warranty_label:str|None=None
+    billing_customer_id:int|None=None;billing_customer_name:str|None=None
     model_config={"from_attributes":True}
 
 class WorkOrderList(BaseModel):
@@ -127,13 +140,21 @@ def _read(db:Session,row:WorkOrder,tecnicos:list[Technician]|None=None):
     receiver=db.get(User,row.received_by_user_id)
     label=" ".join(x for x in (category.name,equipment.brand,equipment.model) if x)
     if tecnicos is None: tecnicos=_tecnicos_de(db,row.id)
+    area=db.get(WorkArea,row.work_area_id) if row.work_area_id else None
+    empresa=db.get(Customer,area.billing_customer_id) if area and area.billing_customer_id else None
     return {"id":row.id,"company_id":row.company_id,"number":row.number,"customer_id":row.customer_id,"customer_name":customer.name,"customer_phone":customer.phone or customer.whatsapp,
         "equipment_id":row.equipment_id,"equipment_label":label,"serial_number":equipment.serial_number,"received_at":row.received_at,"expected_delivery_at":row.expected_delivery_at,"completed_at":row.completed_at,"delivered_at":row.delivered_at,"reported_fault":row.reported_fault,
         "physical_condition":row.physical_condition,"accessories":row.accessories,"notes":row.notes,"received_by_user_id":row.received_by_user_id,
         "received_by_name":receiver.full_name if receiver else "Usuario","status":row.status,
         "status_id":row.status_id,"status_name":(db.get(WorkOrderStatus,row.status_id).name if row.status_id and db.get(WorkOrderStatus,row.status_id) else row.status.title()),
         "status_color":(db.get(WorkOrderStatus,row.status_id).color if row.status_id and db.get(WorkOrderStatus,row.status_id) else "#10B981"),
-        "technicians":[{"id":t.id,"name":t.name,"active":t.active} for t in tecnicos]}
+        "technicians":[{"id":t.id,"name":t.name,"active":t.active} for t in tecnicos],
+        "work_area_id":area.id if area else None,
+        "work_area_name":wo_service.etiqueta_area(area) if area else None,
+        "warranty_type":area.warranty_type if area else None,
+        "warranty_label":etiqueta_de_garantia(area.warranty_type) if area else None,
+        "billing_customer_id":area.billing_customer_id if area else None,
+        "billing_customer_name":empresa.name if empresa else None}
 
 def _is_final(db:Session,row:WorkOrder)->bool:
     """True cuando la OT está en un estado marcado como final (ej: entregada)."""
@@ -278,6 +299,31 @@ def unassign_technician(work_order_id:int,technician_id:int,company_id:int=Depen
     db.add(WorkOrderEvent(company_id=company_id,work_order_id=row.id,user_id=actor.id,event_type="technician_unassigned",detail=f"Técnico quitado: {tecnico.name if tecnico else technician_id}"))
     db.commit();db.refresh(row)
     return _read(db,row)
+
+@router.patch("/{work_order_id}/work-area",response_model=WorkOrderRead)
+def update_work_area(work_order_id:int,payload:WorkAreaAssignInput,company_id:int=Depends(get_current_company_id),actor:User=Depends(require_permission("work_orders.manage")),db:Session=Depends(get_db)):
+    """Le pone (o le quita) el area de trabajo a la orden.
+
+    Es lo que hace que una orden entre al cierre a marcas: el area es la que tiene la
+    garantia y la empresa a liquidar. La garantia de la orden se recalcula desde el
+    area, no se escribe suelta, para que la orden y el cierre no discrepen.
+
+    No se puede tocar una orden en estado final (entregada): el cierre ya pudo haberla
+    liquidado.
+    """
+    row=_row(db,company_id,work_order_id)
+    if _is_final(db,row): raise HTTPException(409,"La orden de trabajo está en un estado final (entregada) y no admite cambios.")
+    try:
+        wo_service.asignar_area(db,orden=row,company_id=company_id,user_id=actor.id,work_area_id=payload.work_area_id)
+    except wo_service.ErrorDeDominio as exc:
+        db.rollback();raise HTTPException(exc.status_http,exc.mensaje)
+    try:
+        db.commit()
+    except Exception:
+        db.rollback();raise
+    db.refresh(row)
+    return _read(db,row)
+
 
 @router.get("/{work_order_id}/events",response_model=list[EventRead])
 def events(work_order_id:int,company_id:int=Depends(get_current_company_id),_actor:User=Depends(require_permission("work_orders.view")),db:Session=Depends(get_db)):

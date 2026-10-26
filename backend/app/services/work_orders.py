@@ -23,7 +23,7 @@ from app.core.warranty import ETIQUETA_GARANTIA, estado_de_garantia
 from app.models.company import Company, CompanyParameter, ParameterDefinition
 from app.models.customer import Customer, Equipment
 from app.models.work_order import WorkOrder, WorkOrderCounter, WorkOrderEvent, WorkOrderNotification, WorkOrderStatus
-from app.models.work_order_part import WorkOrderPart, WorkOrderTechnician
+from app.models.work_order_part import WorkOrderTechnician
 from app.models.work_area import Technician, WorkArea
 from app.models.work_order_quote import (
     WorkOrderDiagnosis,
@@ -32,6 +32,7 @@ from app.models.work_order_quote import (
     WorkOrderQuoteItem,
 )
 from app.services.notifications.enqueue import enqueue_for_event, plan_for_event
+from app.services import warranty_settlements as cierre
 
 
 class ErrorDeDominio(Exception):
@@ -362,20 +363,16 @@ def tiene_costo_cargado(db: Session, orden: WorkOrder) -> bool:
     """True si la orden tiene algo que liquidar.
 
     El cierre liquida el **costo**: ``work_orders.cost_total`` en las ordenes que vienen del
-    legacy, y para las nacidas en el sistema nuevo la suma de las lineas (costo x cantidad),
-    que es el mismo criterio que usa ``warranty_settlements``.
+    legacy, y para las nacidas en el sistema nuevo la suma de las lineas (costo x cantidad).
+    Se consulta al mismo servicio que usa el cierre (``warranty_settlements``), para que
+    esta pregunta y el cierre nunca discrepen.
 
     Se pregunta antes de anotar la finalizacion tecnica al entregar: una orden sin costo no
     mueve plata, y darla por finalizada seria dar por hecho un trabajo que no se cargo.
     """
     if (orden.cost_total or 0) > 0:
         return True
-    total = (
-        db.query(func.coalesce(func.sum(WorkOrderPart.unit_cost * WorkOrderPart.quantity), 0))
-        .filter(WorkOrderPart.work_order_id == orden.id)
-        .scalar()
-    )
-    return Decimal(str(total or 0)) > 0
+    return cierre.costo_lineas_de_ot(db, orden.id) > 0
 
 
 def registrar_finalizacion_tecnica(

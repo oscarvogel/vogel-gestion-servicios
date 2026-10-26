@@ -14,7 +14,8 @@ y no está eso para liquidar"*.
   (estado final), con fecha a elección y con rastro en el historial.
 - Aviso en la ficha de la orden: *"Sin finalización técnica esta orden no entra al cierre a
   marcas"*.
-- Backend **373 tests en verde** (9 nuevos), frontend **104 tests en verde** (4 nuevos).
+- **El cierre ahora ve el costo de las OTs cargadas en la app**: antes las leía como $0.
+- Backend **376 tests en verde** (12 nuevos), frontend **104 tests en verde** (4 nuevos).
 
 ---
 
@@ -80,11 +81,12 @@ que manda es el área. No se cambió: la copia se sincroniza sola cuando cambia 
 
 | Qué | Dónde | Nota |
 |---|---|---|
-| `tiene_costo_cargado(db, orden)` | `backend/app/services/work_orders.py` | `cost_total` > 0, o la suma de `WorkOrderPart.unit_cost × quantity` — el mismo criterio que usa el cierre |
+| `tiene_costo_cargado(db, orden)` | `backend/app/services/work_orders.py` | `cost_total` > 0, o el costo de las líneas — **preguntado al mismo servicio que usa el cierre**, para que no discrepen |
 | `registrar_finalizacion_tecnica(...)` | `backend/app/services/work_orders.py` | Escribe `completed_at` + evento `TECHNICAL_COMPLETION`. **No bloquea el estado final** |
 | Regla al entregar | `backend/app/services/work_orders.py` (`cambiar_estado`) | Si el estado destino marca entrega, no hay finalización técnica y **hay costo cargado**, se registra sola |
 | Endpoint | `backend/app/api/v1/work_orders.py` | `POST /work-orders/{id}/technical-completion` (con `completed_at` opcional y `note`) |
-| Tests | `backend/tests/test_finalizacion_tecnica.py` | 9 tests |
+| `costo_desde_lineas(...)` | `backend/app/services/warranty_settlements.py` | El cierre ahora suma **las dos** fuentes de líneas: las del legacy y el trabajo registrado en la app |
+| Tests | `backend/tests/test_finalizacion_tecnica.py` | 12 tests |
 
 ### Frontend
 
@@ -148,7 +150,30 @@ empresa, la fecha guardada se corre.
 a UTC usando la zona de la empresa, con dos vueltas para que el horario de verano no
 desplace el resultado. La prueba lo verifica: 26/10 18:32 hora de Córdoba → `21:32Z`.
 
-### 4.3 `datetime.utcnow()` está deprecado
+### 4.3 El cierre leía las líneas de la tabla equivocada
+
+**Síntoma:** después de registrar la finalización técnica de la OT #9316, la orden **apareció**
+en el cierre de octubre (BRIKET S.A. pasó de 3 trabajos a 4) pero con **$ 0**.
+
+**Causa:** el cierre saca el importe de dos lugares: `work_orders.cost_total` (que llena el
+importador del legacy) y, si ese está en cero, de las **líneas**. Pero leía las líneas de
+`work_order_parts`, que es la tabla del **legacy**. Las OTs hechas en la app guardan el
+trabajo en otra tabla: `work_order_execution_items` (workorder_execution_items). Como las
+OTs de la app no tienen partes —y su `cost_total` es 0—, **todas entraban al cierre con
+cero**. El docstring de la función decía "las OTs nacidas en el sistema nuevo no traen
+`cost_total`: sale de las lineas", pero esas líneas nunca se leyeron.
+
+**Cómo se diagnosticó:** comparando el detalle de la OT con el cierre. La OT #9316 tiene una
+línea de ejecución (LABOR, costo 16.000, precio 18.000) y ningún `cost_total`; el cierre
+devolvía 0.
+
+**Cómo se arregló:** `costo_desde_lineas()` ahora suma **las dos** fuentes de líneas (las del
+legacy y el trabajo registrado en la app). No hay doble conteo en la práctica: una OT
+importada trae `cost_total` y no llega a este camino, y una OT hecha en la app no tiene
+partes del legacy. Y `tiene_costo_cargado()` —la pregunta que hace la regla al entregar—
+ahora usa **el mismo servicio**, para que la regla y el cierre no puedan discrepar.
+
+### 4.4 `datetime.utcnow()` está deprecado
 
 **Síntoma:** `DeprecationWarning` en la suite del backend.
 
@@ -176,7 +201,7 @@ sola**: no hay que hacer nada.
 
 ## 6. Verificación
 
-- Backend: `pytest` → **373 passed** (9 nuevos en `test_finalizacion_tecnica.py`).
+- Backend: `pytest` → **376 passed** (12 nuevos en `test_finalizacion_tecnica.py`).
 - Frontend: `vitest run` → **104 passed** (4 nuevos en `finalizacion-tecnica.test.ts`).
 - Frontend: `vite build` OK.
 - La integración con el cierre está probada de punta a punta:
@@ -185,6 +210,10 @@ sola**: no hay que hacer nada.
   manual → entra con 16.000 a `BRIKET S.A.`).
 - `test_la_fecha_registrada_decide_el_periodo_del_cierre` deja la orden en **septiembre** y
   comprueba que entra en el cierre de septiembre y **no** en el de octubre.
+- `test_una_orden_cargada_en_la_app_se_liquida_con_el_costo_de_su_trabajo` cubre el costo de
+  las OTs hechas en la app (16.000, no 0).
+- En **staging**, con los datos reales: la OT #9316 pasó de no aparecer a aparecer en el
+  cierre de octubre con su costo, y el evento `TECHNICAL_COMPLETION` quedó en el historial.
 
 ---
 
@@ -201,3 +230,7 @@ sola**: no hay que hacer nada.
       "pendiente de liquidar", es un filtro más en `WorkOrdersView`.
 - [ ] **Una orden sin costo cargado que se entrega sigue sin finalización técnica** a
       propósito. Si alguna vez hay que liquidarla, se registra a mano.
+- [ ] **La OT #9316 se corrigió en staging, no en producción**: la credencial de producción
+      que figura en `docs/sesion-2026-10-22-cierre-marcas.md` devuelve 401 y no hay ninguna
+      otra a mano. En producción hay que corregirla con el botón nuevo (o con una sesión
+      válida).

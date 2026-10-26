@@ -25,6 +25,7 @@ from app.models.role import CompanyUserRole, Permission, Role, role_permissions
 from app.models.user import CompanyUser, User
 from app.models.work_area import WorkArea
 from app.models.work_order import WorkOrder, WorkOrderStatus
+from app.models.work_order_quote import WorkOrderExecutionItem
 from app.services import warranty_settlements as cierre
 
 PERMISOS = (
@@ -333,3 +334,79 @@ def test_la_orden_de_otra_empresa_no_se_toca(client, db_session):
 
     respuesta = client.post(f"/api/v1/work-orders/{orden.id}/technical-completion", headers=hb, json={})
     assert respuesta.status_code == 404, respuesta.text
+
+
+# ----------------------------------------------------------------------
+# El costo de las OTs cargadas en la app (que no traen cost_total)
+# ----------------------------------------------------------------------
+def _trabajo_registrado(db, orden, costo=16000.0, cantidad=1):
+    """Una linea de trabajo como las que se cargan en la app (no como las del legacy)."""
+    db.add(
+        WorkOrderExecutionItem(
+            company_id=orden.company_id,
+            work_order_id=orden.id,
+            item_type="LABOR",
+            description="Se arreglo la puerta",
+            quantity=cantidad,
+            unit_cost=costo,
+            unit_price=18000,
+            created_by_user_id=1,
+        )
+    )
+    db.commit()
+
+
+def test_una_orden_cargada_en_la_app_se_liquida_con_el_costo_de_su_trabajo(client, db_session):
+    """Las OTs hechas en la app no traen `cost_total`: el costo esta en el trabajo registrado.
+
+    Antes el cierre solo leia las lineas del legacy (``work_order_parts``), que las OTs de
+    la app no tienen: entraban al cierre con cero.
+    """
+    company, _ = setup(db_session, "app")
+    h = login(client, "fin.app@example.com", company.id)
+    _, _, orden = _cenario(db_session, company, "app", costo=0)
+    _trabajo_registrado(db_session, orden, costo=16000)
+    periodo = datetime.utcnow().strftime("%Y-%m")
+
+    entregado = _id_estado(db_session, company, "Entregado")
+    client.post(f"/api/v1/work-orders/{orden.id}/status", headers=h, json={"status_id":entregado})
+
+    reporte = cierre.calcular_cierre(db_session, company.id, periodo)
+    empresas = reporte["companies"]
+    assert len(empresas) == 1, reporte
+    assert empresas[0]["total_amount"] == 16000
+
+
+def test_al_entregar_una_orden_cargada_en_la_app_se_registra_la_finalizacion_tecnica(client, db_session):
+    """La regla mira el mismo costo que el cierre: el trabajo registrado en la app."""
+    company, _ = setup(db_session, "appregla")
+    h = login(client, "fin.appregla@example.com", company.id)
+    _, _, orden = _cenario(db_session, company, "appregla", costo=0)
+    _trabajo_registrado(db_session, orden, costo=16000)
+
+    entregado = _id_estado(db_session, company, "Entregado")
+    cambio = client.post(
+        f"/api/v1/work-orders/{orden.id}/status", headers=h, json={"status_id":entregado}
+    )
+    assert cambio.status_code == 200, cambio.text
+    assert cambio.json()["completed_at"] is not None
+
+
+def test_una_orden_sin_trabajo_no_se_liquida(client, db_session):
+    """Sin costo y sin trabajo registrado no hay nada que liquidar.
+
+    La regla no anota la finalizacion tecnica de una orden sin costo, y sin finalizacion
+    tecnica la orden no entra al cierre. Queda para liquidar a mano, si hiciera falta.
+    """
+    company, _ = setup(db_session, "vacia")
+    h = login(client, "fin.vacia@example.com", company.id)
+    _, _, orden = _cenario(db_session, company, "vacia", costo=0)
+    periodo = datetime.utcnow().strftime("%Y-%m")
+
+    entregado = _id_estado(db_session, company, "Entregado")
+    cambio = client.post(
+        f"/api/v1/work-orders/{orden.id}/status", headers=h, json={"status_id":entregado}
+    )
+    assert cambio.status_code == 200, cambio.text
+    assert cambio.json()["completed_at"] is None
+    assert cierre.calcular_cierre(db_session, company.id, periodo)["companies"] == []

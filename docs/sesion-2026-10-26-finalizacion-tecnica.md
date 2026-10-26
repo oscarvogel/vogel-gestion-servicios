@@ -272,10 +272,12 @@ sola**: no hay que hacer nada.
       "pendiente de liquidar", es un filtro más en `WorkOrdersView`.
 - [ ] **Una orden sin costo cargado que se entrega sigue sin finalización técnica** a
       propósito. Si alguna vez hay que liquidarla, se registra a mano.
-- [ ] **La OT #9316 se corrigió en staging, no en producción**: la credencial de producción
-      que figura en `docs/sesion-2026-10-22-cierre-marcas.md` devuelve 401 y no hay ninguna
-      otra a mano. En producción hay que corregirla con el botón nuevo (o con una sesión
-      válida).
+- [x] **La OT #9316 se corrigió en staging, no en producción** → **cerrado el 26/10 21:0x, y
+      en producción no hay nada que corregir**: ver §9. La OT #9316 **no existe en la base de
+      producción** (allá hay 10 OTs de demo, sin datos de garantía); los datos reales están
+      solo en staging. La credencial de producción que figura en
+      `docs/sesion-2026-10-22-cierre-marcas.md` devuelve 401; la que funciona es
+      `oscar@vogelconsultoria.com.ar` con `SUPERADMIN_INITIAL_PASSWORD`.
 
 ---
 
@@ -336,3 +338,94 @@ trabajo pasó a `docs/presupuesto-electrotecniref` dos veces, y con ello desapar
 archivos ya commiteados (parecía que se habían perdido). Para no pelear el árbol de
 trabajo, esta parte de la bitácora se commiteó desde un worktree aparte
 (`git worktree add <ruta> -b <rama> origin/main`).
+
+> **Corrección (26/10 21:0x):** el punto 2 de "Qué hace falta" **quedó sin efecto**. La IP
+> pública de salida volvió a ser `186.5.245.12`, que es la que ya tienen los registros A de
+> Hostmar, así que **no hay que cambiar nada en el DNS**. Ver §9.
+
+---
+
+## 9. La salida pública volvió (26/10, 21:0x) y qué se comprobó con ella
+
+El usuario avisó que la salida pública había vuelto. **Confirmado desde afuera**:
+
+| Comprobación | Resultado |
+|---|---|
+| DNS de `servicios` / `api.servicios` / `coolify` | `186.5.245.12` (la IP vieja) |
+| `GET https://servicios.vogelconsultoria.com.ar/` | **200** |
+| `GET https://api.servicios.vogelconsultoria.com.ar/health` | **200** |
+| Verificación TLS | `ssl_verify_result=0` |
+| Certificado de producción | Let's Encrypt, vigente hasta **29/12/2026** |
+| TCP 443 a `148.227.73.55` (la IP que había salido en el incidente) | **no abre** |
+
+O sea: **la IP pública de salida del router volvió a ser `186.5.245.12`**, que es la que ya
+tenían los registros A. Por lo tanto **el cambio de DNS a `148.227.73.55` NO hace falta** (y
+habría sido contraproducente: apuntar a una IP que no tiene el 443 abierto).
+
+Lo único que sigue faltando en el DNS son los registros A de **`servicios-test`** y
+**`www.servicios-test`**. Mientras tanto, staging se llega por el `sslip.io` que ya trae la
+app configurado:
+
+- Frontend de staging: `https://gestion-vogel.186.5.245.12.sslip.io` → **200**
+- API de staging: `https://ssknzmign82c2uapblj1x8le.186.5.245.12.sslip.io` → **200**
+
+### Las credenciales que faltaban
+
+La de `docs/sesion-2026-10-22-cierre-marcas.md` devuelve 401. Las que **sí** funcionan, y que
+no estaban anotadas en ninguna bitácora:
+
+| Entorno | Usuario | Clave |
+|---|---|---|
+| Producción | `oscar@vogelconsultoria.com.ar` | `SUPERADMIN_INITIAL_PASSWORD` (env de la app en Coolify) |
+| Staging | `superadmin@staging.example.com` | `STAGING_SUPERADMIN_PASSWORD` |
+
+> Las claves se leen de las variables de entorno de cada app en Coolify y **no se anotan en el
+> repo**. El login contra la API pública es `POST /api/v1/auth/login` con
+> `{"email","password"}`; devuelve `access_token` + `refresh_token`.
+
+### La OT #9316 en producción: no existe, y no hay nada que corregir
+
+Con la credencial de producción se entró y se leyó la base real:
+
+- **Producción tiene 10 órdenes**, numeradas 1 a 10, de la empresa *"Traid Walter"*
+  (`company_id=1`), **sin ninguna garantía** (`warranty_status` NULL en las 10) y con costo 0.
+- **La OT #9316 no está**: `SELECT * FROM work_orders WHERE number = 9316` → **0 filas**.
+- El cierre de octubre de producción devuelve **0 trabajos / $ 0**: `companies: []`.
+
+Los datos reales (BRIKET, DREAN, las 9.000 órdenes importadas) están **solo en staging**.
+Por lo tanto la corrección de la #9316 **ya estaba completa donde corresponde**; en
+producción no hay nada que hacer hasta que se carguen los datos reales.
+
+### Verificación del cierre en staging (por la API, no por el código)
+
+`GET /api/v1/warranty-settlements?period=2026-10` con la empresa Electrotecniref activa:
+
+```
+TOTAL: 70 trabajos / 631799.630000
+BRIKET S.A.                     4 trabajos      16000.00000  (garantía 4/16000.00000)
+DREAN S.A.                     42 trabajos     136400.835000  (garantía 36/14500.000000)
+ELECTROLUX ARGENTINA S.A.       1 trabajos      37250.000000  (garantía 1/37250.000000)
+... (14 empresas en total)
+```
+
+La OT #9316 en la base de staging: `completed_at = 2026-10-26 18:32`, `delivered_at =
+2026-10-26 18:32:41`, `warranty_status = warranty`, área 51 (`BRIKET GARANTIAS`). Su costo
+(16.000) sale de las líneas, no del `cost_total` de la orden, que es 0: por eso el arreglo de
+`costo_lineas_de_ot` es el que hace que la orden entre con importe y no en $0.
+
+### Quedó mergeado el PR #132 (otra sesión) y las dos features conviven
+
+Mientras se verificaba esto, el PR #132 (*"conservar la observación al cambiar estado"*) se
+mergió a `main` (`82099f1`) y **production se redesplegó**. Se comprobó el **bundle servido**
+(no el status 200) y el código de las dos features está:
+
+```
+bundle: /assets/index-BNNKig25.js
+OK  technical-completion        OK  Registrar finalización técnica
+OK  TECHNICAL_COMPLETION        OK  Fecha de finalización técnica
+OK  "Avisar al cliente"         OK  "Cambiar y avisar" / "Cambiar sin avisar"   (PR #132)
+```
+
+Además, antes de que se mergeara, se hizo una **prueba de merge en seco** del PR #132 sobre
+`main` (en el worktree, sin tocar el clon compartido): **0 conflictos** y el archivo
+resultante conserva **las dos** cosas (`showCompletionModal` y `showPreview`).

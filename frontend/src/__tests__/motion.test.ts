@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { gsap } from "gsap";
 import { revealIn } from "../lib/motion";
 
 function escena() {
@@ -56,5 +57,44 @@ describe("microanimaciones", () => {
     const valor = Number(n.textContent!.replace("$ ", "").replace(/\./g, "").replace(",", "."));
     expect(valor).toBeGreaterThanOrEqual(1234.5);
     expect(valor).toBeLessThan(2000);
+  });
+
+  it("una cuenta vieja no pisa el numero de un dato nuevo", () => {
+    // El dato cambia mientras la cuenta corre (cambiar de mes en el cierre): la cuenta
+    // vieja ya no vale y no puede escribir sobre el numero que pino Vue.
+    const root = escena();
+    const n = root.querySelector<HTMLElement>("#n")!;
+    const tl = revealIn(root)!;
+    tl.progress(0.05);
+
+    n.dataset.count = "2000";
+    n.textContent = "$ 2.000,0";
+    tl.progress(0.5);
+
+    expect(n.textContent).toBe("$ 2.000,0");
+  });
+
+  it("el numero no queda en cero cuando se corta la cuenta anterior", () => {
+    // Es lo que pasaba en el cierre: al cambiar de mes, la cuenta anterior se cortaba
+    // con el numero en cero y el total a liquidar quedaba en $ 0,00.
+    const root = escena();
+    const n = root.querySelector<HTMLElement>("#n")!;
+    let ctx: gsap.Context | null = null;
+    let tl: gsap.core.Timeline | null = null;
+    const reveal = () => {
+      ctx?.revert();
+      ctx = gsap.context(() => {
+        tl = revealIn(root);
+      }, root);
+    };
+
+    reveal();
+    tl!.progress(0.02);
+    n.dataset.count = "2000";
+    n.textContent = "$ 2.000,0";
+    reveal();
+    tl!.progress(1);
+
+    expect(n.textContent).toBe("$ 2.000,0");
   });
 });

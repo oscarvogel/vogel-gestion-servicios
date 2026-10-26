@@ -209,23 +209,34 @@ const filasVisibles = computed(() =>
   filtro.value === "all" ? filas.value : filas.value.filter((f) => f.cierre?.status === filtro.value),
 );
 
+// Numero de la ultima peticion: si llegan dos respuestas (por ejemplo, la del mes que
+// se abria y la del mes al que se saltó), gana la ultima que se pidio, no la que
+// responde ultimo. Sin esto, el cierre puede mostrar el mes equivocado.
+let peticion = 0;
+
 async function cargar() {
   if (!period.value) return;
+  const numero = ++peticion;
+  const periodo = period.value;
   cargando.value = true;
   try {
     const [r, c] = await Promise.all([
-      apiGet<Reporte>(`/warranty-settlements?period=${encodeURIComponent(period.value)}`),
+      apiGet<Reporte>(`/warranty-settlements?period=${encodeURIComponent(periodo)}`),
       apiGet<{ items: Cierre[]; total: number }>(
-        `/warranty-settlements/registros?period=${encodeURIComponent(period.value)}`
+        `/warranty-settlements/registros?period=${encodeURIComponent(periodo)}`
       ),
     ]);
+    if (numero !== peticion) return; // llego una respuesta mas nueva: esta ya no vale
     reporte.value = r;
     cierres.value = c.items;
   } catch (e) {
+    if (numero !== peticion) return;
     toast.push(getApiErrorMessage(e), "error");
   } finally {
-    cargando.value = false;
-    nextTick(reveal);
+    if (numero === peticion) {
+      cargando.value = false;
+      nextTick(reveal);
+    }
   }
 }
 

@@ -12,7 +12,7 @@ motivo que se muestra en la pantalla de confirmacion.
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
@@ -32,6 +32,7 @@ from app.models.work_order_quote import (
     WorkOrderQuoteItem,
 )
 from app.services.notifications.enqueue import enqueue_for_event, plan_for_event
+from app.services import warranty_settlements as cierre
 
 
 class ErrorDeDominio(Exception):
@@ -354,6 +355,85 @@ def asignar_area(
 
 
 # --------------------------------------------------------------------------------------
+# Finalización técnica: lo que hace que la orden entre al cierre a marcas
+# --------------------------------------------------------------------------------------
+
+
+def tiene_costo_cargado(db: Session, orden: WorkOrder) -> bool:
+    """True si la orden tiene algo que liquidar.
+
+    El cierre liquida el **costo**: ``work_orders.cost_total`` en las ordenes que vienen del
+    legacy, y para las nacidas en el sistema nuevo la suma de las lineas (costo x cantidad).
+    Se consulta al mismo servicio que usa el cierre (``warranty_settlements``), para que
+    esta pregunta y el cierre nunca discrepen.
+
+    Se pregunta antes de anotar la finalizacion tecnica al entregar: una orden sin costo no
+    mueve plata, y darla por finalizada seria dar por hecho un trabajo que no se cargo.
+    """
+    if (orden.cost_total or 0) > 0:
+        return True
+    return cierre.costo_lineas_de_ot(db, orden.id) > 0
+
+
+def registrar_finalizacion_tecnica(
+    db: Session,
+    *,
+    company_id: int,
+    user_id: int,
+    work_order_id: int,
+    completed_at: datetime | None = None,
+    motivo: str | None = None,
+) -> WorkOrder:
+    """Registra la finalizacion tecnica de una orden, **aunque ya este en estado final**.
+
+    El cierre a marcas filtra por ``completed_at``, no por ``delivered_at``: una orden
+    entregada sin finalizacion tecnica no aparece en ningun cierre. Ese era el hueco que
+    dejaba sin liquidar trabajos de garantia que el taller ya habia entregado.
+
+    A diferencia de cambiar el area o la fecha de entrega, aca **si** se puede tocar una
+    orden en estado final: la finalizacion tecnica es un dato del trabajo hecho, no un
+    cambio de estado, y corregirla es justamente lo que hace falta.
+
+    El cambio queda escrito en el historial de la orden.
+    """
+    orden = leer_orden(db, company_id, work_order_id)
+    if orden.completed_at is not None:
+        raise ErrorDeDominio(
+            "La orden ya tiene la finalización técnica registrada.",
+            "finalizacion_ya_registrada",
+            409,
+        )
+    momento = completed_at or utcnow()
+    # Un reloj mal puesto no puede mandar la orden al futuro: ahi no la agarra ningun cierre.
+    if momento > utcnow() + timedelta(minutes=5):
+        raise ErrorDeDominio(
+            "La finalización técnica no puede tener fecha futura.",
+            "finalizacion_futura",
+            422,
+        )
+    orden.completed_at = momento
+    detalle = (
+        "Finalización técnica registrada el "
+        f"{momento.isoformat(sep=' ', timespec='minutes')}. "
+        "Con esto la orden entra al cierre a marcas del período."
+    )
+    if motivo and motivo.strip():
+        detalle += f" Observación: {motivo.strip()}"
+    db.add(
+        WorkOrderEvent(
+            company_id=company_id,
+            work_order_id=orden.id,
+            event_type="TECHNICAL_COMPLETION",
+            status=orden.status,
+            detail=detalle,
+            user_id=user_id,
+        )
+    )
+    db.flush()
+    return orden
+
+
+# --------------------------------------------------------------------------------------
 # Cambiar estado, y avisarle al cliente o no
 # --------------------------------------------------------------------------------------
 
@@ -421,6 +501,18 @@ def cambiar_estado(
     if objetivo.marks_completed and orden.completed_at is None:
         orden.completed_at = ahora
         ciclo_de_vida.append("Se registró la finalización técnica.")
+    elif (
+        objetivo.marks_delivered
+        and orden.completed_at is None
+        and tiene_costo_cargado(db, orden)
+    ):
+        # El cierre a marcas filtra por `completed_at`. Una orden que se entrega con costo
+        # cargado y sin finalizacion tecnica no entra en ningun cierre, asi que se anota
+        # sola: el trabajo ya esta hecho y la plata hay que liquidarla.
+        orden.completed_at = ahora
+        ciclo_de_vida.append(
+            "Se registró la finalización técnica: la orden tenía costo cargado y se entregó."
+        )
     if objetivo.marks_delivered and orden.delivered_at is None:
         orden.delivered_at = ahora
         ciclo_de_vida.append("Se registró la entrega real al cliente.")

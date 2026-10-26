@@ -35,6 +35,7 @@ from app.models.warranty_settlement import WarrantySettlement, WarrantySettlemen
 from app.models.work_area import Technician, WorkArea
 from app.models.work_order import WorkOrder
 from app.models.work_order_part import WorkOrderPart, WorkOrderTechnician
+from app.models.work_order_quote import WorkOrderExecutionItem
 
 # Transiciones validas del cierre. El periodo se congela al emitirlo: despues de eso, los
 # numeros que se'ven no se tocan, salvo que se regenere explicitamente.
@@ -67,15 +68,24 @@ def period_bounds(period: str) -> tuple[date, date]:
     return inicio, fin
 
 
-def _importes_desde_lineas(db: Session, ids: list[int]) -> dict[int, Decimal]:
+def costo_desde_lineas(db: Session, ids: list[int]) -> dict[int, Decimal]:
     """Costo por OT calculado desde sus lineas.
 
-    Se usa solo para las OTs nacidas en el sistema nuevo, que no traen ``cost_total``.
+    Se usa solo para las OTs que no traen ``cost_total`` (las nacidas en el sistema nuevo).
     Las importadas del legacy traen el valor del legacy, que es el que manda.
+
+    Se suman **las dos** fuentes de lineas:
+
+    - ``work_order_parts``: las del legacy (las importa CyberBrain).
+    - ``work_order_execution_items``: las que se cargan en la app (trabajo y repuestos).
+
+    Antes solo se leian las primeras, y como las OTs hechas en la app no tienen partes,
+    **todas las ordenes del sistema nuevo entraban al cierre con cero**. No hacen falta
+    las dos a la vez: una OT importada trae ``cost_total`` y no llega aca.
     """
     if not ids:
         return {}
-    filas = (
+    partes = (
         db.query(
             WorkOrderPart.work_order_id,
             func.coalesce(func.sum(WorkOrderPart.unit_cost * WorkOrderPart.quantity), 0),
@@ -84,7 +94,26 @@ def _importes_desde_lineas(db: Session, ids: list[int]) -> dict[int, Decimal]:
         .group_by(WorkOrderPart.work_order_id)
         .all()
     )
-    return {fila[0]: Decimal(str(fila[1] or 0)) for fila in filas}
+    ejecucion = (
+        db.query(
+            WorkOrderExecutionItem.work_order_id,
+            func.coalesce(
+                func.sum(WorkOrderExecutionItem.unit_cost * WorkOrderExecutionItem.quantity), 0
+            ),
+        )
+        .filter(WorkOrderExecutionItem.work_order_id.in_(ids))
+        .group_by(WorkOrderExecutionItem.work_order_id)
+        .all()
+    )
+    importes: dict[int, Decimal] = {fila[0]: Decimal(str(fila[1] or 0)) for fila in partes}
+    for ot_id, total in ejecucion:
+        importes[ot_id] = importes.get(ot_id, Decimal(0)) + Decimal(str(total or 0))
+    return importes
+
+
+def costo_lineas_de_ot(db: Session, work_order_id: int) -> Decimal:
+    """Costo de una OT segun sus lineas (0 si no tiene ninguna con costo)."""
+    return costo_desde_lineas(db, [work_order_id]).get(work_order_id, Decimal(0))
 
 
 def _ot_por_id(db: Session, ids: list[int]) -> dict[int, tuple[str, str, str | None]]:
@@ -149,7 +178,7 @@ def calcular_cierre(db: Session, company_id: int, period: str) -> dict:
     )
 
     ids = [f[0] for f in filas]
-    costos_lineas = _importes_desde_lineas(db, ids)
+    costos_lineas = costo_desde_lineas(db, ids)
     equipos = _ot_por_id(db, ids)
     tecnicos = _tecnicos_por_ot(db, ids)
     clientes = {

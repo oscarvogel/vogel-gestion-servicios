@@ -86,6 +86,16 @@ class WorkAreaAssignInput(BaseModel):
     """Cambia (o quita) el area de trabajo de una orden ya abierta."""
     work_area_id:int|None=None
 
+class TechnicalCompletionInput(BaseModel):
+    """Registrar la finalizacion tecnica de una orden.
+
+    ``completed_at`` es opcional: si no se manda, se usa el momento actual. Se acepta una
+    fecha porque las ordenes que ya estaban entregadas se corrigen a posteriori, y la fecha
+    es lo que decide en que periodo del cierre entra la orden.
+    """
+    completed_at:datetime|None=None
+    note:str|None=Field(default=None,max_length=500)
+
 class TechnicianBrief(BaseModel):
     """Un tecnico asignado a la orden (o disponible en el maestro)."""
     id:int;name:str;active:bool
@@ -315,6 +325,40 @@ def update_work_area(work_order_id:int,payload:WorkAreaAssignInput,company_id:in
     if _is_final(db,row): raise HTTPException(409,"La orden de trabajo está en un estado final (entregada) y no admite cambios.")
     try:
         wo_service.asignar_area(db,orden=row,company_id=company_id,user_id=actor.id,work_area_id=payload.work_area_id)
+    except wo_service.ErrorDeDominio as exc:
+        db.rollback();raise HTTPException(exc.status_http,exc.mensaje)
+    try:
+        db.commit()
+    except Exception:
+        db.rollback();raise
+    db.refresh(row)
+    return _read(db,row)
+
+
+@router.post("/{work_order_id}/technical-completion",response_model=WorkOrderRead)
+def register_technical_completion(work_order_id:int,payload:TechnicalCompletionInput,
+                                   company_id:int=Depends(get_current_company_id),
+                                   actor:User=Depends(require_permission("work_orders.manage")),
+                                   db:Session=Depends(get_db)):
+    """Registra la finalizacion tecnica de la orden.
+
+    Es lo que hace que una orden entre al cierre a marcas: el cierre filtra por
+    ``completed_at``, no por ``delivered_at``. Sin esto, una orden entregada con costo
+    cargado se queda fuera de todos los cierres y la plata no se liquida.
+
+    **Funciona tambien en estado final (entregada)**, a diferencia de cambiar el area o la
+    fecha de entrega: corregir la finalizacion tecnica de una orden ya entregada es
+    justamente el caso que hay que poder resolver. El cambio queda en el historial.
+    """
+    row=_row(db,company_id,work_order_id)
+    requested=payload.completed_at
+    if requested and requested.tzinfo is not None:
+        requested=requested.astimezone(timezone.utc).replace(tzinfo=None)
+    try:
+        wo_service.registrar_finalizacion_tecnica(
+            db,company_id=company_id,user_id=actor.id,work_order_id=work_order_id,
+            completed_at=requested,motivo=payload.note,
+        )
     except wo_service.ErrorDeDominio as exc:
         db.rollback();raise HTTPException(exc.status_http,exc.mensaje)
     try:

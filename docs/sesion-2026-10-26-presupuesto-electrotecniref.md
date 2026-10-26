@@ -20,7 +20,9 @@ sobre el dump y se encontró un error de dígito (§3.3).
 | Abono mensual base (desde el mes 2) | **ARS 300.000 / mes** |
 | Precio de lista del abono | ARS 300.000 / mes (sin salto por antigüedad) |
 | Ajuste de precio | **Trimestral**, por IPC (INDEC) |
-| Plus WhatsApp | Opcional, **precio a definir**, sin cobro por mensaje |
+| Envío de avisos por WhatsApp | **Incluido**, sin costo por mensaje |
+| Asistente con IA | **Incluido**, con límites de consumo a definir |
+| Desarrollo a medida | Cotizado por escrito: **es el diferencial** |
 | Total del primer año (12 meses) | ARS 3.800.000 |
 | Recurrente anual, del año 2 en adelante | ARS 3.600.000 |
 
@@ -46,8 +48,29 @@ sección los deja registrados; el detalle de cada uno está en §3.4.
 |---|---|---|
 | 1 | *"No hagas referencia a la facturación del taller"* | Salieron **las dos** cifras de dinero del cliente: la del 3% de facturación y la de ARS 2,8 millones/mes de liquidación a marcas. El documento no muestra cuánto factura el taller; las mediciones quedan sólo acá. |
 | 2 | *"Ajuste trimestral"* | El ajuste por IPC pasó de anual a **trimestral**, en el resumen, en las condiciones comerciales y en la nota de compromisos. |
-| 3 | *"La IA déjala de lado aún"* | El asistente con IA **salió del alcance** del documento: módulos incluidos, tabla de volumen, qué se factura aparte, puesta en marcha y pasos. El módulo sigue instrumentado en el código y se puede agregar después. |
-| 4 | *"Los mensajes sin facturar, separado como un plus adicional"* + *"sin costo excedente por usuario u orden"* | WhatsApp pasó a **plus opcional, con precio a definir y sin cobro por mensaje**; la tabla de volumen quedó con "Sin costo adicional" en usuarios y órdenes. |
+| 3 | *"La IA déjala de lado aún"* | **Interpretado mal en la primera pasada** (ver revisión 5): la IA no salió del alcance, lo que quedó sin definir es **el número de su límite de consumo**. |
+| 4 | *"Los mensajes sin facturar, separado eso como un plus adicional"* + *"sin costo excedente por usuario u orden"* | **Interpretado mal en la primera pasada** (ver revisión 5): el envío de WhatsApp **está incluido**, sin costo por mensaje. Y la tabla de volumen quedó con "Sin costo adicional" en usuarios y órdenes. |
+
+### Revisión 5 — el usuario corrigió la lectura, y con razón
+
+Después de ver el documento de la revisión 4, el usuario dijo: *"adicional me
+pusiste 'sólo desarrollo a medida' como si fuese una nimedad y justo eso es el
+diferencial; el envío de WhatsApp está incluido, la IA está incluida con
+límites a definir. Estás medio a favor de mi cliente y no a favor mío."*
+
+Tenía razón en los tres puntos:
+
+| Error de encuadre | Por qué estaba mal | Cómo quedó |
+|---|---|---|
+| La fila "Adicionales: **Sólo desarrollo a medida**" | Presentaba el desarrollo a medida —que es justamente lo que hace que el sistema sea de este taller— como una limpieza, y el abono como si incluyera todo lo que importa. | El desarrollo a medida pasó a ser **la sección 7, "El plus: desarrollo a medida"**, con su peso: trabajo real, cotización por escrito, y la ventaja de que la plataforma ya nació de este taller. |
+| **WhatsApp como plus opcional con precio a definir** | Daba la impresión de que el envío de avisos no estaba en lo que el cliente paga. | El envío por WhatsApp **está incluido**, sin costo por mensaje, con la aclaración de que si el taller quiere su propia línea, pone su propio número y Meta le factura a él. |
+| **La IA fuera del alcance** | "Dejarla de lado" era no fijar **el número** del límite, no sacarla del alcance. | La IA **está incluida**, con un límite mensual de consumo por empresa que se define en la puesta en marcha. |
+
+**La lección:** cuando el usuario dice "dejalo de lado", hay que preguntarse
+**de lado de qué** —del alcance o del detalle— antes de borrar. Borrar es
+irreversible en la cabeza del cliente: si el documento dice que la IA no está,
+el cliente la va a pedir como extra. Acá no se borró nada en silencio: la
+revisión 4 queda escrita, con el error y la corrección.
 
 ---
 
@@ -267,8 +290,8 @@ excepción**:
 | OTs por mes | 250 | 130 (pico 181) | Sin costo |
 | Áreas de trabajo | 150 | 126 | Sin costo |
 | Empresas a liquidar | sin límite | 34 | — |
-| Mensajes de WhatsApp | Van en el plus opcional | 248 (pico 362) | Sin costo por mensaje (§4.1) |
-| Asistente con IA | Fuera de alcance por ahora | 110 a 440 turnos | — |
+| Mensajes de WhatsApp | Incluidos, sin costo por mensaje | 248 (pico 362) | — |
+| Consumo del asistente con IA | Tope mensual por empresa, a definir | 110 a 440 turnos | Se ajusta la cuota, no se cobra por uso |
 
 Las áreas van 126 de 150 porque **es el número que ya está cargado** y no va a
 crecer: son las marcas con las que se trabaja. Subir ese límite no genera
@@ -308,8 +331,9 @@ Lo que cambia con este precio, contra lo que se había armado para 30.000:
 | SLA | Se revisaba al mes 13 | **Se mantiene en toda la vigencia** | El abono incluye el soporte que el SLA requiere. |
 | Ajuste de precio | Anual | **Trimestral** | Pedido del usuario en la revisión 4. |
 | Excedentes | Cobro por usuario, por OT y por mensaje | **Ninguno** | Pedido del usuario: "sin costo excedente por usuario u orden". |
-| IA | Cuota de USD 10 dentro del abono | **Fuera de la propuesta** | La IA "queda de lado aún" (revisión 4). El módulo sigue instrumentado y se puede sumar después. |
-| WhatsApp | A consumo real, sin cupo | **Plus opcional, precio a definir, sin cobro por mensaje** | La mecánica del plus ya está escrita; el precio se define antes de la puesta en marcha. |
+| IA | Cuota de USD 10 dentro del abono | **Incluida, con el límite a definir** | Revisado en la revisión 5: la IA no sale del alcance, lo que falta es el número del tope de consumo, que se define en la puesta en marcha. |
+| WhatsApp | A consumo real, sin cupo | **Incluido, sin costo por mensaje** | Revisado en la revisión 5. El costo de los mensajes lo asume el abono (§4.1): si el taller quiere su propia línea, pone su propio número y Meta le factura a él. |
+| Desarrollo a medida | Sin destacar | **Es el diferencial (sección 7)** | Revisado en la revisión 5: presentarlo como "lo único que se cobra aparte" lo hacía parecer una nimidez, cuando es la parte que adapta el sistema a la operatoria del cliente. |
 
 ### 3.4 Lo que hay que confirmar antes de enviar
 
@@ -320,8 +344,10 @@ Lo que cambia con este precio, contra lo que se había armado para 30.000:
 - [x] **Sin cifras de dinero del cliente** en el documento (revisión 4).
 - [x] **Ajuste trimestral** por IPC.
 - [x] **Sin costo de excedente** por usuario, por orden ni por mensaje.
-- [x] **La IA fuera del alcance** de esta propuesta.
-- [x] **WhatsApp como plus opcional**, con la mecánica escrita y sin precio.
+- [x] **La IA incluida**, con el límite de consumo a definir (revisión 5).
+- [x] **El envío por WhatsApp incluido**, sin costo por mensaje (revisión 5).
+- [x] **El desarrollo a medida como diferencial**, con su propia sección
+      (revisión 5).
 
 **Abierto:**
 
@@ -329,10 +355,11 @@ Lo que cambia con este precio, contra lo que se había armado para 30.000:
       con 2 meses sin cargo (ARS 3.000.000 por año). Es una propuesta mía,
       no un número que haya dado el usuario. Es una sola celda de la tabla de
       condiciones comerciales: si no va, se borra y listo.
-- [ ] **El precio del Plus WhatsApp.** Quedó "a definir" en el documento, a
-      propósito. Cuando se defina: el costo real de Meta es ARS 37,68 por
-      mensaje y el taller usa ~248/mes con un pico de 362 (§4.1), así que el
-      piso del plus son esos ~ARS 9.345/mes.
+- [ ] **El número del límite de consumo de la IA.** El documento lo deja
+      "a definir en la puesta en marcha". Cuando se defina: el uso real del
+      taller es de 110 a 440 turnos/mes, que a los precios de tokens del repo
+      son USD 0,36 a 1,45. Un tope de USD 30 cubre 9.000 turnos y el de USD
+      10, 3.000.
 - [ ] **El costo real de la hora de soporte de Vogel** (§8). Con 300.000 el
       margen es amplio (10–20 h/mes), así que deja de ser bloqueante, pero
       conviene tenerlo medido.
@@ -343,9 +370,8 @@ Lo que cambia con este precio, contra lo que se había armado para 30.000:
 
 Desde la revisión 4 el abono **no factura por consumo** (ni por usuario, ni
 por orden, ni por mensaje). Pero lo que el sistema mide sigue sirviendo, para
-dos cosas: para que el cliente vea su propio uso, y para el día en que un
-módulo se cobre por consumo —el Plus WhatsApp o el asistente con IA—, que
-entonces no haya que inventar la medición.
+dos cosas: para que el cliente vea su propio uso, y para que el límite de
+consumo de la IA —que es un tope, no un cargo— se pueda medir en serio.
 
 | Concepto | Cómo se mide hoy | Dónde |
 |---|---|---|
@@ -365,7 +391,7 @@ es el contador de WhatsApp (§4.1).
 
 | Concepto | Estado real | Decisión |
 |---|---|---|
-| **Mensajes de WhatsApp** | El sistema registra los envíos (`work_order_notifications` con `provider_message_id` y estado) pero **no cuenta ni costea mensajes**. | Como en la revisión 4 los mensajes **no se cobran por unidad**, el contador dejó de ser necesario para facturar: pasa a ser **visibilidad para el cliente** y la base para dimensionar el plus (§4.1). |
+| **Mensajes de WhatsApp** | El sistema registra los envíos (`work_order_notifications` con `provider_message_id` y estado) pero **no cuenta ni costea mensajes**. | Como los mensajes **no se cobran por unidad**, el contador no hace falta para facturar: queda como **visibilidad para el cliente**. Para el abono importa otra cosa: el costo que asumimos (§4.1). |
 | **Almacenamiento** | Hay límite por archivo (`storage_max_file_mb: 25`) pero no un total medido en GB. | 20 GB incluidos, a ajustar. |
 | **Exportación de datos** | **No existe exportación.** Sólo import `.xlsx` y descarga de documentos. | Es compromiso de puesta en marcha, ver §5. |
 
@@ -392,28 +418,20 @@ El taller tiene ~124 OTs/mes. Con 2 avisos por OT (recepción y entrega) son
 ```
 
 **Con un abono de 30.000 eso era casi un tercio del abono y no se podía
-incluir nada.** Con 300.000 entraría sin problema, pero la revisión 4 cambió
-la regla: **los mensajes no se cobran por unidad**. WhatsApp sale del abono
-base y pasa a un **plus opcional con precio fijo**, que se define antes de la
-puesta en marcha.
+incluir nada.** Con 300.000 entra sin problema, y así quedó: **el envío de
+avisos por WhatsApp está incluido en el abono y no se cobra por mensaje.**
 
-Estos números son la base para dimensionar ese precio: **el piso del plus son
-los ~ARS 9.345/mes del uso típico**, y con un tope de 400 mensajes el techo
-son ARS 15.072/mes.
+El costo que asumimos por eso (y por qué no es un problema):
 
-**Sobre qué línea se usa:** por defecto, la línea de la plataforma. Si
-Electrotecniref prefiere su propia línea, **pone su propio número** —el
-sistema ya lo soporta: `whatsapp_api_key_encrypted` por empresa, con
-`whatsapp_use_platform_key` como opt-in a la key de plataforma— y entonces
-**Meta le factura directamente a él**, sin pasar por Vogel. El plus se
-destina entonces a la integración y al soporte, y **mantiene el mismo
-precio**: lo que cambia es quién le paga a Meta, no lo que cuesta el plus.
+- El uso típico son ~248 mensajes/mes: **ARS 9.345/mes**, el 3,1% del abono.
+- En el pico histórico (362 mensajes) son ARS 13.640/mes, el 4,5%.
+- **Si el taller pone su propia línea, Meta le factura directamente a él y a
+  Vogel no le entra nada por el medio.** Es la opción que el documento
+  menciona explícitamente.
 
-El único límite técnico que queda es que **el sistema todavía no cuenta los
-mensajes**: registra los envíos (`work_order_notifications` con
-`provider_message_id` y estado) pero no lleva un contador. Como ya no hay
-cobro por mensaje, **esto dejó de ser un bloqueante**: pasa a ser visibilidad
-para el cliente y la base para dimensionar el plus.
+Estos números son la base para dimensionar el **límite de consumo de la IA**,
+que es lo único que quedó por definir del lado de los módulos incluidos
+(§3.4).
 
 ---
 
@@ -475,7 +493,7 @@ cierre contra el legacy.
 | Módulo | Staging | Producción | Qué falta |
 |---|---|---|---|
 | Catálogo de repuestos (Flexxus) | **Habilitado** para Electrotecniref | **Apagado** | Decidir la lista de precios (1 = `PRECIOVENTA1` con margen, o `PRECIOCOMPRA` sin margen). Es una decisión comercial, y el paso 2 de la propuesta la pide explícitamente al cliente. |
-| Asistente con IA | Apagado | Apagado | **Fuera del alcance de esta propuesta** (revisión 4: "la IA déjala de lado aún"). Sigue instrumentado: `PUT /companies/{id}/ai` + cuota. Se puede sumar después, con su cuota en USD. |
+| Asistente con IA | Apagado | Apagado | **Incluido en la propuesta**, con el límite de consumo a definir. Se habilita por plataforma con `PUT /companies/{id}/ai` + cuota. Ya está instrumentado. |
 | WhatsApp | Habilitado | Habilitado | Habilitar la instancia por empresa con su propia key, o usar la key de plataforma (`whatsapp_use_platform_key`). |
 | Cierre a marcas | Validado al centavo | Validado al centavo | — |
 
@@ -533,14 +551,14 @@ todavía no tiene):
 **Decisiones comerciales que pueden seguir abiertas** (no bloquean el envío,
 pero conviene cerrarlas):
 
-- [ ] **El precio del Plus WhatsApp**, que el documento deja "a definir"
-      (§3.4). Piso de referencia: ARS 9.345/mes (uso típico) y ARS 15.072/mes
-      con tope de 400 mensajes (§4.1).
+- [ ] **El número del límite de consumo de la IA**, que el documento deja
+      "a definir en la puesta en marcha". Referencia: el uso real es de 110 a
+      440 turnos/mes (USD 0,36 a 1,45); un tope de USD 30 cubre 9.000 turnos.
 - [ ] **La bonificación anual** (2 meses sin cargo) es una propuesta de esta
       revisión, no un número que haya dado el usuario. Ver §3.4.
 - [ ] **Si Electrotecniref usa su propia línea de WhatsApp.** Si la tiene,
-      Meta le factura directo y el plus se destina a integración y soporte,
-      con el mismo precio. Está propuesto como paso 2 de la propuesta.
+      Meta le factura directo y a Vogel no le entra el costo de los mensajes
+      (§4.1). Está propuesto como paso 2 de la propuesta.
 - [ ] **Decidir la lista de precios del catálogo de repuestos** con el cliente
       (es el paso 2 de la propuesta: lista 1 con margen, o costo).
 - [ ] **Medir el costo real de la hora de soporte** (§8). Ya no bloquea: con

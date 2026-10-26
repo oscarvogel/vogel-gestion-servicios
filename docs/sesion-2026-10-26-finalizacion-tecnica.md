@@ -276,3 +276,63 @@ sola**: no hay que hacer nada.
       que figura en `docs/sesion-2026-10-22-cierre-marcas.md` devuelve 401 y no hay ninguna
       otra a mano. En producción hay que corregirla con el botón nuevo (o con una sesión
       válida).
+
+---
+
+## 8. Incidente de infraestructura (26/10, 20:00 UTC): el sitio quedó sin acceso público
+
+Al mergear a `main` y verificar producción, la verificación del bundle falló con
+*"no se pudo leer el bundle: no es posible conectar con el servidor remoto"*. **No era la
+aplicación**: el server estaba sano.
+
+### Qué pasó
+
+| Comprobación | Resultado |
+|---|---|
+| `ping 186.5.245.12` (IP vieja del DNS) | responde (63 ms), pero no es este server |
+| IP pública de salida del server (`ifconfig.me`) | **148.227.73.55** (antes 186.5.245.12) |
+| TCP 80/443 a 148.227.73.55 (desde afuera y desde el server) | **no abre** |
+| DNS de `vogelconsultoria.com.ar` | sigue en **186.5.245.12** (ns3/ns4.hostmar.com) |
+| Proxy en el server (`curl --resolve ...:127.0.0.1`) | **200**: la app sirve bien |
+| Contenedores de producción | arriba y sano (backend *healthy*) |
+| Bundle de producción servido | contiene `technical-completion` → **código nuevo desplegado** |
+| `openapi.json` de la API de producción | contiene la ruta `technical-completion` → **backend nuevo** |
+| Certificado de `servicios.vogelconsultoria.com.ar` | vigente hasta **29/12/2026** |
+
+O sea: **la aplicación está desplegada y sirve; lo que se rompió es la entrada al server.**
+La IP pública la tiene el router (192.168.0.1) y cambió; el DNS de Hostmar sigue apuntando
+a la vieja, y el reenvío de puertos del router no está tomando la IP nueva.
+
+Como consecuencia, Let's Encrypt no puede validar los dominios (los desafíos ACME no
+llegan) y empezó a devolver 429 por "too many failed authorizations". Los certificados
+vigentes siguen sirviendo; los que vencen pronto (agua, whatsapp, servicios-test,
+produccion.servinlgsm) son los que no van a poder renovarse hasta que se arregle el DNS.
+
+### Qué hace falta (no es de la aplicación)
+
+1. **Router**: revisar que la WAN haya tomado la IP nueva y que el reenvío
+   `80/443 → 192.168.0.189` siga activo (muchas routers lo atan al IP de WAN que tienen
+   configurado, no al actual).
+2. **Panel de Hostmar** (ns3/ns4.hostmar.com): cambiar los registros A de
+   `servicios.vogelconsultoria.com.ar`, `api.servicios.vogelconsultoria.com.ar` y
+   `coolify.vogelconsultoria.com.ar` a **148.227.73.55**. `servicios-test` y
+   `www.servicios-test` hoy no tienen A: hay que crearlos apuntando a la misma IP.
+3. Con los dos puntos arreglados, la web vuelve sola: el certificado de producción vence
+   el 29/12/2026, así que no hay que reemitir nada.
+
+### Qué se hizo mientras tanto
+
+- La app se verificó **por dentro** del server (proxy local): el bundle de producción tiene
+  el código nuevo y la API expone la ruta nueva.
+- Staging volvió a `main` (estaba apuntando a la rama del PR) y se redesplegó.
+- La API de Coolify se puede seguir manejando **por la LAN**: `curl --resolve
+  coolify.vogelconsultoria.com.ar:443:192.168.0.189`. Es el camino para seguir operando
+  mientras el DNS está roto.
+
+### Un detalle del repo que conviene saber
+
+Otra sesión trabaja **en el mismo clon** y cambia de rama: durante esta sesión el árbol de
+trabajo pasó a `docs/presupuesto-electrotecniref` dos veces, y con ello desaparecieron
+archivos ya commiteados (parecía que se habían perdido). Para no pelear el árbol de
+trabajo, esta parte de la bitácora se commiteó desde un worktree aparte
+(`git worktree add <ruta> -b <rama> origin/main`).

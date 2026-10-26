@@ -47,14 +47,24 @@ export function revealIn(scope: HTMLElement): gsap.core.Timeline | null {
   for (const el of q("[data-count]") as HTMLElement[]) {
     const hasta = Number(el.dataset.count);
     if (!Number.isFinite(hasta)) continue;
+    const decimales = Number(el.dataset.decimals ?? 0);
+    const prefijo = el.dataset.prefix ?? "";
+    // El texto final se arma desde el dato, no se lee del DOM: la cuenta anterior puede
+    // haber dejado el numero a medio contar (o en cero) y leerlo de ahi congelaria ese
+    // valor roto en pantalla.
+    const final = formatear(hasta, decimales, prefijo);
     // Si ya conto antes (por ejemplo al cambiar de mes) arranca desde el valor anterior.
     const desde = Number(el.dataset.from ?? 0) || 0;
     el.dataset.from = String(hasta);
-    if (desde === hasta) continue;
-    const decimales = Number(el.dataset.decimals ?? 0);
-    const prefijo = el.dataset.prefix ?? "";
-    const final = el.textContent;
+    if (desde === hasta) {
+      el.textContent = final;
+      continue;
+    }
     const contador = { v: desde };
+    // La cuenta sigue al dato: si el valor cambio (se cargo otro mes), esta cuenta ya no
+    // vale y deja de escribir. Sin esto, una cuenta vieja puede pisar el numero nuevo y
+    // dejarlo en cero.
+    const vigente = () => Number(el.dataset.count) === hasta;
     tl.to(
       contador,
       {
@@ -62,11 +72,11 @@ export function revealIn(scope: HTMLElement): gsap.core.Timeline | null {
         duration: 0.9,
         ease: "power2.out",
         onUpdate: () => {
-          el.textContent = formatear(contador.v, decimales, prefijo);
+          if (vigente()) el.textContent = formatear(contador.v, decimales, prefijo);
         },
-        // Se deja exactamente el texto que pinto Vue, no una version recalculada.
+        // Se deja exactamente el valor del dato, no una version recalculada.
         onComplete: () => {
-          el.textContent = final;
+          if (vigente()) el.textContent = final;
         },
       },
       0,

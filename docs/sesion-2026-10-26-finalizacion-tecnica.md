@@ -15,7 +15,9 @@ y no está eso para liquidar"*.
 - Aviso en la ficha de la orden: *"Sin finalización técnica esta orden no entra al cierre a
   marcas"*.
 - **El cierre ahora ve el costo de las OTs cargadas en la app**: antes las leía como $0.
-- Backend **376 tests en verde** (12 nuevos), frontend **104 tests en verde** (4 nuevos).
+- **El total del cierre no se queda en $ 0,00** al cambiar de mes, y no muestra el mes
+  equivocado.
+- Backend **376 tests en verde** (12 nuevos), frontend **106 tests en verde** (6 nuevos).
 
 ---
 
@@ -97,7 +99,9 @@ que manda es el área. No se cambió: la copia se sincroniza sola cuando cambia 
 | Modal con fecha y observación | `frontend/src/views/WorkOrdersView.vue` |
 | Hora de empresa → UTC | `frontend/src/views/WorkOrdersView.vue` (`companyLocalToUtc`) |
 | Rótulo del evento en el historial | `TECHNICAL_COMPLETION` → "Finalización técnica" |
-| Tests | `frontend/src/__tests__/finalizacion-tecnica.test.ts` (4 tests) |
+| El contador del cierre sigue al dato | `frontend/src/lib/motion.ts` |
+| La carga del cierre ignora respuestas viejas | `frontend/src/views/CierreMarcasView.vue` |
+| Tests | `frontend/src/__tests__/finalizacion-tecnica.test.ts` (4) y `motion.test.ts` (2 nuevos) |
 
 ---
 
@@ -173,7 +177,44 @@ importada trae `cost_total` y no llega a este camino, y una OT hecha en la app n
 partes del legacy. Y `tiene_costo_cargado()` —la pregunta que hace la regla al entregar—
 ahora usa **el mismo servicio**, para que la regla y el cierre no puedan discrepar.
 
-### 4.4 `datetime.utcnow()` está deprecado
+### 4.4 El total del cierre se quedaba en $ 0,00 al cambiar de mes
+
+**Síntoma:** al abrir el cierre de octubre, la tabla mostraba los importes por empresa
+(DREAN 136.400,84, BGH 119.834,72…) pero el encabezado decía **"Total a liquidar $ 0,00"**,
+y en los tres casilleros de garantía también $ 0,00. Al recargar y volver a cambiar de mes,
+ya salía bien: era intermitente.
+
+**Causa:** el número grande no lo pinta Vue, lo pinta una cuenta-up con GSAP
+(`data-count`). Cuando se cambia de mes, la cuenta anterior se corta
+(`ctx.revert()` en `useReveal`) y **GSAP devuelve el contador a su valor inicial (0) y
+dispara el `onUpdate`**: el elemento queda escrito con "$ 0,00". Después, la cuenta nueva
+arranca "desde el valor anterior" y su `onComplete` ponía el texto que había leído del DOM
+— que ya era el "$ 0,00" corrupto. O sea: el valor roto se congelaba.
+
+Además, la cuenta vieja seguía escribiendo después de que Vue pintara el dato nuevo, así
+que podía pisar el número correcto.
+
+**Cómo se diagnosticó:** con dos tests en `motion.test.ts` que reproducen el caso exacto
+(el corte de la cuenta anterior y el cambio de dato durante la cuenta). Los dos fallaban
+con "$ 0,0" antes del arreglo.
+
+**Cómo se arregló:**
+- El texto final se arma **desde el dato** (`data-count`, `data-decimals`, `data-prefix`) y
+  no desde el DOM: leer el DOM congelaba el valor roto.
+- La cuenta **sigue al dato**: si `data-count` cambió, esa cuenta deja de escribir.
+
+### 4.5 El cierre podía mostrar el mes equivocado
+
+**Síntoma:** al cambiar de mes rápido, la pantalla mostraba los números del mes anterior.
+
+**Causa:** `cargar()` no distingue respuestas: si la petición de septiembre tarda más que
+la de octubre, la que responde último gana, y el cierre queda mostrando septiembre.
+
+**Cómo se arregló:** cada carga toma un número y solo la última en pedir puede escribir el
+resultado. Se aplicó lo mismo en el listado de órdenes (`WorkOrdersView.load()`), que tenía
+el mismo patrón.
+
+### 4.6 `datetime.utcnow()` está deprecado
 
 **Síntoma:** `DeprecationWarning` en la suite del backend.
 
@@ -202,7 +243,8 @@ sola**: no hay que hacer nada.
 ## 6. Verificación
 
 - Backend: `pytest` → **376 passed** (12 nuevos en `test_finalizacion_tecnica.py`).
-- Frontend: `vitest run` → **104 passed** (4 nuevos en `finalizacion-tecnica.test.ts`).
+- Frontend: `vitest run` → **106 passed** (4 nuevos en `finalizacion-tecnica.test.ts`,
+  2 nuevos en `motion.test.ts`).
 - Frontend: `vite build` OK.
 - La integración con el cierre está probada de punta a punta:
   `test_la_orden_entregada_entra_al_cierre_a_marcas` (entrega → entra sola) y

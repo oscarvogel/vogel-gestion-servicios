@@ -192,7 +192,11 @@ interface EquipmentCategory{id:number;name:string;active:boolean}
 const showQuickEquipment=ref(false),categoryQuery=ref(""),categories=ref<EquipmentCategory[]>([]),categoryOpen=ref(false);
 const quickEquipment=ref({category_id:0,brand:"",model:"",serial_number:"",description:"",notes:""});
 async function loadStatuses(){try{statuses.value=await apiGet<OtStatus[]>("/work-orders/statuses")}catch(_){statuses.value=[]}}
-async function load(){try{const r=await apiGet<{items:Order[];total:number;page:number;page_size:number}>("/work-orders",{params:{search:search.value||undefined,status_id:statusIds.value.length?statusIds.value:undefined,customer:customerFilter.value||undefined,date_from:dateFrom.value||undefined,date_to:dateTo.value||undefined,open_only:openOnly.value?true:undefined,page:page.value,page_size:pageSize.value}});orders.value=Array.isArray(r?.items)?r.items:[];total.value=typeof r?.total==="number"?r.total:0;if(page.value>totalPages.value){page.value=totalPages.value;return load()}}catch(e){toast.push(getApiErrorMessage(e,"No se pudieron cargar las órdenes"),"error")}}
+// Numero de la ultima peticion del listado: si llegan dos respuestas (por ejemplo, la
+// de la pagina anterior y la de la que se pidio despues), gana la ultima que se pidio,
+// no la que responde ultimo. Sin esto, el listado puede mostrar una pagina vieja.
+let peticionListado=0;
+async function load(){const numero=++peticionListado;try{const r=await apiGet<{items:Order[];total:number;page:number;page_size:number}>("/work-orders",{params:{search:search.value||undefined,status_id:statusIds.value.length?statusIds.value:undefined,customer:customerFilter.value||undefined,date_from:dateFrom.value||undefined,date_to:dateTo.value||undefined,open_only:openOnly.value?true:undefined,page:page.value,page_size:pageSize.value}});if(numero!==peticionListado)return;orders.value=Array.isArray(r?.items)?r.items:[];total.value=typeof r?.total==="number"?r.total:0;if(page.value>totalPages.value){page.value=totalPages.value;return load()}}catch(e){if(numero!==peticionListado)return;toast.push(getApiErrorMessage(e,"No se pudieron cargar las órdenes"),"error")}}
 function filtersChanged(){page.value=1;load()}
 function applyFilters(){page.value=1;load()}
 function clearFilters(){statusIds.value=[];customerFilter.value="";dateFrom.value="";dateTo.value="";page.value=1;load()}

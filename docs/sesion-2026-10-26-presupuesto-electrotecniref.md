@@ -22,7 +22,7 @@ sobre el dump y se encontró un error de dígito (§3.3).
 | Ajuste de precio | **Trimestral**, por IPC (INDEC) |
 | Envío de avisos por WhatsApp | **Incluido**, sin costo por mensaje |
 | Asistente con IA | **Incluido**, con límites de consumo a definir |
-| Desarrollo a medida | Cotizado por escrito: **es el diferencial** |
+| Desarrollo a medida | **Incluido en el abono**: con el abono vamos implementando sus necesidades |
 | Total del primer año (12 meses) | ARS 3.800.000 |
 | Recurrente anual, del año 2 en adelante | ARS 3.600.000 |
 
@@ -62,7 +62,7 @@ Tenía razón en los tres puntos:
 
 | Error de encuadre | Por qué estaba mal | Cómo quedó |
 |---|---|---|
-| La fila "Adicionales: **Sólo desarrollo a medida**" | Presentaba el desarrollo a medida —que es justamente lo que hace que el sistema sea de este taller— como una limpieza, y el abono como si incluyera todo lo que importa. | El desarrollo a medida pasó a ser **la sección 7, "El plus: desarrollo a medida"**, con su peso: trabajo real, cotización por escrito, y la ventaja de que la plataforma ya nació de este taller. |
+| La fila "Adicionales: **Sólo desarrollo a medida**" | Presentaba el desarrollo a medida —que es justamente lo que hace que el sistema sea de este taller— como una limpieza, y el abono como si incluyera todo lo que importa. | El desarrollo a medida pasó a tener **su propia sección**, con su peso: es la parte que adapta el sistema a la operatoria del cliente y el motivo por el que el abono se sostiene. La revisión 7 le sacó el "cotizado por escrito": va incluido en el abono. |
 | **WhatsApp como plus opcional con precio a definir** | Daba la impresión de que el envío de avisos no estaba en lo que el cliente paga. | El envío por WhatsApp **está incluido**, sin costo por mensaje, con la aclaración de que si el taller quiere su propia línea, pone su propio número y Meta le factura a él. |
 | **La IA fuera del alcance** | "Dejarla de lado" era no fijar **el número** del límite, no sacarla del alcance. | La IA **está incluida**, con un límite mensual de consumo por empresa que se define en la puesta en marcha. |
 
@@ -72,6 +72,96 @@ irreversible en la cabeza del cliente: si el documento dice que la IA no está,
 el cliente la va a pedir como extra. Acá no se borró nada en silencio: la
 revisión 4 queda escrita, con el error y la corrección.
 ### Revisión 6 (27/10/2026) — carátula con el logo, y dos tablas que salían vacías
+
+El usuario pidió una carátula para la presentación con el logo de Vogel. Al
+armarla aparecieron **dos tablas del documento que nunca se habían renderizado
+desde la primera versión**: la de metadatos (Fecha / Vigencia / Preparada
+para / Moneda) y el bloque de firmas.
+
+**La causa era el helper `table()` del generador**, que detectaba las celdas
+por duck-typing (`c.children`), y por los dos lados fallaba:
+
+| Cómo se pasaba la celda | Qué hacía docx-js | Cómo salía en el documento |
+|---|---|---|
+| Objeto suelto `{children: [...], w, fill, ...}` | Descartaba el objeto: la fila no se serializaba | **Tabla sin filas** |
+| Instancia real de `new TableCell({...})` | `TableCell` no expone `.children`, así que el chequeo fallaba y la celda pasaba por el ramal de texto | **El texto literal "[object Object]"** |
+
+La corrección fue en el helper: `c instanceof TableCell ? c : ...` primero.
+
+**Lo importante: el validador de esquema no lo detectaba.** Una tabla sin
+filas es un `.docx` perfectamente válido, así que `validate.py` daba PASSED
+igual. Por eso el verificador ahora **cuenta las filas de cada tabla** y
+marca `TABLA VACIA`; y por eso conviene mirar el texto extraído, no el
+resultado del validador.
+
+#### El logo
+
+El PNG que pasó el usuario tiene la **"C" en blanco (#F0F0F0) sobre fondo
+transparente**: sobre una hoja blanca es invisible (el 75% de los píxeles son
+transparentes y la C es del color del papel). Se decodificó el PNG a mano
+—sin PIL en el entorno— para confirmarlo y se generó una variante con la C en
+el azul del documento (**#1F3864**), dejando intactos el azul del "V"
+(#0060C0) y los puntos ámbar (#E0A000).
+
+| Archivo | Qué es |
+|---|---|
+| `docs/assets/vogel-logo-original.png` | El original, sin tocar |
+| `docs/assets/vogel-logo.png` | El de la carátula, con la C en azul del documento |
+| `scripts` | `preparar_logo.py` (en `%TEMP%\docxbuild`), con la regla de recoloreado |
+
+> **Si el cliente exige el asset tal cual**, la alternativa es poner el logo
+> original sobre un panel azul oscuro: la C blanca se ve, pero el "V" azul
+> queda con poco contraste. La versión con la C azul es la que mejor lee en
+> impresión y pantalla.
+
+#### La carátula
+
+Logo centrado, "VOGEL CONSULTORÍA", la línea de la plataforma, "Propuesta
+económica", el nombre del producto y el cliente, la tabla de metadatos y la
+línea "Documento confidencial". La carátula **no lleva pie de página**
+(`titlePage` + primer pie vacío); el resto del documento conserva el membrete
+como encabezado y la numeración.
+
+La fecha del documento pasó a **27 de octubre de 2026**: es la de emisión.
+
+---
+
+### Revisión 7 (27/10/2026) — el desarrollo a medida va incluido en el abono
+
+El usuario, sobre la sección 7: *"Cómo se cotiza: por escrito y antes de
+empezar... sácalo, la idea es que con el abono vamos a ir implementando sus
+necesidades"*.
+
+O sea: **no hay cotización por pieza**. El desarrollo para el taller sale del
+abono. Lo que cambió en el documento:
+
+| Antes | Ahora |
+|---|---|
+| Sección "7. **El plus**: desarrollo a medida" | Sección "7. **El diferencial**: el desarrollo a medida" — la palabra "plus" implicaba un extra facturado |
+| Fila "**Cómo se cotiza**: por escrito y antes de empezar: alcance, plazo y precio de cada pedido. Nunca una sorpresa en la factura." | Fila "**Cómo se trabaja**: definimos el alcance de cada pedido, lo hacemos y lo entregamos. Sin cotización por pieza y sin factura sorpresa: entra en el abono." |
+| Fila "Qué NO se cobra: ... El desarrollo a medida es trabajo puntual, y se cotiza por escrito." | "Qué NO se cobra: ningún cargo por uso de la plataforma... **y ningún cargo por el desarrollo que el taller necesite**." |
+| Resumen: "Desarrollo a medida — Cotizado por escrito: es el diferencial" | "Desarrollo a medida — **Incluido: con el abono vamos implementando sus necesidades**" |
+| Portada (Moneda): "El desarrollo a medida se cotiza aparte." | "El desarrollo a medida **va incluido en el abono**." |
+
+También se ajustaron el resumen de la sección 1 y la introduction de la
+sección 3, para que no dijeran "lo único que se cotiza aparte".
+
+**Por qué es mejor así.** Un abono con desarrollo incluido se lee como un
+servicio, no como una licencia: el taller no pide cotización cada vez que
+necesita algo, y el valor que recibe es el sistema adaptado a su operatoria.
+Además deja de existir la conversación de "cuánto sale esto", que es la que
+mata las relaciones largas.
+
+**Lo que esto expone (anotado acá, no en el documento).** El documento ya no
+promete ningún cobro por desarrollo, así que el trabajo de implementación es
+absorbido por el abono. El único límite que el propio texto pone es
+"definimos el alcance de cada pedido": es una **priorización**, no un tope de
+horas. Si el volumen de pedidos del taller crece, la vía natural es el ajuste
+trimestral por IPC o un acotamiento del alcance por escrito. Queda como
+pendiente dejarlo conversado antes de firmar (§7).
+
+---
+
 
 El usuario pidió una carátula para la presentación con el logo de Vogel. Al
 armarla aparecieron **dos tablas del documento que nunca se habían renderizado
@@ -387,7 +477,7 @@ Lo que cambia con este precio, contra lo que se había armado para 30.000:
 | Excedentes | Cobro por usuario, por OT y por mensaje | **Ninguno** | Pedido del usuario: "sin costo excedente por usuario u orden". |
 | IA | Cuota de USD 10 dentro del abono | **Incluida, con el límite a definir** | Revisado en la revisión 5: la IA no sale del alcance, lo que falta es el número del tope de consumo, que se define en la puesta en marcha. |
 | WhatsApp | A consumo real, sin cupo | **Incluido, sin costo por mensaje** | Revisado en la revisión 5. El costo de los mensajes lo asume el abono (§4.1): si el taller quiere su propia línea, pone su propio número y Meta le factura a él. |
-| Desarrollo a medida | Sin destacar | **Es el diferencial (sección 7)** | Revisado en la revisión 5: presentarlo como "lo único que se cobra aparte" lo hacía parecer una nimidez, cuando es la parte que adapta el sistema a la operatoria del cliente. |
+| Desarrollo a medida | Sin destacar | **Es el diferencial, y va incluido (sección 7)** | Revisado en la revisión 5 (dejar de presentarlo como "lo único que se cobra aparte") y en la revisión 7 (no se cotiza por pieza: sale del abono). |
 
 ### 3.4 Lo que hay que confirmar antes de enviar
 
@@ -605,6 +695,12 @@ todavía no tiene):
 **Decisiones comerciales que pueden seguir abiertas** (no bloquean el envío,
 pero conviene cerrarlas):
 
+- [ ] **Definir el límite del desarrollo que entra en el abono.** Desde la
+      revisión 7 el documento no cotiza el desarrollo por pieza: lo que el
+      taller necesita se implementa dentro del abono. El único límite del
+      texto es "definimos el alcance de cada pedido", que es priorización y
+      no un tope de horas. Conviene dejar escrito cómo se prioriza (cuántos
+      pedidos por trimestre, quién decide el orden) antes de firmar.
 - [ ] **El número del límite de consumo de la IA**, que el documento deja
       "a definir en la puesta en marcha". Referencia: el uso real es de 110 a
       440 turnos/mes (USD 0,36 a 1,45); un tope de USD 30 cubre 9.000 turnos.

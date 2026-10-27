@@ -71,6 +71,60 @@ Tenía razón en los tres puntos:
 irreversible en la cabeza del cliente: si el documento dice que la IA no está,
 el cliente la va a pedir como extra. Acá no se borró nada en silencio: la
 revisión 4 queda escrita, con el error y la corrección.
+### Revisión 6 (27/10/2026) — carátula con el logo, y dos tablas que salían vacías
+
+El usuario pidió una carátula para la presentación con el logo de Vogel. Al
+armarla aparecieron **dos tablas del documento que nunca se habían renderizado
+desde la primera versión**: la de metadatos (Fecha / Vigencia / Preparada
+para / Moneda) y el bloque de firmas.
+
+**La causa era el helper `table()` del generador**, que detectaba las celdas
+por duck-typing (`c.children`), y por los dos lados fallaba:
+
+| Cómo se pasaba la celda | Qué hacía docx-js | Cómo salía en el documento |
+|---|---|---|
+| Objeto suelto `{children: [...], w, fill, ...}` | Descartaba el objeto: la fila no se serializaba | **Tabla sin filas** |
+| Instancia real de `new TableCell({...})` | `TableCell` no expone `.children`, así que el chequeo fallaba y la celda pasaba por el ramal de texto | **El texto literal "[object Object]"** |
+
+La corrección fue en el helper: `c instanceof TableCell ? c : ...` primero.
+
+**Lo importante: el validador de esquema no lo detectaba.** Una tabla sin
+filas es un `.docx` perfectamente válido, así que `validate.py` daba PASSED
+igual. Por eso el verificador ahora **cuenta las filas de cada tabla** y
+marca `TABLA VACIA`; y por eso conviene mirar el texto extraído, no el
+resultado del validador.
+
+#### El logo
+
+El PNG que pasó el usuario tiene la **"C" en blanco (#F0F0F0) sobre fondo
+transparente**: sobre una hoja blanca es invisible (el 75% de los píxeles son
+transparentes y la C es del color del papel). Se decodificó el PNG a mano
+—sin PIL en el entorno— para confirmarlo y se generó una variante con la C en
+el azul del documento (**#1F3864**), dejando intactos el azul del "V"
+(#0060C0) y los puntos ámbar (#E0A000).
+
+| Archivo | Qué es |
+|---|---|
+| `docs/assets/vogel-logo-original.png` | El original, sin tocar |
+| `docs/assets/vogel-logo.png` | El de la carátula, con la C en azul del documento |
+| `scripts` | `preparar_logo.py` (en `%TEMP%\docxbuild`), con la regla de recoloreado |
+
+> **Si el cliente exige el asset tal cual**, la alternativa es poner el logo
+> original sobre un panel azul oscuro: la C blanca se ve, pero el "V" azul
+> queda con poco contraste. La versión con la C azul es la que mejor lee en
+> impresión y pantalla.
+
+#### La carátula
+
+Logo centrado, "VOGEL CONSULTORÍA", la línea de la plataforma, "Propuesta
+económica", el nombre del producto y el cliente, la tabla de metadatos y la
+línea "Documento confidencial". La carátula **no lleva pie de página**
+(`titlePage` + primer pie vacío); el resto del documento conserva el membrete
+como encabezado y la numeración.
+
+La fecha del documento pasó a **27 de octubre de 2026**: es la de emisión.
+
+---
 
 ---
 
@@ -640,7 +694,10 @@ y se compara contra el junio 2025 de referencia.
 | `cifras_finales.py` | Serie mensual 2026 de liquidación y facturación, con el mes incompleto marcado. Es el que produjo §3.3. |
 | `recalculo_2026.py` | Lo mismo, con la validación contra junio 2025 y las dos ventanas comparadas. |
 | `tabla_3_1.py` | Los porcentajes de la tabla de §3.1, calculados y no a ojo. |
-| `verificar.py` | Verifica el `.docx` generado: texto real, anchos de tabla, cifras clave, ausencia de precios viejos y consistencia aritmética. |
+| `analizar_logo.py` | Decodifica el PNG del logo y analiza alfa y colores (no hay PIL en el entorno). |
+| `preparar_logo.py` | Genera `docs/assets/vogel-logo.png` con la "C" en el azul del documento. |
+| `reemplazar_bloque.py` | Reemplaza un bloque de líneas de un archivo por otro, por número de línea. |
+| `verificar.py` | Verifica el `.docx` generado: texto real, imágenes incrustadas, carátula, anchos de tabla, **cantidad de filas de cada tabla**, cifras clave, ausencia de precios viejos, residuos (incluido markdown literal) y consistencia aritmética. |
 | `propuesta.js` | El generador del documento (docx-js). |
 
 > `verificar.py` es el control que evita mandar un documento con un número
@@ -648,3 +705,8 @@ y se compara contra el junio 2025 de referencia.
 > las cifras del número final, que **no** aparezcan las de las versiones
 > anteriores, y recalcula las sumas que el documento afirma (500.000 + 11 ×
 > 300.000 = 3.800.000, etc.).
+>
+> Y el control que evitó mandar una tabla vacía: **cuenta las filas de cada
+> tabla**. El validador de esquema no sirve para eso, porque una tabla sin
+> filas es un `.docx` válido y `validate.py` da PASSED igual. Por eso el
+> verificador mira el texto extraído y no sólo el resultado del validador.

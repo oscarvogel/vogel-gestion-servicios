@@ -4,8 +4,20 @@ Objetivo de la sesión: armar la propuesta económica de un **abono mensual** pa
 Electrotecniref y dejar por escrito de dónde sale cada número.
 
 **Resultado:**
-- `docs/propuesta-abono-mensual-electrotecniref.docx` — la propuesta lista para enviar.
+- `docs/propuesta-abono-mensual-electrotecniref.docx` — la propuesta **enviada**.
+- `docs/mail-propuesta-electrotecniref.md` — el mail con que se envió, con las notas internas.
 - Este documento — la bitácora interna: razonamiento, fuentes y límites.
+
+**Estado: ENVIADA el 27/10/2026.** Mandada por correo a
+`admin@electrotecniref.com.ar`, con el `.docx` del PR #130 (versión del
+27/10/2026, vigencia hasta el 30/11/2026). Quedan tres definiciones con el
+cliente —lista de precios del catálogo de repuestos, límite de consumo de la IA
+y línea de WhatsApp— y el resto del trabajo arranca con la aprobación.
+
+> **Una cosa que salió comprometida en el documento:** la **bonificación
+> anual de 2 meses sin cargo** (ARS 3.000.000 por año) estaba como propuesta
+> mía, sin confirmar, y se envió con el mail. Si hay que sacarla, se saca en
+> la primera versión corregida y se avisa.
 
 **Revisión 3 (26/10/2026, cierre del día):** se aplicó el número final del
 usuario (ARS 500.000 en el mes 1 + ARS 300.000/mes desde el mes 2) a la
